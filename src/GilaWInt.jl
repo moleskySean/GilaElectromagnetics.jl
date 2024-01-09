@@ -36,7 +36,7 @@ evaluation points considered.
 =#
 module GilaWInt
 using Base.Threads, LinearAlgebra, FastGaussQuadrature, Cubature, ThreadsX, 
-GilaStruc
+GilaMem
 const π = 3.1415926535897932384626433832795028841971693993751058209749445923
 #=
 Returns the scalar (Helmholtz) Green function. The separation dstMag is assumed 
@@ -76,7 +76,7 @@ positions. The cmpInf parameter determines the level of precision used for
 integral calculations. Namely, cmpInf.glOrd is used internally in all 
 weakly singular integral computations. 
 =#
-function wekS(scl::NTuple{3,<:AbstractFloat}, glQud1::Array{<:AbstractFloat,2}, 
+function wekS(scl::NTuple{3,<:Number}, glQud1::Array{<:AbstractFloat,2}, 
 	cmpInf::GlaKerOpt)::Array{ComplexF64,1}
 
 	grdPts = Array{Float64}(undef, 3, 18)
@@ -84,16 +84,16 @@ function wekS(scl::NTuple{3,<:AbstractFloat}, glQud1::Array{<:AbstractFloat,2},
 	# dir = 1 -> xy face (z-nrm)   dir = 2 -> xz face (y-nrm) 
 	# dir = 3 -> yz face (x-nrm)
 	return [wekSDir(3, scl, grdPts, glQud1, cmpInf) +
-	rSrfSlf(scl[2], scl[3], cmpInf);
+	rSrfSlf(Float64(scl[2]), Float64(scl[3]), cmpInf);
 	wekSDir(2, scl, grdPts, glQud1, cmpInf) +
-	rSrfSlf(scl[1], scl[3], cmpInf); 
+	rSrfSlf(Float64(scl[1]), Float64(scl[3]), cmpInf); 
 	wekSDir(1, scl, grdPts, glQud1, cmpInf) + 
-	rSrfSlf(scl[1], scl[2], cmpInf)]
+	rSrfSlf(Float64(scl[1]), Float64(scl[2]), cmpInf)]
 end
 #=
 Weak self-integral of a particular face.
 =#
-function wekSDir(dir::Integer, scl::NTuple{3,<:AbstractFloat}, 
+function wekSDir(dir::Integer, scl::NTuple{3,<:Number}, 
 	grdPts::Array{<:AbstractFloat,2}, glQud1::Array{<:AbstractFloat,2}, 
 	cmpInf::GlaKerOpt)::ComplexF64
 
@@ -124,7 +124,7 @@ end
 Head function for integration over edge adjacent square panels. See wekS for 
 input parameter descriptions. 
 =#
-function wekE(scl::NTuple{3,<:AbstractFloat}, glQud1::Array{<:AbstractFloat,2}, 
+function wekE(scl::NTuple{3,<:Number}, glQud1::Array{<:AbstractFloat,2}, 
 	cmpInf::GlaKerOpt)::Array{ComplexF64,1}
 	
 	grdPts = Array{Float64,2}(undef, 3, 18)
@@ -133,22 +133,28 @@ function wekE(scl::NTuple{3,<:AbstractFloat}, glQud1::Array{<:AbstractFloat,2},
 	# lower case letters reference the normal directions of the rectangles
 	# upper case letter reference the increasing axis direction when necessary 
 	# first set
-	xxY = vals[1] + rSrfEdgFlt(scl[3], scl[2], cmpInf)
-	xxZ = vals[3] + rSrfEdgFlt(scl[2], scl[3], cmpInf)
-	xyA = vals[2] + rSrfEdgCrn(scl[3], scl[2], scl[1], cmpInf)
-	xzA = vals[4] + rSrfEdgCrn(scl[2], scl[3], scl[1], cmpInf)
+	xxY = vals[1] + rSrfEdgFlt(Float64(scl[3]), Float64(scl[2]), cmpInf)
+	xxZ = vals[3] + rSrfEdgFlt(Float64(scl[2]), Float64(scl[3]), cmpInf)
+	xyA = vals[2] + rSrfEdgCrn(Float64(scl[3]), Float64(scl[2]), 
+		Float64(scl[1]), cmpInf)
+	xzA = vals[4] + rSrfEdgCrn(Float64(scl[2]), Float64(scl[3]), 
+		Float64(scl[1]), cmpInf)
 	vals = wekEDir(2, scl, grdPts, glQud1, cmpInf)
 	# second set
-	yyZ = vals[1] + rSrfEdgFlt(scl[1], scl[3], cmpInf)
-	yyX = vals[3] + rSrfEdgFlt(scl[3], scl[1], cmpInf)
-	yzA = vals[2] + rSrfEdgCrn(scl[1], scl[3], scl[2], cmpInf)
-	xyB = vals[4] + rSrfEdgCrn(scl[3], scl[2], scl[1], cmpInf)
+	yyZ = vals[1] + rSrfEdgFlt(Float64(scl[1]), Float64(scl[3]), cmpInf)
+	yyX = vals[3] + rSrfEdgFlt(Float64(scl[3]), Float64(scl[1]), cmpInf)
+	yzA = vals[2] + rSrfEdgCrn(Float64(scl[1]), Float64(scl[3]), 
+		Float64(scl[2]), cmpInf)
+	xyB = vals[4] + rSrfEdgCrn(Float64(scl[3]), Float64(scl[2]), 
+		Float64(scl[1]), cmpInf)
 	vals = wekEDir(1, scl, grdPts, glQud1, cmpInf)
 	# third set
-	zzX = vals[1] + rSrfEdgFlt(scl[2], scl[1], cmpInf)
-	zzY = vals[3] + rSrfEdgFlt(scl[1], scl[2], cmpInf)
-	xzB = vals[2] + rSrfEdgCrn(scl[2], scl[3], scl[1], cmpInf)
-	yzB = vals[4] + rSrfEdgCrn(scl[1], scl[3], scl[2], cmpInf)
+	zzX = vals[1] + rSrfEdgFlt(Float64(scl[2]), Float64(scl[1]), cmpInf)
+	zzY = vals[3] + rSrfEdgFlt(Float64(scl[1]), Float64(scl[2]), cmpInf)
+	xzB = vals[2] + rSrfEdgCrn(Float64(scl[2]), Float64(scl[3]), 
+		Float64(scl[1]), cmpInf)
+	yzB = vals[4] + rSrfEdgCrn(Float64(scl[1]), Float64(scl[3]), 
+		Float64(scl[2]), cmpInf)
 	return [xxY; xxZ; yyX; yyZ; zzX; zzY; (xyA + xyB) / 2.0; (xzA + xzB) / 2.0;
 	(yzA + yzB) / 2.0]
 end
@@ -163,7 +169,7 @@ Weak edge integrals for a given face as specified by dir.
 	dir = 3 -> x face -> [z-edge (++ gridY): xx(y), xy(y); 
 						  y-edge (++ gridZ) xx(z) xz(z)]
 =#
-function wekEDir(dir::Integer, scl::NTuple{3,<:AbstractFloat}, 
+function wekEDir(dir::Integer, scl::NTuple{3,<:Number}, 
 	grdPts::Array{<:AbstractFloat,2}, glQud1::Array{<:AbstractFloat,2}, 
 	cmpInf::GlaKerOpt)::Array{ComplexF64,1}
 
@@ -205,7 +211,7 @@ end
 Head function returning integral values for the Ego function over vertex 
 adjacent square panels. See wekS for input parameter descriptions. 
 =#
-function wekV(scl::NTuple{3,<:AbstractFloat}, glQud1::Array{<:AbstractFloat,2}, 
+function wekV(scl::NTuple{3,<:Number}, glQud1::Array{<:AbstractFloat,2}, 
 	cmpInf::GlaKerOpt)::Array{ComplexF64,1}
 
 	grdPts = Array{Float64,2}(undef,3,18)
@@ -233,7 +239,7 @@ Weak edge integrals for a given face as specified by dir.
 	dir = 2 -> y face -> [yy yz yx]
 	dir = 3 -> x face -> [xx xy xz]
 =#
-function wekVDir(dir::Integer, scl::NTuple{3,<:AbstractFloat}, 
+function wekVDir(dir::Integer, scl::NTuple{3,<:Number}, 
 	grdPts::Array{<:AbstractFloat,2}, glQud1::Array{<:AbstractFloat,2}, 
 	cmpInf::GlaKerOpt)::Array{ComplexF64,1}
 
@@ -279,8 +285,8 @@ end
 #=
 Determine scaling factors for surface integrals.
 =#
-function srfScl(sclT::NTuple{3,<:AbstractFloat}, 
-	sclS::NTuple{3,<:AbstractFloat})::Array{Float64,1}
+function srfScl(sclT::NTuple{3,<:Number}, 
+	sclS::NTuple{3,<:Number})::Array{Float64,1}
 
 	srcScl = 1.0
 	trgScl = 1.0
@@ -297,7 +303,7 @@ function srfScl(sclT::NTuple{3,<:AbstractFloat},
 			elseif trgFId == 3 || trgFId == 4 	trgScl = sclT[2]
 			else  								trgScl = sclT[3]
 			end			
-			srfScl[(srcFId - 1) * 6 + trgFId] = srcScl / trgScl
+			srfScl[(srcFId - 1) * 6 + trgFId] = Float64(srcScl / trgScl)
 		end
 	end
 	return srfScl
@@ -308,7 +314,7 @@ L and U reference relative positions on the corresponding normal axis.
 Points are number in a counter-clockwise convention when viewing the 
 face from the exterior of the cube. 
 =#
-function cubFac(size::NTuple{3,<:AbstractFloat})::Array{Float64,3}
+function cubFac(size::NTuple{3,<:Number})::Array{Float64,3}
 	
 	yzL = hcat([-size[1], -size[2], -size[3]], [-size[1], size[2], -size[3]], 
 		[-size[1], size[2], size[3]], [-size[1], -size[2], size[3]]) ./ 2
@@ -349,24 +355,24 @@ end
 Create grid point system for calculation for calculation of weakly singular 
 integrals. 
 =#
-function wekGrdPts!(dir::Integer, scl::NTuple{3,<:AbstractFloat}, 
+function wekGrdPts!(dir::Integer, scl::NTuple{3,<:Number}, 
 	grdPts::Array{<:AbstractFloat,2})::Nothing
 
 	if dir == 1
 		# standard orientation
-		gridX = scl[1] 
-		gridY = scl[2]
-		gridZ = scl[3]
+		gridX = Float64(scl[1])
+		gridY = Float64(scl[2])
+		gridZ = Float64(scl[3])
 	elseif dir == 2
 		# single coordinate rotation
-		gridX = scl[3] 
-		gridY = scl[1]
-		gridZ = scl[2]
+		gridX = Float64(scl[3])
+		gridY = Float64(scl[1])
+		gridZ = Float64(scl[2])
 	elseif dir == 3
 		# double coordinate rotation
-		gridX = scl[2] 
-		gridY = scl[3]
-		gridZ = scl[1]
+		gridX = Float64(scl[2]) 
+		gridY = Float64(scl[3])
+		gridZ = Float64(scl[1])
 	else
 		error("Invalid direction selection.")
 	end

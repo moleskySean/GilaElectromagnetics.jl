@@ -1,3 +1,6 @@
+#= 
+head branching function
+=#
 function egoBrn!(egoMem::GlaOprMem, lvl::Integer, bId::Integer, 
 	actVec::AbstractArray{T,4})::Nothing where T<:Union{ComplexF64,ComplexF32}
 
@@ -25,7 +28,11 @@ function egoBrn!(egoMem::GlaOprMem, lvl::Integer, bId::Integer,
 		# !asynchronous GPU causes mysterious errors + minimal speed up!
 		if egoMem.cmpInf.dev == true
 				# origin branch
-				egoBrn!(egoMem, lvl + 1, bId, actVec)		
+				egoBrn!(egoMem, lvl + 1, bId, actVec)	
+				# !wait for origin branch to return, functionality choice!
+				if lvl < length(egoMem.dimInfC)	- 1
+					CUDA.synchronize(CUDA.stream())	
+				end
 				# phase modified branch
 				egoBrn!(egoMem, lvl + 1, 
 					nxtBrnId(length(egoMem.dimInfC), lvl, bId), prgVec)
@@ -53,7 +60,7 @@ function egoBrn!(egoMem::GlaOprMem, lvl::Integer, bId::Integer,
 			copyto!(vecHld, actVec)
 		end
 		# multiply by Toeplitz vector 
-		mulBrn!(egoMem.dimInfD, actVec, vecHld, egoMem.egoFur[bId + 1], 
+		mulBrn!(egoMem.dimInfC, bId, actVec, vecHld, egoMem.egoFur[bId + 1], 
 			egoMem.cmpInf)
 	end
 	# perform reverse Fourier transform
@@ -71,7 +78,9 @@ function egoBrn!(egoMem::GlaOprMem, lvl::Integer, bId::Integer,
 	end
 	return nothing
 end
-# split a branch so that even and odd Fourier coefficients are independent
+#=
+split a branch so that even and odd Fourier coefficients are independent
+=#
 function sptBrn!(dimInf::AbstractVector{<:Integer}, 
 	prgVec::AbstractArray{T,4}, phzDir::Integer, phzVec::AbstractVector{T}, 
 	actVec::AbstractArray{T,4}, 
@@ -84,12 +93,14 @@ function sptBrn!(dimInf::AbstractVector{<:Integer},
 		CUDA.synchronize(CUDA.stream())
 	else 
 		@inbounds @threads for itr ∈ CartesianIndices(actVec) 
-						prgVec[itr] = phzVec[itr[phzDir]] * actVec[itr]
+			prgVec[itr] = phzVec[itr[phzDir]] * actVec[itr]
 		end
 	end
 	return nothing
 end
-# device kernel for sptBrn!
+#=
+device kernel for sptBrn!
+=#
 function sptKer!(dimInf::AbstractVector{<:Integer}, 
 	prgVec::AbstractArray{T,4}, phzDir::Integer, phzVec::AbstractVector{T}, 
 	actVec::AbstractArray{T,4})::Nothing where T<:Union{ComplexF64,ComplexF32}
@@ -147,8 +158,10 @@ function sptKer!(dimInf::AbstractVector{<:Integer},
 	end
 	return nothing
 end
-# merge two branches, eliminating unused coefficients
-function mrgBrn!(dimInf::AbstractVector{<:Integer}, 
+#=
+merge two branches, eliminating unused coefficients
+=#
+function mrgBrn!(dimInf::AbstractVector{<:Integer},  
 	actVec::AbstractArray{T,4}, phzDir::Integer, phzVec::AbstractVector{T}, 
 	prgVec::AbstractArray{T,4}, 
 	cmpInf::GlaKerOpt=GlaKerOpt(false))::Nothing where 
@@ -164,13 +177,15 @@ function mrgBrn!(dimInf::AbstractVector{<:Integer},
 		CUDA.synchronize(CUDA.stream())
 	else
 		@inbounds @threads for itr ∈ CartesianIndices(actVec) 
-						actVec[itr] = (actVec[itr] + 
-				conj(phzVec[itr[phzDir]]) * prgVec[itr]) / 2
+						actVec[itr] = 0.5 * (actVec[itr] + 
+				conj(phzVec[itr[phzDir]]) * prgVec[itr])
 		end
 	end
 	return nothing
 end
-# device kernel for mrgBrn!
+#=
+device kernel for mrgBrn!
+=#
 function mrgKer!(dimInf::AbstractVector{<:Integer}, 
 	actVec::AbstractArray{T,4}, phzDir::Integer, phzVec::AbstractVector{T}, 
 	vecDir::Integer, prgVec::AbstractArray{T,4})::Nothing where 
@@ -189,60 +204,139 @@ function mrgKer!(dimInf::AbstractVector{<:Integer},
 		@inbounds for itrZ = idZ:strZ:dimInf[3], 
 			itrY = idY:strY:dimInf[2], itrX = idX:strX:dimInf[1] 
 			actVec[itrX,itrY,itrZ,vecDir] = 
-				(actVec[itrX,itrY,itrZ,vecDir] + conj(phzVec[itrX]) * 
-				prgVec[itrX,itrY,itrZ,vecDir]) / 2.0
+				0.5 * (actVec[itrX,itrY,itrZ,vecDir] + conj(phzVec[itrX]) * 
+				prgVec[itrX,itrY,itrZ,vecDir]) 
 		end
 	elseif phzDir == 2 
 		# y phase---phzVec[itrY]
 		@inbounds for itrZ = idZ:strZ:dimInf[3], 
 			itrY = idY:strY:dimInf[2], itrX = idX:strX:dimInf[1] 
 			actVec[itrX,itrY,itrZ,vecDir] = 
-				(actVec[itrX,itrY,itrZ,vecDir] + conj(phzVec[itrY]) * 
-				prgVec[itrX,itrY,itrZ,vecDir]) / 2.0
+				0.5 * (actVec[itrX,itrY,itrZ,vecDir] + conj(phzVec[itrY]) * 
+				prgVec[itrX,itrY,itrZ,vecDir]) 
 		end
 	else
 		# z phase---phzVec[itrZ]
 		@inbounds for itrZ = idZ:strZ:dimInf[3], 
 			itrY = idY:strY:dimInf[2], itrX = idX:strX:dimInf[1] 
 			actVec[itrX,itrY,itrZ,vecDir] = 
-				(actVec[itrX,itrY,itrZ,vecDir] + conj(phzVec[itrZ]) * 
-				prgVec[itrX,itrY,itrZ,vecDir]) / 2.0
+				0.5 * (actVec[itrX,itrY,itrZ,vecDir] + conj(phzVec[itrZ]) * 
+				prgVec[itrX,itrY,itrZ,vecDir])
 		end
 	end
 	return nothing
 end
-# execute Hadamard product step
-function mulBrn!(dimInf::AbstractVector{<:Integer}, 
+#=
+execute Hadamard product step
+=#
+function mulBrn!(dimInfC::AbstractVector{<:Integer}, bId::Integer,
 	actVec::AbstractArray{T,4}, vecHld::AbstractArray{T,4}, 
 	vecMod::AbstractArray{T,4}, 
 	cmpInf::GlaKerOpt=GlaKerOpt(false))::Nothing where 
 	T<:Union{ComplexF64,ComplexF32}
-	
+	# branch symmetry properties (even / odd coefficients + size info)
+	hlfRup = Integer.(ceil.(dimInfC ./ 2))
+	hlfRdw = Integer.(floor.(dimInfC ./ 2))
+	brnSym = [1 - mod(div(bId, ^(2, 3 - k)), 2) for k ∈ 1:3]
+	# declare memory 
 	if cmpInf.dev == true
-		@cuda threads=cmpInf.numTrd blocks=cmpInf.numBlk mulKer!(dimInf, 
-			actVec, vecHld, vecMod)
+		dirNumDev = CuArray{Int32}(undef, 3, 8)
+		dirSymDev = CuArray{Float32}(undef, 3, 8)
+	else
+		dirSymHst = Array{eltype(actVec)}(undef, 3, 8)
+	end
+	# division iteration references divisions of the Green function
+	@sync begin
+		for divItr ∈ 0:7
+			# one for reverse direction, zero for forward
+			revSwt = [mod(div(divItr, ^(2, k - 1)), 2) for k ∈ 1:3]
+			# one for forward direction, zero for reverse
+			fwdSwt = [1,1,1] .- revSwt
+			# negative one for reverse direction, one for forward
+			symSgn = [1,1,1] .- 2 .* revSwt
+			# range of active vector
+			frsActVec = [1,1,1] .+ (dimInfC .- 1) .* revSwt 	
+			lstActVec = hlfRup .* fwdSwt .+ hlfRdw .* revSwt .+ brnSym .+ revSwt 
+			# range of Green function
+			frsItrMod = [1,1,1] .+ brnSym .* revSwt
+			lstItrMod = hlfRup .* fwdSwt .+ hlfRdw .* revSwt .+ brnSym .* fwdSwt
+			# size of multiplication
+			mulNum = lstItrMod .- frsItrMod
+			# active device	
+			if cmpInf.dev == true
+				copyto!(view(dirNumDev, :, divItr + 1), mulNum)
+				copyto!(view(dirSymDev, :, divItr + 1), 
+					eltype(dirSymDev).([symSgn[1] * symSgn[2],
+						symSgn[1] * symSgn[3],symSgn[2] * symSgn[3]]))
+				# launch kernel
+				@cuda threads=cmpInf.numTrd blocks=cmpInf.numBlk mulKerDev!(
+					view(dirNumDev, :, divItr + 1), 
+					view(dirSymDev, :, divItr + 1),
+					view(actVec, frsActVec[1]:symSgn[1]:lstActVec[1], 
+					frsActVec[2]:symSgn[2]:lstActVec[2], 
+					frsActVec[3]:symSgn[3]:lstActVec[3], :), 
+					view(vecHld, frsActVec[1]:symSgn[1]:lstActVec[1], 
+					frsActVec[2]:symSgn[2]:lstActVec[2], 
+					frsActVec[3]:symSgn[3]:lstActVec[3], :), 
+					view(vecMod, frsItrMod[1]:1:lstItrMod[1], 
+					frsItrMod[2]:1:lstItrMod[2], 
+					frsItrMod[3]:1:lstItrMod[3], :)) 
+			else 
+				copyto!(view(dirSymHst, :, divItr + 1), 
+					eltype(dirSymHst).([symSgn[1] * symSgn[2],
+						symSgn[1] * symSgn[3],symSgn[2] * symSgn[3]]))
+				Base.Threads.@spawn mulKerHst!(view(dirSymHst, :, divItr + 1), 
+					view(actVec, frsActVec[1]:symSgn[1]:lstActVec[1], 
+					frsActVec[2]:symSgn[2]:lstActVec[2], 
+					frsActVec[3]:symSgn[3]:lstActVec[3], :), 
+					view(vecHld, frsActVec[1]:symSgn[1]:lstActVec[1], 
+					frsActVec[2]:symSgn[2]:lstActVec[2], 
+					frsActVec[3]:symSgn[3]:lstActVec[3], :), 
+					view(vecMod, frsItrMod[1]:1:lstItrMod[1], 
+					frsItrMod[2]:1:lstItrMod[2], 
+					frsItrMod[3]:1:lstItrMod[3], :))
+			end
+		end
+	end
+	# active device	
+	if cmpInf.dev == true	
 		CUDA.synchronize(CUDA.stream())
+		CUDA.unsafe_free!(dirNumDev)
+		CUDA.unsafe_free!(dirSymDev)
 		CUDA.unsafe_free!(vecHld)
 		CUDA.synchronize(CUDA.stream())
-	else 
-		@inbounds @threads for itr ∈ CartesianIndices(selectdim(actVec, 4, 1)) 
-			# vecMod follows ii, jj, kk, ij, ik, jk storage format
-			actVec[itr,1] = vecMod[itr,1] * vecHld[itr,1] + 
-				vecMod[itr,4] * vecHld[itr,2] + vecMod[itr,5] * vecHld[itr,3]
-			# j vector direction
-			actVec[itr,2] = vecMod[itr,4] * vecHld[itr,1] + 
-				vecMod[itr,2] * vecHld[itr,2] + vecMod[itr,6] * vecHld[itr,3]
-			# k vector direction
-			actVec[itr,3] = vecMod[itr,5] * vecHld[itr,1] + 
-				vecMod[itr,6] * vecHld[itr,2] + vecMod[itr,3] * vecHld[itr,3]
-		end
 	end
 	return nothing
 end
-# device kernel for mulBrn!
-function mulKer!(dimInf::AbstractVector{<:Integer}, 
-	actVec::AbstractArray{T,4}, vecHld::AbstractArray{T,4}, 
-	vecMod::AbstractArray{T,4})::Nothing where T<:Union{ComplexF64,ComplexF32}
+#= 
+host kernel for mulBrn!
+=#
+function mulKerHst!(dirSym::AbstractVector{<:Real}, actVec::AbstractArray{T,4}, 
+	vecHld::AbstractArray{T,4}, vecMod::AbstractArray{T,4})::Nothing where 
+	T<:Union{ComplexF64,ComplexF32}
+
+	@inbounds @threads for itr ∈ CartesianIndices(selectdim(actVec, 4, 1)) 
+		# vecMod follows ii, jj, kk, ij, ik, jk storage format
+		actVec[itr,1] = vecMod[itr,1] * vecHld[itr,1] + 
+			dirSym[1] * vecMod[itr,4] * vecHld[itr,2] + 
+			dirSym[2] * vecMod[itr,5] * vecHld[itr,3]
+		# j vector direction
+		actVec[itr,2] = dirSym[1] * vecMod[itr,4] * vecHld[itr,1] + 
+			vecMod[itr,2] * vecHld[itr,2] + 
+			dirSym[3] * vecMod[itr,6] * vecHld[itr,3]
+		# k vector direction
+		actVec[itr,3] = dirSym[2] * vecMod[itr,5] * vecHld[itr,1] + 
+			dirSym[3] * vecMod[itr,6] * vecHld[itr,2] + 
+			vecMod[itr,3] * vecHld[itr,3]
+	end
+end
+#=
+device kernel for mulBrn!
+=#
+function mulKerDev!(dimInf::AbstractVector{<:Integer}, 
+	dirSym::AbstractVector{<:Real}, actVec::AbstractArray{T,4}, 
+	vecHld::AbstractArray{T,4}, vecMod::AbstractArray{T,4})::Nothing where 
+	T<:Union{ComplexF64,ComplexF32}
 	# grid strides
 	strX = gridDim().x * blockDim().x
 	strY = gridDim().y * blockDim().y
@@ -256,23 +350,25 @@ function mulKer!(dimInf::AbstractVector{<:Integer},
 		itrY = idY:strY:dimInf[2], itrX = idX:strX:dimInf[1] 
 		# vecMod follows ii, jj, kk, ij, ik, jk storage format
 		actVec[itrX,itrY,itrZ,1] = vecMod[itrX,itrY,itrZ,1] * 
-			vecHld[itrX,itrY,itrZ,1] + vecMod[itrX,itrY,itrZ,4] * 
-			vecHld[itrX,itrY,itrZ,2] + vecMod[itrX,itrY,itrZ,5] * 
-			vecHld[itrX,itrY,itrZ,3]
+			vecHld[itrX,itrY,itrZ,1] + 
+			dirSym[1] * vecMod[itrX,itrY,itrZ,4] * vecHld[itrX,itrY,itrZ,2] + 
+			dirSym[2] * vecMod[itrX,itrY,itrZ,5] * vecHld[itrX,itrY,itrZ,3]
 		# j vector direction
-		actVec[itrX,itrY,itrZ,2] = vecMod[itrX,itrY,itrZ,4] * 
-			vecHld[itrX,itrY,itrZ,1] + vecMod[itrX,itrY,itrZ,2] * 
-			vecHld[itrX,itrY,itrZ,2] + vecMod[itrX,itrY,itrZ,6] * 
-			vecHld[itrX,itrY,itrZ,3]
+		actVec[itrX,itrY,itrZ,2] = dirSym[1] * vecMod[itrX,itrY,itrZ,4] * 
+			vecHld[itrX,itrY,itrZ,1] + 
+			vecMod[itrX,itrY,itrZ,2] * vecHld[itrX,itrY,itrZ,2] + 
+			dirSym[3] * vecMod[itrX,itrY,itrZ,6] * vecHld[itrX,itrY,itrZ,3]
 		# k vector direction
-		actVec[itrX,itrY,itrZ,3] = vecMod[itrX,itrY,itrZ,6] * 
-			vecHld[itrX,itrY,itrZ,1] + vecMod[itrX,itrY,itrZ,5] * 
-			vecHld[itrX,itrY,itrZ,2] + vecMod[itrX,itrY,itrZ,3] * 
-			vecHld[itrX,itrY,itrZ,3]
+		actVec[itrX,itrY,itrZ,3] = dirSym[3] * vecMod[itrX,itrY,itrZ,6] * 
+			vecHld[itrX,itrY,itrZ,1] + 
+			dirSym[2] * vecMod[itrX,itrY,itrZ,5] * vecHld[itrX,itrY,itrZ,2] + 
+			vecMod[itrX,itrY,itrZ,3] * vecHld[itrX,itrY,itrZ,3]
 	end
 	return nothing
 end
-# binary branch indexing.
+#=
+binary branch indexing
+=#
 @inline function nxtBrnId(maxLvl::Integer, lvl::Integer, bId::Integer)::Integer
 	return bId + ^(2, maxLvl - (lvl + 1))
 end

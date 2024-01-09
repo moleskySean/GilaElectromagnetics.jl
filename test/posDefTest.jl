@@ -1,11 +1,11 @@
 # memory declaration 
 global linItr = 0
-egoCell = Array{ComplexF64}(undef, gSlfOprMemHst.srcVol.cells[1], 
-	gSlfOprMemHst.srcVol.cells[2], gSlfOprMemHst.srcVol.cells[3], 3)
-egoDenMat = Array{ComplexF64}(undef, 3 * prod(gSlfOprMemHst.srcVol.cells), 
-	3 * prod(gSlfOprMemHst.srcVol.cells))
-egoDenMatAsm = Array{ComplexF64}(undef, 3 * prod(gSlfOprMemHst.srcVol.cells), 
-	3 * prod(gSlfOprMemHst.srcVol.cells))
+egoCell = Array{ComplexF64}(undef, gSlfOprMemHst.srcVol.cel[1], 
+	gSlfOprMemHst.srcVol.cel[2], gSlfOprMemHst.srcVol.cel[3], 3)
+egoDenMat = Array{ComplexF64}(undef, 3 * prod(gSlfOprMemHst.srcVol.cel), 
+	3 * prod(gSlfOprMemHst.srcVol.cel))
+egoDenMatAsm = Array{ComplexF64}(undef, 3 * prod(gSlfOprMemHst.srcVol.cel), 
+	3 * prod(gSlfOprMemHst.srcVol.cel))
 # fill Green function matrix
 for crtItr ∈ CartesianIndices((cells[1], cells[2], cells[3], 3))
 	# linear index
@@ -18,7 +18,7 @@ for crtItr ∈ CartesianIndices((cells[1], cells[2], cells[3], 3))
 	copyto!(view(egoDenMat, :, linItr), gSlfOprMemHst.actVec)
 	# reset action vector
 	copyto!(gSlfOprMemHst.actVec,zeros(eltype(anaOut), 
-	gSlfOprMemHst.srcVol.cells..., 3))
+	gSlfOprMemHst.srcVol.cel..., 3))
 end
 # compute anti-symmetric component
 adjoint!(egoDenMatAsm, egoDenMat);

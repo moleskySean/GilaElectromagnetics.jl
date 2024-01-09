@@ -8,7 +8,7 @@ The code is distributed under GNU LGPL.
 Author: Sean Molesky 
 """
 module GilaOpr
-using CUDA, Base.Threads, LinearAlgebra, AbstractFFTs, FFTW, GilaStruc, GilaCrc
+using CUDA, Base.Threads, LinearAlgebra, AbstractFFTs, FFTW, GilaMem, GilaCrc
 export egoOpr!, GlaOprMemGenSlf
 ###MEMORY 
 #=

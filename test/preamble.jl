@@ -1,5 +1,5 @@
 using CUDA, LinearAlgebra, LinearAlgebra.BLAS, AbstractFFTs, FFTW, Cubature, 
-Base.Threads, FastGaussQuadrature, GilaStruc, GilaCrc, GilaWInt, GilaOpr, 
+Base.Threads, FastGaussQuadrature, GilaMem, GilaCrc, GilaWInt, GilaOpr, 
 Serialization, Random, BenchmarkTools
 
 threads = nthreads()

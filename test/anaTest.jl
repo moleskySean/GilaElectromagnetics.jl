@@ -1,5 +1,6 @@
 const π = 3.1415926535897932384626433832795028841971693993751058209749445923
 const sepTol = 1.0e-9
+const lowTol = 1.0e-12
 #=
 egoAna is the analytic Green function.
 =#
@@ -8,8 +9,8 @@ function egoAna!(anaOut::AbstractArray{T}, vol::GlaVol,
 	dipVec::Vector{T})::Nothing where T<:Union{ComplexF64,ComplexF64}
 	# memory allocation
 	linItrs = zeros(Int,3)
-	egoCell = Array{eltype(anaOut)}(undef, vol.cells[1], 
-		vol.cells[2], vol.cells[3], 3)
+	egoCell = Array{eltype(anaOut)}(undef, vol.cel[1], 
+		vol.cel[2], vol.cel[3], 3)
 	# separation magnitude and unit vector
 	sep = 0.0
 	sh = zeros(eltype(anaOut),3)
@@ -50,23 +51,23 @@ end
 # compare against analytic discrete dipole solution
 dipVec = zeros(ComplexF64, 3)
 relErr = zeros(Float64, 3)
-anaOut = Array{ComplexF64}(undef, 3 * prod(gSlfOprMemHst.srcVol.cells))
-numOut = Array{ComplexF64}(undef, gSlfOprMemHst.srcVol.cells..., 3)
-difMat = Array{Float64}(undef, gSlfOprMemHst.srcVol.cells..., 3)
+anaOut = Array{ComplexF64}(undef, 3 * prod(gSlfOprMemHst.srcVol.cel))
+numOut = Array{ComplexF64}(undef, gSlfOprMemHst.srcVol.cel..., 3)
+difMat = Array{Float64}(undef, gSlfOprMemHst.srcVol.cel..., 3)
 # window to remove for field comparisons 
 winSze = 0.08
 winInt = minimum([Int(div(0.5 * winSze, minimum(gSlfOprMemHst.srcVol.scl))), 
-	minimum(gSlfOprMemHst.srcVol.cells)])
+	minimum(gSlfOprMemHst.srcVol.cel)])
 # check window size
-if winInt > minimum(gSlfOprMemHst.srcVol.cells)
+if winInt > minimum(gSlfOprMemHst.srcVol.cel)
 	error("Excluded window is too large for volume.")
 end
 winSze = winInt * minimum(gSlfOprMemHst.srcVol.scl)
 # cartesian direction loop
 for dipDir ∈ 1:3
-	dipLoc = Int.([div(gSlfOprMemHst.srcVol.cells[1], 2), 
-		div(gSlfOprMemHst.srcVol.cells[1], 2), 
-		div(gSlfOprMemHst.srcVol.cells[1], 2)])
+	dipLoc = Int.([div(gSlfOprMemHst.srcVol.cel[1], 2), 
+		div(gSlfOprMemHst.srcVol.cel[1], 2), 
+		div(gSlfOprMemHst.srcVol.cel[1], 2)])
 	# dipole direction and location 
 	dipVec[:] .= 0.0 + 0.0im
 	dipVec[dipDir] = 1.0 + 0.0im
@@ -82,14 +83,14 @@ for dipDir ∈ 1:3
 	egoOpr!(gSlfOprMemHst);
 	copyto!(numOut, gSlfOprMemHst.actVec);
 	egoAna!(anaOut, gSlfOprMemHst.srcVol, trgRng, dipPos, dipVec);
-	global anaOut = reshape(anaOut, gSlfOprMemHst.srcVol.cells..., 3);
+	global anaOut = reshape(anaOut, gSlfOprMemHst.srcVol.cel..., 3);
 	# comparison array
 	fldDif = 0.0;
-	for crtItr ∈ CartesianIndices((gSlfOprMemHst.srcVol.cells[1], 
-		gSlfOprMemHst.srcVol.cells[2], gSlfOprMemHst.srcVol.cells[3], 3))
+	for crtItr ∈ CartesianIndices((gSlfOprMemHst.srcVol.cel[1], 
+		gSlfOprMemHst.srcVol.cel[2], gSlfOprMemHst.srcVol.cel[3], 3))
 		# field difference
 		fldDif = abs(anaOut[crtItr] - numOut[crtItr])
-	 	difMat[crtItr] = min(fldDif, fldDif / abs(numOut[crtItr]))
+	 	difMat[crtItr] = min(fldDif, fldDif / max(abs(numOut[crtItr]), lowTol))
 	end
 	# remove points adjacent to dipole for comparison
 	difMat[(dipLoc[1] - winInt):(dipLoc[1] + winInt), 
@@ -99,10 +100,10 @@ for dipDir ∈ 1:3
 	global relErr[dipDir] = maximum(difMat)
 	# reset for further tests
 	copyto!(gSlfOprMemHst.actVec,zeros(eltype(anaOut), 
-		gSlfOprMemHst.srcVol.cells..., 3));
-	global anaOut = reshape(anaOut, 3 * prod(gSlfOprMemHst.srcVol.cells));
+		gSlfOprMemHst.srcVol.cel..., 3));
+	global anaOut = reshape(anaOut, 3 * prod(gSlfOprMemHst.srcVol.cel));
 end
-global anaOut = reshape(anaOut, gSlfOprMemHst.srcVol.cells..., 3);
+global anaOut = reshape(anaOut, gSlfOprMemHst.srcVol.cel..., 3);
 println("Maximum relative field difference outside of ", winSze, 
 	" exclusion window.")
 @show relErr;
