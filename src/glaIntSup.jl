@@ -1,10 +1,10 @@
 #=
-transformBasisIntegrals evaluates the integrands called by the weakS, weakE, 
-and weakV head functions using a series of variable transformations and 
-analytic integral evaluations---reducing the four dimensional surface integrals 
-performed for ``standard'' cells to one dimensional integrals. No comments are 
-included in this low level code, which is simply a julia translation of 
-DIRECTFN_E by Athanasios Polimeridis. For a complete description of the steps 
+glaIntsup evaluates the integrands called by the weakS, weakE, and weakV head 
+functions using a series of variable transformations and analytic integral 
+evaluations---reducing the four dimensional surface integrals performed for 
+``standard'' cells to one dimensional integrals. Minimal comments are included 
+in this code, which is mostly a julia translation of DIRECTFN_E by 
+Athanasios Polimeridis. For a complete description of the steps 
 being performed see the article cited above and references included therein. 
 =#
 #=

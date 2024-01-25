@@ -51,43 +51,45 @@ end
 # compare against analytic discrete dipole solution
 dipVec = zeros(ComplexF64, 3)
 relErr = zeros(Float64, 3)
-anaOut = Array{ComplexF64}(undef, 3 * prod(gSlfOprMemHst.srcVol.cel))
-numOut = Array{ComplexF64}(undef, gSlfOprMemHst.srcVol.cel..., 3)
-difMat = Array{Float64}(undef, gSlfOprMemHst.srcVol.cel..., 3)
+anaOut = Array{ComplexF64}(undef, 3 * prod(gSlfMemHst.srcVol.cel))
+numOut = Array{ComplexF64}(undef, gSlfMemHst.srcVol.cel..., 3)
+difMat = Array{Float64}(undef, gSlfMemHst.srcVol.cel..., 3)
 # window to remove for field comparisons 
-winSze = 0.08
-winInt = minimum([Int(div(0.5 * winSze, minimum(gSlfOprMemHst.srcVol.scl))), 
-	minimum(gSlfOprMemHst.srcVol.cel)])
+winSze = 1//20
+winInt = minimum([Int(div(1//2 * winSze, minimum(gSlfMemHst.srcVol.scl))), 
+	minimum(gSlfMemHst.srcVol.cel)])
 # check window size
-if winInt > minimum(gSlfOprMemHst.srcVol.cel)
+if winInt > minimum(gSlfMemHst.srcVol.cel)
 	error("Excluded window is too large for volume.")
 end
-winSze = winInt * minimum(gSlfOprMemHst.srcVol.scl)
+winSze = winInt * minimum(gSlfMemHst.srcVol.scl)
+# current density vector
+
 # cartesian direction loop
 for dipDir ∈ 1:3
-	dipLoc = Int.([div(gSlfOprMemHst.srcVol.cel[1], 2), 
-		div(gSlfOprMemHst.srcVol.cel[1], 2), 
-		div(gSlfOprMemHst.srcVol.cel[1], 2)])
+	dipLoc = Int.([div(gSlfMemHst.srcVol.cel[1], 2), 
+		div(gSlfMemHst.srcVol.cel[1], 2), 
+		div(gSlfMemHst.srcVol.cel[1], 2)])
 	# dipole direction and location 
 	dipVec[:] .= 0.0 + 0.0im
 	dipVec[dipDir] = 1.0 + 0.0im
-	local dipPos = [gSlfOprMemHst.srcVol.grd[1][dipLoc[1]], 
-		gSlfOprMemHst.srcVol.grd[2][dipLoc[2]], 
-		gSlfOprMemHst.srcVol.grd[3][dipLoc[3]]]
+	local dipPos = [gSlfMemHst.srcVol.grd[1][dipLoc[1]], 
+		gSlfMemHst.srcVol.grd[2][dipLoc[2]], 
+		gSlfMemHst.srcVol.grd[3][dipLoc[3]]]
 	# output range for discrete dipole computation
-	local trgRng = copy(gSlfOprMemHst.srcVol.grd)
+	local trgRng = copy(gSlfMemHst.srcVol.grd)
 	# preform computations
-	gSlfOprMemHst.actVec[:,:,:,:] .= 0.0 + 0.0im;
-	gSlfOprMemHst.actVec[dipLoc[1], dipLoc[2], dipLoc[2], dipDir] = 
-		(1.0 + 0.0im) / prod(gSlfOprMemHst.srcVol.scl)
-	egoOpr!(gSlfOprMemHst);
-	copyto!(numOut, gSlfOprMemHst.actVec);
-	egoAna!(anaOut, gSlfOprMemHst.srcVol, trgRng, dipPos, dipVec);
-	global anaOut = reshape(anaOut, gSlfOprMemHst.srcVol.cel..., 3);
+	gSlfMemHst.actVec[:,:,:,:] .= 0.0 + 0.0im;
+	gSlfMemHst.actVec[dipLoc[1], dipLoc[2], dipLoc[2], dipDir] = 
+		(1.0 + 0.0im) / prod(gSlfMemHst.srcVol.scl)
+	egoOpr!(gSlfMemHst);
+	copyto!(numOut, gSlfMemHst.actVec);
+	egoAna!(anaOut, gSlfMemHst.srcVol, trgRng, dipPos, dipVec);
+	global anaOut = reshape(anaOut, gSlfMemHst.srcVol.cel..., 3);
 	# comparison array
 	fldDif = 0.0;
-	for crtItr ∈ CartesianIndices((gSlfOprMemHst.srcVol.cel[1], 
-		gSlfOprMemHst.srcVol.cel[2], gSlfOprMemHst.srcVol.cel[3], 3))
+	for crtItr ∈ CartesianIndices((gSlfMemHst.srcVol.cel[1], 
+		gSlfMemHst.srcVol.cel[2], gSlfMemHst.srcVol.cel[3], 3))
 		# field difference
 		fldDif = abs(anaOut[crtItr] - numOut[crtItr])
 	 	difMat[crtItr] = min(fldDif, fldDif / max(abs(numOut[crtItr]), lowTol))
@@ -99,11 +101,11 @@ for dipDir ∈ 1:3
 	# record maximum relative error in remaining vectors
 	global relErr[dipDir] = maximum(difMat)
 	# reset for further tests
-	copyto!(gSlfOprMemHst.actVec,zeros(eltype(anaOut), 
-		gSlfOprMemHst.srcVol.cel..., 3));
-	global anaOut = reshape(anaOut, 3 * prod(gSlfOprMemHst.srcVol.cel));
+	copyto!(gSlfMemHst.actVec,zeros(eltype(anaOut), 
+		gSlfMemHst.srcVol.cel..., 3));
+	global anaOut = reshape(anaOut, 3 * prod(gSlfMemHst.srcVol.cel));
 end
-global anaOut = reshape(anaOut, gSlfOprMemHst.srcVol.cel..., 3);
+global anaOut = reshape(anaOut, gSlfMemHst.srcVol.cel..., 3);
 println("Maximum relative field difference outside of ", winSze, 
 	" exclusion window.")
 @show relErr;

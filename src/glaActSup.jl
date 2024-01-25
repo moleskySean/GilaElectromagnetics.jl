@@ -2,20 +2,27 @@
 head branching function
 =#
 function egoBrn!(egoMem::GlaOprMem, lvl::Integer, bId::Integer, 
-	actVec::AbstractArray{T,4})::Nothing where T<:Union{ComplexF64,ComplexF32}
-
+	actVec::AbstractArray{T})::AbstractArray{T} where 
+	T<:Union{ComplexF64,ComplexF32}
+	# size of circulant vector
+	#WORK HERE
+	# 	 
 	if lvl > 0
 		# forward FFT
 		egoMem.fftPlnFwd[lvl] * actVec
 		# GPU mode
-		if egoMem.cmpInf.dev == true
+		if sum(egoMem.cmpInf.devMod) == true
 			CUDA.synchronize(CUDA.stream())
 		end
 	end 
-	# branch until depth of block structure
-	if lvl < length(egoMem.dimInfC)	
+	# generate branch pair
+	# if necessary, reshape source vector to match required partitions
+	if lvl == 0 && sum(egoMem.mixInf.srcCel .!= size(actVec)[1:3]) > 0 
+		# reshape current vector to 
+		# actVecPar and actVec share the same underlying data
+	else
 		# shallow copyto of actVec, inner structure of actVec must be a literal
-		if egoMem.cmpInf.dev == true
+		if sum(egoMem.cmpInf.devMod) == true
 			prgVec = CuArray{eltype(actVec)}(undef, egoMem.dimInfC..., 3)
 			CUDA.synchronize(CUDA.stream())
 		else 
@@ -24,26 +31,31 @@ function egoBrn!(egoMem::GlaOprMem, lvl::Integer, bId::Integer,
 		# split branch, includes phase operation and stream sync
 		sptBrn!(egoMem.dimInfD, prgVec, lvl + 1, egoMem.phzInf[lvl + 1], 
 			actVec, egoMem.cmpInf)
+	end
+	# branch until depth of block structure
+	if lvl < length(egoMem.dimInfC)	
 		# execute split branches 
 		# !asynchronous GPU causes mysterious errors + minimal speed up!
-		if egoMem.cmpInf.dev == true
+		if sum(egoMem.cmpInf.devMod) == true
 				# origin branch
-				egoBrn!(egoMem, lvl + 1, bId, actVec)	
+				actVec = egoBrn!(egoMem, lvl + 1, bId, actVec)	
 				# !wait for origin branch to return, functionality choice!
 				if lvl < length(egoMem.dimInfC)	- 1
 					CUDA.synchronize(CUDA.stream())	
 				end
 				# phase modified branch
-				egoBrn!(egoMem, lvl + 1, 
+				prgVec = egoBrn!(egoMem, lvl + 1, 
 					nxtBrnId(length(egoMem.dimInfC), lvl, bId), prgVec)
 		# !asynchronous CPU is fine + some speed up!
 		else
 			@sync begin
 				# origin branch
-				Base.Threads.@spawn egoBrn!(egoMem, lvl + 1, bId, actVec)
+				Base.Threads.@spawn actVec = 
+					egoBrn!(egoMem, lvl + 1, bId, actVec)
 				# phase modified branch
-				Base.Threads.@spawn egoBrn!(egoMem, lvl + 1, 
-					nxtBrnId(length(egoMem.dimInfC), lvl, bId), prgVec)
+				Base.Threads.@spawn prgVec = 
+					egoBrn!(egoMem, lvl + 1, nxtBrnId(length(egoMem.dimInfC), 
+					lvl, bId), prgVec)
 			end
 		end
 		# merge branches, includes phase operation and stream sync
@@ -51,7 +63,7 @@ function egoBrn!(egoMem::GlaOprMem, lvl::Integer, bId::Integer,
 			egoMem.phzInf[lvl + 1], prgVec, egoMem.cmpInf)		
 	else
 		# shallow copy of actVec, inner structure of actVec must be a literal
-		if egoMem.cmpInf.dev == true
+		if sum(egoMem.cmpInf.devMod) == true
 			vecHld = CuArray{eltype(actVec)}(undef, egoMem.dimInfC..., 3)
 			copyto!(vecHld, actVec)
 			CUDA.synchronize(CUDA.stream())
@@ -68,15 +80,15 @@ function egoBrn!(egoMem::GlaOprMem, lvl::Integer, bId::Integer,
 		# inverse FFT
 		egoMem.fftPlnRev[lvl] * actVec
 		# GPU mode
-		if egoMem.cmpInf.dev == true
+		if sum(egoMem.cmpInf.devMod) == true
 			CUDA.synchronize(CUDA.stream())
 		end
 	end
 	# terminate task and return control to previous level 
-	if egoMem.cmpInf.dev == true
+	if sum(egoMem.cmpInf.devMod) == true
 		CUDA.synchronize(CUDA.stream())
 	end
-	return nothing
+	return actVec
 end
 #=
 split a branch so that even and odd Fourier coefficients are independent
@@ -87,7 +99,7 @@ function sptBrn!(dimInf::AbstractVector{<:Integer},
 	cmpInf::GlaKerOpt=GlaKerOpt(false))::Nothing where 
 	T<:Union{ComplexF64,ComplexF32}
 	
-	if cmpInf.dev == true
+	if cmpInf.devMod == true
 		@cuda threads=cmpInf.numTrd blocks=cmpInf.numBlk sptKer!(dimInf, 
 				prgVec, phzDir, phzVec, actVec)
 		CUDA.synchronize(CUDA.stream())
@@ -167,7 +179,7 @@ function mrgBrn!(dimInf::AbstractVector{<:Integer},
 	cmpInf::GlaKerOpt=GlaKerOpt(false))::Nothing where 
 	T<:Union{ComplexF64,ComplexF32}
 	
-	if cmpInf.dev == true
+	if cmpInf.devMod == true
 		for vecDir ∈ 1:3
 			@cuda threads = cmpInf.numTrd blocks = cmpInf.numBlk mrgKer!(dimInf, 
 				actVec, phzDir, phzVec, vecDir, prgVec)
@@ -239,7 +251,7 @@ function mulBrn!(dimInfC::AbstractVector{<:Integer}, bId::Integer,
 	hlfRdw = Integer.(floor.(dimInfC ./ 2))
 	brnSym = [1 - mod(div(bId, ^(2, 3 - k)), 2) for k ∈ 1:3]
 	# declare memory 
-	if cmpInf.dev == true
+	if cmpInf.devMod == true
 		dirNumDev = CuArray{Int32}(undef, 3, 8)
 		dirSymDev = CuArray{Float32}(undef, 3, 8)
 	else
@@ -263,7 +275,7 @@ function mulBrn!(dimInfC::AbstractVector{<:Integer}, bId::Integer,
 			# size of multiplication
 			mulNum = lstItrMod .- frsItrMod
 			# active device	
-			if cmpInf.dev == true
+			if cmpInf.devMod == true
 				copyto!(view(dirNumDev, :, divItr + 1), mulNum)
 				copyto!(view(dirSymDev, :, divItr + 1), 
 					eltype(dirSymDev).([symSgn[1] * symSgn[2],
@@ -299,7 +311,7 @@ function mulBrn!(dimInfC::AbstractVector{<:Integer}, bId::Integer,
 		end
 	end
 	# active device	
-	if cmpInf.dev == true	
+	if cmpInf.devMod == true	
 		CUDA.synchronize(CUDA.stream())
 		CUDA.unsafe_free!(dirNumDev)
 		CUDA.unsafe_free!(dirSymDev)

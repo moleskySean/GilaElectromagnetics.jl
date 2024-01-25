@@ -34,13 +34,10 @@ edge-adjacent triangles, and vertex-adjacent triangles.
 The article cited above contains useful error comparison plots for the number 
 evaluation points considered. 
 =#
-module GilaWInt
-using Base.Threads, LinearAlgebra, FastGaussQuadrature, Cubature, ThreadsX, 
-GilaMem
 const π = 3.1415926535897932384626433832795028841971693993751058209749445923
 #=
 Returns the scalar (Helmholtz) Green function. The separation dstMag is assumed 
-to be scld by wavelength. 
+to be scaled by wavelength. 
 =#
 @inline function sclEgo(dstMag::AbstractFloat, frqPhz::T)::ComplexF64 where
 	T<:Union{ComplexF64,ComplexF32}
@@ -49,7 +46,7 @@ end
 #=
 Returns the scalar (Helmholtz) Green function with the singularity removed. The 
 separation distance dstMag is assumed to be scaled by the wavelength. The 
-function is used in the included egoWekInt.jl code to improve the convergence of
+function is used in the included glaIntSup.jl code to improve the convergence of
 all weakly singular integrals.
 =#
 @inline function sclEgoN(dstMag::AbstractFloat, frqPhz::T)::ComplexF64 where 
@@ -73,7 +70,7 @@ Head function for integration over coincident square panels. The scl vector
 contains the characteristic lengths of a cuboid voxel relative to the 
 wavelength. glQud1 is an array of Gauss-Legendre quadrature weights and 
 positions. The cmpInf parameter determines the level of precision used for 
-integral calculations. Namely, cmpInf.glOrd is used internally in all 
+integral calculations. Namely, cmpInf.intOrd is used internally in all 
 weakly singular integral computations. 
 =#
 function wekS(scl::NTuple{3,<:Number}, glQud1::Array{<:AbstractFloat,2}, 
@@ -397,7 +394,7 @@ function wekGrdPts!(dir::Integer, scl::NTuple{3,<:Number},
 	return nothing
 end
 #=
-The code contained in egoWekInt evaluates the integrands called by the wekS, 
+The code contained in glaIntSup evaluates the integrands called by the wekS, 
 wekE, and wekV head functions using a series of variable transformations 
 and analytic integral evaluations---reducing the four dimensional surface 
 integrals performed for ``standard'' cells to chains of one dimensional 
@@ -406,7 +403,7 @@ julia translation of DIRECTFN_E by Athanasios Polimeridis with added support for
 multi-threading. For a complete description of the steps being performed see 
 the article cited above and references included therein. 
 =#
-include("egoWekInt.jl")
+include("glaIntSup.jl")
 #= 
 Direct evaluation of 1 / (4 * π * dstMag) integral for a square panel with 
 itself. la and lb are the edge lengths. 
@@ -490,5 +487,4 @@ panels. la and lb are the edge lengths, and lb is assumed to be ``doubled''.
     log(2 * lb + sqrt(la^2 + 4 * lb^2)) + 
     9 * log((2 * lb + sqrt(la^2 + 4 * lb^2)) / (lb + sqrt(la^2 + lb^2))) - 
     2 * log(la^2 + 2 * lb * (lb - sqrt(la^2 + lb^2)))))
-end
 end

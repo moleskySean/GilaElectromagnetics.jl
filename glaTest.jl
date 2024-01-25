@@ -2,7 +2,7 @@
 include("./test/preamble.jl")
 ###SETTINGS
 # number of cells in volume 
-cells = [256,256,256]
+cells = [64,64,64]
 # size of cells relative to wavelength
 sclS = (1//50, 1//50, 1//50)
 # center position of volume
@@ -15,12 +15,12 @@ cmpInfDev = GlaKerOpt(true)
 slfVol = GlaVol(cells, sclS, coord)
 ## generate circulant green function if not serialized. 
 println("Green function construction started.")
-# gSlfOprMemHst = GlaOprMemGenSlf(cmpInfHst, slfVol)
-# gSlfOprMemDev = GlaOprMemGenSlf(cmpInfDev, slfVol, gSlfOprMemHst.egoFur)
-# serialize("./tmp/gFourSlf256x3_64", gSlfOprMemHst.egoFur)
-gFurX = deserialize("./tmp/gFourSlf256x3_64")
-gSlfOprMemHst = GlaOprMemGenSlf(cmpInfHst, slfVol, gFurX)
-gSlfOprMemDev = GlaOprMemGenSlf(cmpInfDev, slfVol, gFurX)
+gSlfMemHst = GlaOprMem(cmpInfHst, slfVol)
+# gSlfOprMemDev = GlaOprMemGenSlf(cmpInfDev, slfVol, gSlfMemHst.egoFur)
+# serialize("./tmp/gFourSlf64x3_64", gSlfMemHst.egoFur)
+# gFurX = deserialize("./tmp/gFourSlf256x3_64")
+# gSlfMemHst = GlaOprMemGenSlf(cmpInfHst, slfVol, gFurX)
+# gSlfMemDev = GlaOprMemGenSlf(cmpInfDev, slfVol, gFurX)
 println("Green function construction completed.")
 ###TEST
 ## integral convergence 

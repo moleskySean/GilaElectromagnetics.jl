@@ -1,0 +1,636 @@
+\documentclass[reprint,aps,prb]{revtex4-2}
+\usepackage{natbib}
+\usepackage{bm}
+\usepackage{eulervm}
+\usepackage{tensor}
+\usepackage{amsthm}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{esint}
+\usepackage{mathrsfs}
+\usepackage{mathtools}
+\usepackage{graphicx}
+\usepackage{todonotes}
+\newcommand{\bmm}[1]{\bm{\mathrm{#1}}}
+\newcommand{\bmv}[1]{\vec{\bm{\mathrm{#1}}}}
+\newcommand{\bmh}[1]{\hat{\bm{\mathrm{#1}}}}
+\newcommand{\sym}[1]{#1^{\mathsf{s}}}
+\newcommand{\asym}[1]{#1^{\mathsf{a}}}
+\newcommand{\adjS}[3]{{#1}\tensor[_{#2}]{\coprod}{}{#3}}
+\DeclareMathOperator{\id}{\text{id}}
+\DeclareMathOperator{\rel}{\text{rel}}
+\DeclareMathOperator{\diag}{\text{diag}}
+\DeclareMathOperator{\sdot}{\scriptscriptstyle\odot}
+\DeclareMathOperator\arctanh{arctanh}
+% the options reprint and preprint switch between a model final form and the submission form.
+\begin{document}
+\title{Numerical implementation of the Maxwell Green function}
+\author{Sean Molesky}
+\affiliation{Polytechnique Montr\'{e}al}
+\email{sean.molesky@polymtl.ca} 
+%%%%%%%%ABSTRACT
+\begin{abstract}
+\noindent
+This document summarizes the operating principles of Gila---a julia package implementing the three dimensional electromagnetic Green function.
+\end{abstract}
+\maketitle
+\noindent
+\textbf{Introduction}
+Convergence in norm for volume integral methods is only guaranteed when the individual elements of the basis implementation respects all the continuity conditions of the quantities being approximated, as imposed by the kernel~\cite{van2008well}. 
+For electric, displacement, or magnetic fields, this means that a great deal of care must be taken in the selecting the partition functions and mesh of the domain~\cite{van2007gaps}. 
+A principal advantages of the fluctuating volume current method is that the integral kernel makes no demands on continuity, allowing the use of any set of discontinuous basis functions. 
+In turn, this leads to better numerical performance for inhomogeneous and anisotropic materials~\cite{markkanen2012discretization}. 
+\section{Conceptual Foundation}
+\noindent
+\textbf{Notation}---The formulation of macroscopic electromagnetics employed by Gila supposes that the response properties of each body in question are defined by a linear relative permittivity response $\bmm{X}_{\epsilon}$ and a relative permeability response $\bmm{X}_{\mu}$. 
+As per standard convention, $\omega$ is used for the radial frequency  $k_{\circ}$ is used for the free space wave vector $2\pi/\lambda$, 
+The letter $z = \sqrt{\mu_{\circ}/\epsilon_{\circ}}$ is used for the impedance of free space. 
+In deference to flexibility, the electromagnetic field and polarization current densities are treated as the six component vectors $\bmm{f}=\left\{\bmm{e},\bmm{h}\right\}$ and $\bmm{p} = \left\{\bmm{j},\bmm{m}\right\}$.  
+Throughout, capital bold letters are used to denote linear operators, with symbols reused to denote closely related meanings. 
+For examples, $\bmm{Z}$ is used to denote the constant linear operator defined by scalar multiplication by $z$. 
+Both scalar and matrix multiplication, as context dictates, are implied by juxtaposition. 
+\subsection{volume integral relations}
+\noindent
+Taking $i$, $s$ and $t$ subscripts to denote the incident, scattered, and total quantities---principally bare currents, those induced by scattering, and the combination of these two components respectively---
+\begin{align}
+	\frac{i}{k_{\circ}}
+	\begin{bmatrix}
+	\bmm{j}_{s} \\
+	-\bmm{m}_{s}		
+	\end{bmatrix} &=
+	\begin{bmatrix}
+		z^{-1}\bmm{X}_{je} & z\bmm{X}_{jh}\\
+		z^{-1}\bmm{X}_{me} & z\bmm{X}_{mh}
+	\end{bmatrix}
+	\begin{bmatrix}
+	\bmm{e}_{t} \\
+	\bmm{h}_{t}		
+	\end{bmatrix} \nonumber \\
+	\frac{i}{k_{\circ}}\bmm{p}_{s} &= \bmm{X}\bmm{f}_{t} \nonumber 
+	\label{indPol}
+\end{align} 
+defines the bound (induced or scattered) polarization current densities produced by the total electromagnetic field. 
+Like the scattered electromagnetic field, the scattered current thus represents a self consistent solution of the electrodynamics in the presence of a linear scatterer. 
+That such a transformation is possible follows as a consequence of the general invertability of an operator with a positive definite anti-symmetric component. 
+Directly, given some computational domain $\Omega$---assumed to include the a full set of boundary conditions---and let 
+\begin{equation}
+	\bmm{M}_{\circ} = 
+	-\begin{bmatrix}
+		\bmm{Z}^{-1} & -i\bm{\nabla}^{k_{\circ}}_{c}\\
+		i\bm{\nabla}^{k_{\circ}}_{c} & \bmm{Z}
+	\end{bmatrix}	
+	\label{maxwellOpt}
+\end{equation}
+be the vacuum Maxwell operator, with $\bm{\nabla}^{k_{\circ}}_{c}$ denoting the vector curl divided by $k_{\circ}$.
+Under these definitions the differential formulation of the Maxwell equations then becomes
+\begin{equation}
+	\left(\bmm{M}_{\circ} - \bmm{X}\right)\bmm{f}_{t}	
+	= \frac{i}{k_{\circ}}\bmm{p}_{i}.
+	\label{maxwellEq}
+\end{equation}
+Take $\bmm{G}_{\circ}$ to be the vacuum Green function, i.e. the inverse of $\bmm{M}_{\circ}$.
+Decomposing $\bmm{f}_{t}$ as $\bmm{f}_{s} + \bmm{f}_{i}$, by using the fact that $\bmm{M}_{\circ}\bmm{f}_{i} = i \bmm{p}_{i}/k_{\circ}$, Eq.~\eqref{maxwellEq} shows that
+\begin{equation}
+	\bmm{f}_{s} = \bmm{G}_{\circ}\bmm{X}\bmm{f}_{t}. 
+\end{equation}
+Therefore,
+\begin{align}
+	&\left[\bmm{Id}-\bmm{G}_{\circ}\bmm{X}\right]\bmm{f}_{t} = \bmm{f}_{i} 
+	\nonumber \\
+	&\left[\bmm{Id}-\bmm{X}\bmm{G}_{\circ}\right]\bmm{p}_{s} = -ik_{\circ}\bmm{X}\bmm{f}_{\circ} + \bmm{X}\bmm{G}_{\circ}\bmm{p}_{i} \nonumber \\
+	&\left[\bmm{Id}-\bmm{X}\bmm{G}_{\circ}\right]\bmm{p}_{t} = \bmm{p}_{i} +\bmm{p}_{\circ}
+	\label{preWOpt},
+\end{align}
+where, for later convenience, we have used the identities $\bmm{f}_{i} = \bmm{f}_{\circ} + \left(i/k_{\circ}\right)\bmm{G}_{\circ}\bmm{p}_{i}$ with $\bmm{f}_{\circ}$ representing a possible incoming radiative field---free solution entering through the boundary of the computational domain---and $\bmm{p}_{\circ} = -i k_{\circ}\bmm{X}\bmm{f}_{\circ}$. 
+Recall that a linear operator $\bmm{A}$, when acting on a Hilbert space, can be decomposed into symmetric and anti-symmetric components as $\bmm{A} = \bmm{A}^{\mathsf{h}} + i \bmm{A}^{\mathsf{s}}$, where 
+\begin{align}
+	&\bmm{A}^{\mathsf{s}} = \frac{\bmm{A} + \bmm{A}^{\dagger}}{2}, & &\bmm{A}^{\mathsf{a}} = \frac{\bmm{A}-\bmm{A}^{\dagger}}{2i},
+	\label{symAsym}
+\end{align}
+and a $\dagger$ superscript denotes the operator adjoint. 
+Accordingly, if $\bmm{A}^{\mathsf{a}}$ is either positive or negative definite ($\bmm{A}^{\mathsf{a}}\succ 0$ or $\bmm{A}^{\mathsf{a}} \prec 0$), then the kernel of $\bmm{A}$ is empty, and $\bmm{A}$ is invertible. 
+Within the volume occupied by scattering material the anti-symmetric component of $\bmm{X}$, and by extension the anti-symmetric component of $\bmm{T} = \bmm{X}^{-1} - \bmm{G}_{\circ}$, is positive definite due to its physical connection with the positive dissipation of power~\cite{landau2013statistical}. 
+Based on these observations, it follows that the $\left(\bmm{Id}-\bmm{X}\bmm{G}_{\circ}\right)$ appearing on the left-hand side of \eqref{preWOpt} is also invertible, leading to the definition 
+\begin{align}
+	\bmm{W} = \left[\bmm{Id} - \bmm{X}\bmm{G}_{\circ}\right]^{-1}.
+	\label{wOpt}
+\end{align}
+One of the central use cases intended for Gila is to implement iterative solution methods for evaluating Eq.~\eqref{wOpt} for specific input vectors. 
+\subsection{analytic form}
+\noindent
+The implementation of the vacuum Green function supplied by Gila follows largely from its traditionally defined analytic form. 
+Shifting to Fourier space, this result will be derived by ``inverting'' Eq.~\eqref{maxwellEq} at a complex frequency $\omega + i\delta$, represented as $\zeta \omega = \omega + i\delta$. 
+Under this transformation, retaining all other conventions,
+\begin{equation}
+ 	\breve{\bmm{M}}_{\circ} = 
+ 	-\begin{bmatrix}
+ 		\zeta\bmm{Z}^{-1} & \bm{\times}_{\bmm{k}} \\ 
+ 		-\bm{\times}_{\bmm{k}} & \zeta\bmm{Z}
+	\end{bmatrix},
+	\label{maxOptFourier}
+\end{equation} 
+where $\bm{\times}_{\bmm{k}}$ is the ``cross-product'' operator defined locally at any $\bmm{k}$ vector index in terms of the cartesian components of $\bmm{k}$---assumed to be normalized by $k_{\circ}$ in all following expressions---as 
+\begin{equation}
+	\bm{\times}_{\bmm{k}} =
+	\begin{bmatrix}
+		0 & -k_{z} & k_{y} \\
+		k_{z} & 0 & -k_{x} \\
+		-k_{y} & k_{x} & 0
+	\end{bmatrix}.
+\end{equation}
+Employing block matrix inversion, 
+\begin{equation}
+	\breve{\bmm{G}}_{\circ}
+	= 
+	\begin{bmatrix}
+		\zeta\bmm{Z} & -\times_{\bmm{k}} \\
+		\times_{\bmm{k}} & \zeta\bmm{Z}^{-1}
+	\end{bmatrix}
+	\begin{bmatrix}
+		\breve{\bmm{G}}^{\circ}_{\circ} & \bmm{0} \\
+		\bmm{0} & \breve{\bmm{G}}^{\circ}_{\circ}
+	\end{bmatrix},
+\end{equation}
+where $\breve{\bmm{G}}^{\circ}_{\circ} = \left[\left(k^{2}- \zeta^{2}\right)\bmm{Id} - \bmm{k}\otimes\bmm{k}\right]^{-1}$ and $k = \lVert \bmm{k}\rVert_{\mathtt{E}}$ (the norm of $\bmm{k}$)~\footnote{Equivalent forms of the block matrix inverse show that the order of $\times_{\bmm{k}}$ and $\breve{\bmm{G}}^{\circ}_{\circ}$ appearing the off-diagonal blocks may be switched. 
+This an interesting, necessary, observation about how the Green function separates longitudinal and transverse evolution.}. 
+Hence, noting that through the Fourier transform one may equally switch from $\bm{\times}_{\bmm{k}}$ back to $-i\bm{\nabla}^{k_{\circ}}_{\bmm{c}}$, calculating the vacuum Green function in real space amounts to calculating the inverse Fourier transform of $\breve{\bmm{G}}^{\circ}_{\circ} =\frac{1}{k^{2}- \zeta^{2}}\left[\bmm{Id} - \zeta^{-2} \bmm{k}\otimes\bmm{k}\right]$. 
+To carry out this task, we will make use of the following lemma.
+\\ \\
+\emph{Jordan's lemma}---Take $f:\mathbb{C}\rightarrow\mathbb{C}$ to be an analytic function on the upper half-plane 
+$$
+\text{U} = \left\{z\in\mathbb{C}~|~\Im~z \geq 0\right\},$$ 
+and let 
+$$\text{C}_{_{R}} = \left\{z\in \mathbb{C}~|~ z = R e^{i\theta}\land \theta\in\left[0,\pi\right]\right\},$$ with $R >0$ to denote a semi-circle of radius $R$ confined to the upper half plane. 
+If for each $R >0$ there is a positive constant $\text{M}_{_{R}}$ such that $z\in\text{C}_{_{R}}\Rightarrow \lVert f\left(z\right)\rVert \leq \text{M}_{_{R}}$ and $\text{M}_{_{R}}\rightarrow 0$ as $R\rightarrow\infty$, then 
+$$
+	\lim_{R\rightarrow\infty} \int\limits_{\text{C}_{_{R}}}dz~f\left(z\right)e^{i\alpha z}
+$$
+whenever $\alpha > 0$. 
+\begin{proof}
+	To begin, notice that $\sin\theta$ is a concave function on $\theta\in\left[0,\pi\right]$, and that $\sin\frac{\pi}{2} =1$. 
+	As, such 
+	\begin{align}
+		&\left(\forall\alpha\in\left[0,1\right]\right)~\sin\left(\alpha\frac{\pi}{2}\right)\geq \alpha  \Rightarrow
+		\nonumber \\
+		&\left(\forall\theta\in\left[0,\frac{\pi}{2}\right]\right)~ \sin\left(\theta\right)\geq \frac{2}{\pi}\theta.
+		\nonumber
+	\end{align}
+	Thus, recalling that $\exp$ is a monotonic function on $\mathbb{R}$, if $R > 0$, this inequality implies that $\exp\left(-R\sin\theta\right) \leq \exp\left(- 2R \theta /\pi\right)$ so that 
+	$$
+		\int\limits^{\pi /2}_{0}d\theta~e^{-R\sin\theta} \leq \int\limits^{\pi /2}_{0}d\theta~e^{-2R\theta/\pi} = 
+		\frac{\pi}{2R}\left(1-e^{-R}\right)\leq\frac{\pi}{2R}.
+	$$
+	Transforming to polar coordinates 
+	\begin{align}
+		&\int\limits_{\text{C}_{_{R}}}dz~f\left(z\right)e^{i\alpha z} = 
+		\nonumber \\
+		&R\int\limits^{\pi}_{0}d\theta~ ie^{i\theta}f\left(Re^{i\theta}\right)\exp\left[i\alpha R\left(\cos\theta + i\sin\theta\right)\right].
+		\nonumber
+	\end{align}
+	Therefore, because $\lVert i e^{i\theta}f\left(Re^{i\theta}\right) exp\left(i\alpha R\cos\theta\right)\rVert\leq \text{M}_{_{R}}$,
+	$$
+		\int\limits_{\text{C}_{_{R}}}dz~f\left(z\right)e^{i\alpha z} \leq \frac{\pi}{\alpha}\text{M}_{_{R}}.
+	$$	
+	Having established this result, the limit that $R\rightarrow\infty$ can be taken, proving the lemma. 
+\end{proof}
+\noindent
+Let $\bmm{s} = \frac{\bmm{r}-\tilde{\bmm{r}}}{\lambda}$, with the associated scalar magnitude denotes as $s$, be the wavelength scaled separation between a spatial points $\bmm{r}$ and $\tilde{\bmm{r}}$---leaving an overall factor of $\left(2\pi\right)^{2}$ compared to the standard definition of the inverse Fourier transform. 
+Supposing that $\zeta$ is given a $\propto k$ functional dependence in the limit of large $k$~\footnote{This assumption of regularization is motivated by the fact that on arbitrarily small length scales our present mathematical model is very unlikely to match physical reality.} by taking partial derivatives on $s$ the outer product appearing in the definition of $\breve{\bmm{G}}^{\circ}_{\circ}$ can be factored as 
+\begin{equation}
+	\bmm{G}^{\circ}_{\circ} = \bmm{Id}^{\uparrow} \bmm{g}_{\circ} + \bm{\nabla}_{\bmm{d}}^{k_{\circ}}\bmm{g}_{\circ} \bm{\nabla}_{\bmm{d}}^{k_{\circ}\dagger}
+\end{equation}
+where 
+\begin{align} 
+	\bmm{g}_{\circ}\left(\bmm{s}\right) &= 
+	\frac{1}{2\pi}\int\limits_{0}^{\infty}dk~k^{2}\int\limits_{0}^{\pi}d\theta~i\sin\theta~\frac{e^{2\pi ik s\cos\theta }}{\left(k^{2}-\zeta^{2}\right)}
+	\label{gScal}\\
+	&=\frac{1}{\left(2\pi\right)^{2}}\int\limits_{-\infty}^{\infty}dk~\frac{k e^{2\pi iks}}{s\left(k^{2} -\zeta^{2}\right)}
+	 = i~\frac{e^{2 \pi i\zeta s}}{4\pi s},
+	\nonumber
+\end{align}
+$\nabla_{\bmm{d}}^{k_{\circ}}$ is the divergence operator, and $\bmm{Id}^{\uparrow}$ is the operator transforming a scalar field into a three dimensional vector field, for some index $\bmm{x}$, by the rule 
+\begin{equation}
+	\bmm{Id}^{\uparrow}f\left(\bmm{x}\right) \mapsto 
+	\begin{bmatrix}
+		f\left(\bmm{x}\right) & 0 & 0 \\
+		0 & f\left(\bmm{x}\right) & 0 \\
+		0 & 0 & f\left(\bmm{x}\right)
+	\end{bmatrix}.
+\end{equation}
+Because we have defined $\breve{\bmm{G}}^{\circ}_{\circ} = \left[\left(k^{2} - \zeta^{2}\right)\bmm{Id} - \bmm{k}\otimes \bmm{k}\right]^{-1}$, by making the appropriate associations for representations of operators in Fourier space, 
+\begin{equation}
+	\left[\bm{\nabla}_{\bmm{c}}^{k_{\circ}}\bm{\nabla}_{\bmm{c}}^{k_{\circ}}-\zeta^{2}\bmm{Id}\right] 
+	\breve{\bmm{G}}^{\circ}_{\circ} = \bmm{Id}. 
+\end{equation}
+Hence, 
+\begin{align}
+	\zeta^{2}\breve{\bmm{G}}^{\circ}_{\circ} &= 
+	\bm{\nabla}_{\bmm{c}}^{k_{\circ}}\bm{\nabla}_{\bmm{c}}^{k_{\circ}}\left( 
+	\bmm{Id}^{\uparrow} \bmm{g}_{\circ} + \bm{\nabla}_{\bmm{d}}^{k_{\circ}} \bmm{g}_{\circ} \bm{\nabla}_{\bmm{d}}^{k_{\circ}\dagger}\right) - \bmm{Id}
+	\label{compGreenForm} \\
+	\breve{\bmm{G}}^{\circ}_{\circ} &= \frac{1}{\zeta^{2}} \left(\bm{\nabla}_{\bmm{c}}^{k_{\circ}}\bm{\nabla}_{\bmm{c}}^{k_{\circ}}\bmm{Id}^{\uparrow} \bmm{g}_{\circ} - \bmm{Id}\right),
+	\nonumber
+\end{align}
+where in going from the second to the third line we have used the fact that $\bm{\nabla}_{\bmm{c}}^{k_{\circ}}\bm{\nabla}_{\bmm{d}}^{k_{\circ}} = \bm{\nabla}_{\bmm{d}}^{k_{\circ}}\bm{\nabla}_{\bmm{c}}^{k_{\circ}} = \bmm{0}$.
+For implementation purposes, it may also be helpful to note that for a complex frequency Eq.~\eqref{preWOpt} becomes
+\begin{align}
+	&\left[\left(\bmm{Id} +z\bmm{X}\right) - z\bmm{X}
+	\begin{bmatrix}
+		\left(\bm{\nabla}_{\bmm{c}}^{k_{\circ}}\right)^{2}  & i\frac{z}{\zeta^{2}}\left(\bm{\nabla}_{\bmm{c}}^{k_{\circ}}\right)^{3} \\
+		-i\frac{z}{\zeta^{2}}\left(\bm{\nabla}_{\bmm{c}}^{k_{\circ}}\right)^{3} & \left(\bm{\nabla}_{\bmm{c}}^{k_{\circ}}\right)^{2}
+	\end{bmatrix}
+	\bmm{Id}^{\uparrow}\bmm{g}_{\circ}
+	\right]\bmm{p}_{t} 
+	\nonumber\\
+	&= \bmm{p}_{i} + \bmm{p}_{\circ}.
+\end{align}
+\section{integral forms}
+\noindent
+Appealing to a reformulation in terms of differential forms, or the careful use of vector calculus identities, the $\bm{\nabla}^{k_{\circ}}_{\bmm{c}}\bm{\nabla}^{k_{\circ}}_{\bmm{c}}$ operator appearing above can be used to transform the volume integrals implicit in Eq.~\eqref{compGreenForm} into surface integrals. 
+Applying this transformation
+\begin{align}
+	&\bmm{q}_{m, j}^{b\dagger} \left[\bm{\nabla}_{\bmm{c}}^{k_{\circ}}\bm{\nabla}_{\bmm{c}}^{k_{\circ}}  
+	\bmm{Id}^{\uparrow} \bmm{g}_{\circ}\right]\bmm{q}_{l,i}^{a} = \sum_{h,k} \left(\hat{n}_{h}\times \hat{j}\right)\cdot\left(\hat{n}_{k}\times\hat{i}\right)
+	\nonumber
+	\\
+	&\oiint_{h}\oiint_{k}~\text{g}_{\circ}\left(\bmm{r}_{m}^{b}-\bmm{r}_{n}^{a}+\left(\bmm{v}^{b}_{m}-\bmm{v}^{a}_{l}\right)\right).
+	\label{surfaceInts}
+\end{align}
+where $a$ and $b$ are used as volume labels, $m$ and $l$ are used as cube labels, $j$ and $i$ are used as direction labels, and $\hat{n}_{h}$ and $\hat{n}_{k}$ are the faces of the target cube and source cube respectively. 
+Using the cube face storage convention describe in sec.~\ref{conventions}, using the face pair numbering $6*\left(\text{source face index} - 1\right) + \text{target face index}$, the face contributions for a given source and target cube pair are 
+\begin{align}
+	&\hat{\bmm{i}}\hat{\bmm{i}} = \left\{15,-16,-21,22,29,-30,-35,36\right\}
+	\nonumber \\
+	&\hat{\bmm{j}}\hat{\bmm{i}} = \left\{-13,14,19,-20\right\}
+	\nonumber \\
+	&\hat{\bmm{k}}\hat{\bmm{i}} = \left\{-25,26,31,-32\right\}
+	\nonumber \\
+	&\hat{\bmm{i}}\hat{\bmm{j}} = \left\{-3,4,9,-10\right\}
+	\nonumber \\
+	&\hat{\bmm{j}}\hat{\bmm{j}} = \left\{1,-2,-7,8,29,-30,-35,36\right\}
+	\nonumber \\
+	&\hat{\bmm{k}}\hat{\bmm{j}} = \left\{-27,28,33,-34\right\}
+	\nonumber \\
+	&\hat{\bmm{i}}\hat{\bmm{k}} = \left\{-5,6,11,-12\right\}
+	\nonumber \\
+	&\hat{\bmm{j}}\hat{\bmm{k}} = \left\{-17,18,23,-24\right\}
+	\nonumber \\
+	&\hat{\bmm{k}}\hat{\bmm{k}} = \left\{1,-2,-7,8,15,-16,-21,22\right\}.
+\end{align}
+
+To reproduce the physics of non-local response, we implement the model proposed in~\cite{giovannini2022do}. To that end, we assign a charge to each cubic cell, through the domain function \(c^a_n\). The interaction between charges is then 
+\begin{align}
+	c^b_m \bmm{C} c^a_l,
+\end{align}
+where \(\bmm{C}\) is integration Kernel that corresponds to the Coulomb potential. Using that
+\begin{align}
+	\frac{1}{x} &= k_{\circ}\bm{\nabla}_{\bmm{d}}^{k_{\circ}}\frac{\bmm{x}}{2x}
+	\nonumber\\
+	\hat{n}_h \cdot k_{\circ}\frac{\bmm{x}}{2x} &= k^2_{\circ}\bm{\nabla}_{\bmm{d}}^{k_{\circ}}\left[\hat{n}_h\cdot\frac{\bmm{x}\otimes\bmm{x}}{6x}\right],
+\end{align}
+successive applications of the divergence theorem allow one to express the volume integrals as surface integrals. Defining
+\begin{equation}
+	\bmm{D}\left(\bmm{x}\right) = k_\circ^2 \frac{\bmm{x}\otimes\bmm{x}}{6x},
+\end{equation}
+we have
+\begin{align}
+	&c^b_m \bmm{C} c^a_l = -c^b_m a^b_m\sum_{h,k} 
+	\nonumber\\
+	&\oiint_h\oiint_k\hat{n}_h\cdot \bmm{D}\left(\bmm{r}^b_m-\bmm{r}^a_l+\left(\bmm{v}^b_m-\bmm{v}^a_l\right)\right)\cdot \hat{n}_k
+\end{align}
+Like before, \(a\) and \(b\) denote the cuboid where the charge is located, \(n\) and \(l\) are cube/voxel labels, \(\bmm{r}_m^b\) and \(\bmm{r}_l^a\) are the positions of the centers of the cubes, \(\bmm{v}_m^b\) and \(\bmm{v}_l^a\) are the positions to the integration surfaces with respect to the center of each cube, and \(\hat{n}_h\) and \(\hat{n}_l\) are the normal vectors to the integration surfaces. {\color{olive} I'm not sure that the notation is how you best like it. Also, this paragraph is redundant, but I'm just making sure that I understand everything.}
+
+Additionally, the interaction between cubic charges and currents is given by
+\begin{align}
+	\bmm{e}^b_m\bmm{q}^a_{l} &= -k_{\circ}\bmm{\nabla}^{k_\circ}V^b_m \bmm{q}^a_{l} \nonumber\\
+	&=-k_\circ \sum_{h}\left(\bmm{q}^a_{l} \cdot\hat{n}_h\right) \oiint_h V^b_m\left(\bmm{r}^b_m-\bmm{r}^a_l-\bmm{v}^a_l \right),
+\end{align}
+where \(V_m^b(\bmm{r})\) is the electrostatic potential at \(\bmm{r}\) due to the homogeneous charge distribution in the parallelepiped labeled by \(b\) and \(m\). Its analytical expression can be found in~\cite{waldvogel1976the}. The formula therein expresses the coordinates of \(\bmm{r}\) from the \((0,0,0)\) vertex. In terms of the coordinates with respect to the center of the cubic cell \(b,m\), we have
+\begin{align}
+	V^b_m(\bmm{r}) = \sum_{i,j,k=0}^1& P^c_{\{x_i,y_j,z_k\}}\Bigg[x_i y_j\arctanh\left(\frac{z_k}{r_{ijk}}\right) \nonumber \\
+	-& \frac{x_i^2}{2}\arctan\left(\frac{y_j z_k}{x_i r_{ijk}}\right) \Bigg], \label{analyticalPotential}
+\end{align}
+where \(P^c_{\{t_1,t_2,t_3\}}\) permutes cyclically the variables \(t_i\) in the expression upon which it acts, in square brackets. In Eq.~\eqref{analyticalPotential}, \(\bmm{r}_i=\bmm{r}+(-1)^{(i+1)}\bmm{l}\), where the spatial components of \(\bmm{l}\) are the lengths of the parallelepiped in each direction, and \(r_{ijk}=\sqrt{x_i^2+y_j^2+z_k^2}\).
+
+\section{User Interface} 
+Gila works exclusively with rectangular cuboids, referred alternatively as volumes or domains, composed of small cubic cells. 
+
+\section{Computational Model}
+
+
+
+! need to investigate SVD tradeoff + CUDA multiplication speed up. 
+
+\section{Conventions} \label{conventions}
+\noindent
+$\cdot$ Cube faces. 
+\\ \\
+The relative separation between the centers of a pair of cubes is specified by grid coordinates. 
+In addition to this information, to compute the surface integrals described above, ``local'' relative separation information between pairs of faces of the pair of cubes is also need. 
+This information is generated by the cubeFaces function in the GilaCirc module. 
+The storage convention reference a cube in the upper-forward-right quadrant of a set of Cartesian vectors, using $\mathtt{U}$ and $\mathtt{L}$ labels to denote ``upper'' and ``lower'' coordinate values relative to a given plane and associated normal direction. 
+$$
+	\mathtt{cat(yzL, yzU, xzL, xzU, xyL, xyU, dims = 3)}
+$$
+Point specifications for each face follow a counter-clockwise convention when viewed along the positive normal axis of the corresponding plane. 
+\\ \\
+$\cdot$ Green function interaction elements. 
+\\ \\
+The storage format of the Green function interaction elements for every pair of cubes is $\mathtt{[[ii, ji, ki]^{T}; [ij, jj, kj]^{T}] ; [ik, jk, kk]^{T}]}$ during the writing process to facilitate numbering, debugging, and possible future extensions. 
+However, by reciprocity, the inclusion of both transpose element pairs is redundant, even for asymmetrically sized cubes. 
+Hence, once the writing process in terminate, the storage format is condensed to $\mathtt{[[ii, jj, kk]^{T}; [ij, ik, jk]^{T}]}$;
+\\ \\
+$\cdot$ Scaling conventions. 
+\\ \\ 
+Vectors in Gila are taken to be coefficients defined relative to a unit strength basis of cuboids; rows are taken to be coefficients defined relative to the associated linear functionals mapping a unique cuboid and direction combination to unity. 
+Hence, when used in integral expressions, the use of vectors leads to length scaling proportionalities, while the use of linear functionals causes inverse length scaling proportionalities. 
+\\ \\
+Based on this convention, the rectangular surface integrals occurring in Eq.~\eqref{surfaceInts} scale inversely to the characteristic length opposite to the face being integrated over in target cuboid, and proportionally to the characteristic lengths of the face being integrated over in the source cuboid. 
+However, because the Green function kernel expression of Eq.~\eqref{surfaceInts} themselves scale proportionally to the characteristic length opposite to the face being integrated over in both the source and target, the overall scaling of Eq.~\eqref{surfaceInts} is inversely proportional to the volume of the source cuboid in the absence of singular contributions. 
+\\ \\
+There is also a potential for confusion when observing that the weak singular integrals calculated via  DIRECTFN are scaled by inverse volume of the cuboid. 
+As opposed to the Gaussian quadrature subroutine used elsewhere, in order to provide greater flexibility, DIRECTFN works with the relative unit length scales, as opposed to normalizing all integrals to a fixed length. 
+This choice causes the results of DIRECTFN to scale proportionally to the product of the source and target face areas. 
+Multiplication by the inverse characteristic volume of the cuboid is thus a result of the Gila linear functional convention, resulting in the same scaling characteristics described above.
+\section{GPU commands}
+\noindent
+$\cdot$ Get GPU operating information. 
+\\ \\
+terminal command: nvidia-smi
+
+% \subsection{Solving the Polarization Current Equations}
+% \noindent
+% To solve \eqref{JMVIE} numerically, a choice of basis is required to discretize the problem. There are two popular choices: delocalized bases using functions with global support, commonly called \emph{spectral bases}, and localized bases using functions with local support, commonly called \emph{method of moments bases}. In principal either choice can be used with any method of solving Maxwell's equations; but in practice, localized basis functions tend to be easier to work with, particularly when the mesh is not strictly uniform. (This idea mirrors the construction of a partition of unity on a general manifold. The easiest approach in both settings is to limit oneself to functions with finite support.) Supposing some such localized vector basis, $\left\{q_{n}\left(x\right)\right\}$, both $\sigma_{i}$ and $\sigma_{s}$ can be approximately expanded as $\sigma_{i}\approx \sum \sigma_{i\;n}q_{n}\left(x\right)$ and $\sigma_{s} \approx \sum \sigma_{s\; n}q_{n}\left(x\right)$. In what follows, we will drop the explicit spatial dependence, trusting that there is only a minimal risk of confusion.\\ \\
+% \eqref{JMVIE} is then discretized by integrating over a set of test functions, which in a \emph{Galerkin method} are chosen to be the original basis set in the dual space. With $\langle \cdot | \cdot \rangle$ denoting the standard conjugate inner product, we are led to
+% \begin{align}
+% 	&\langle q_{m} | \left(I_{6}-k_{o}^{2}\;\chi_{t}\star G_{i}\right) q_{n}\rangle\sigma_{t\;n}=\langle q_{m}|q_{n}\rangle\sigma_{i\;n},
+% 	\label{Galerkin1}       	
+% \end{align}
+% which in matrix notation becomes 
+% \begin{align}
+% 	&W^{-1}\sigma_{t} = N\sigma_{i}, \nonumber \\
+% 	&\sigma_{t} = WN\sigma_{i},
+% 	\label{Galerkin2}       	
+% \end{align}
+% where we are now referring to the vector of coefficients $\left\{\sigma_{s\;n}\right\}$ and $\left\{\sigma_{n}\right\}$ simply as $\sigma_{s}$ and $\sigma_{i}$. Specific entries of the two matrices are $W^{-1}_{nm}= \langle b_{m} | \left(I_{6}+i\omega\chi_{t}\star G_{i}\right) b_{n}\rangle$, and $N_{nm}= \langle b_{m} | b_{n}\rangle$ respectively. The components arising in \eqref{Galerkin2} are difficult to compute directly, particularly for overlapping basis elements. However, as we will examine later in these notes, using special forms of the Green function the integral can always be cast as equivalent surface integrals, where a range of well developed techniques can be used to quickly give accurate results. There are nevertheless other problems with a direct approach. The $W$ matrix is both non-symmetric and dense, leading to problems in both forming matrix vector products and storage. At face value, products require $\mathcal{O}\left(N^{2}\right)$ time and storage $\mathcal{O}\left(N^{2}\right)$ memory. The removal of these requirements was a major impetus for the calculation techniques developed in the remainder of this section.\\ \\
+% From Poynting's theorem, the power transfered between two bodies, marked by $a$ and $b$ superscripts, is given by 
+% $$\Phi^{ba} = \frac{\omega\mu_{o}}{2}\;\im{\left(WN\pi^{a}\sigma_{i}\right)^{*}\pi^{b}G_{i}\left(WN\pi^{a}\sigma_{i}\right)},$$
+% where we have introduced to matrix $\pi^{x}$ as projection into body $x$. Equating the imaginary part with the difference of the quantity and its adjoint, with $\asym{A}=\left(A-A^{*}\right)/2$ the above reduces to the formula
+% \begin{equation}
+%    	\Phi^{ba} = \frac{\omega\mu_{o}}{2}\;\tr{\pi^{a}\sigma_{i}\sigma_{i}^{*}\pi^{a}\left(WN\right)^{*}\asym{\pi^{b}G_{i}}\left(WN\right)}.
+% \end{equation}   
+% Defining the current-current correlation matrix between bodies $x$ and $y$ as $C^{xy}=\pi^{x}\sigma_{i}\sigma^{*}\pi^{y}$, we then have 
+% \begin{equation}
+% 	\Phi^{ba} = \frac{\omega\mu_{o}}{2}\;\tr{C^{aa}\left(WN\right)^{*}\asym{\pi^{b}G_{i}}\left(WN\right)}.
+% 	\label{tracePower}
+% \end{equation}
+% The physics identifying different types of processes, incandescence versus florescences ect., is largely contained in the form of the correlation matrix. The general form of this quantity derives from a particular choice of basis as 
+% \begin{equation}
+% 	\langle b_{l}\left(x\right) |\overline{\sigma_{i}\left(x\right)\rangle\langle \sigma_{i}\left(y\right)}| b_{p}\left(y\right)\rangle = N_{ln}\overline{\sigma_{n}\sigma_{m}^{*}}N_{mp},
+% \end{equation}
+% where the overline means that the ensemble average is to be taken. From this expression, the entries of the correlation matrix, in the Einstein summation convention, are  
+% \begin{equation}
+% 	C_{nm}= N^{-1}_{nl} \langle b_{l}\left(x\right) |\overline{\sigma_{i}\left(x\right)\rangle\langle \sigma_{i}\left(y\right)}| b_{p}\left(y\right)\rangle N^{-1}_{pm},
+% 	\label{corrMat}
+% \end{equation}
+% so that 
+% \begin{equation}
+% 	C=N^{-1}|\overline{\sigma_{i}\rangle\langle\sigma_{i}}|N^{-1}.
+% \end{equation}
+% In all cases, $C$ is therefore both Hermitian and positive definite, meaning that it admits a Cholesky factorization $C=L_{C}L^{*}_{C}$ (as can be seen by the form of the matrix). The above form is strikingly similar to the expression we have used in our article examining heat transfer enhancement in two dimensions using inverse design. In the notation of this document, there, we showed heat transfer to be 
+% \begin{equation}
+% 	\Phi^{ba}= \frac{\omega^{2}\mu_{o}^{2}}{2}||L_{\im{\chi}^{bb}}\pi^{b}G_{i}\left(WN\right)\pi^{a}L^{*}_{C^{aa}}||^{2}_{_F},
+% \end{equation}
+% with the $F$ subscript denoting the Frobenius norm, and $\mathcal{G}_{i}$ is the electric electric field blocks of the total electromagnetic $G_{i}$ used in the rest of the document. Clearly, this is very nearly \eqref{tracePower}.
+% \section{\S 2: Computational Foundation}
+% \subsection{Trace Forms}
+% \noindent
+% As previously stated, direct computation of the $W$ $N$ and $\asym{\pi^{b}G_{i}}$ matrices used in the development of the theoretical underpinnings of the JM-VIE formulation would quickly lead to computational intractability in nearly any situation of interest. To surmount this difficulty, we being splitting up \eqref{tracePower}. Using $\hat{b}$ do denote the complement set of bodies to $b$ (the list of all bodies excluding $b$), we find
+% \begin{align}
+% &\Phi^{ba}=\frac{\omega\mu_{o}}{2}\Big(\tr{C^{aa}\left(WN\right)^{*\;ab}\asym{G^{bb}_{i}}\left(WN\right)^{ba}} +\nonumber \\
+% &\tr{C^{aa}\asym{\left(WN\right)^{*\;ab}G^{b\hat{b}}_{i}\left(WN\right)^{\hat{b}a}}}\Big)\nonumber \\
+% &\Phi^{ba}=\frac{\omega\mu_{o}}{2}\left(S^{ba}+E^{ba}\right),
+% \label{selfExterior}
+% \end{align} 
+% where $S^{ab}$ is used to denote the interaction matrix of the Green function for basis elements within body $b$ (self), and $E^{ab}$ is used to denote interactions between body $b$ other bodies (exterior). From its association with the power expended by current in a passive medium, the matrix $G_{i}$ must at the very least be negative semi-definite. This means $\asym{G^{bb}_{i}}$ is Hermitian and negative semidefinite so that it admits a symmetric SVD decomposition $U\Sigma U^{*}$, which can be made into an exterior product by taking the square root of the diagonal $\Sigma$ matrix, $\Sigma=DD^{*}$. Making these substitutions, $S^{ba}$ can be written as a Frobenius norm
+% \begin{equation}
+% S^{ba}=||L_{C^{aa}}\left(WN\right)^{*\;ab}U^{bb}D^{bb}||^{2}_{_F}.
+% \label{selfOnly}  	
+% \end{equation}
+% $E^{ba}$ does not admit this simplification, but can still be substantially simplified by using the fact that $G^{b\hat{b}}$ is a low rank matrix for most situations of interest to heat transfer. Using the SVD $\asym{G^{b\hat{b}}}=U^{b\hat{b}}D^{b\hat{b}}D^{b\hat{b}}V^{b\hat{b}}$,
+% \begin{align}
+% 	&E^{ba}=\nonumber \\
+% 	&\tr{\left(L_{C^{aa}}\left(WN\right)^{*\;ab}U^{b\hat{b}}D^{b\hat{b}}\right)\left(D^{b\hat{b}}V^{*\;b\hat{b}}\left(WN\right)^{\hat{b}a}L_{C^{aa}}\right)}.
+% 	\label{exteriorOnly}
+% \end{align}
+% Since all the matrices involved are typically small there is little performance loss due to the fact that this extra matrix products need to be computed. Still, the alternative form for heat transfer given at the end of the previous does admit a full Frobenius norm, and since this may turn out to be computationally advantageous we give these forms below.
+% \begin{align}
+% 	&S^{ba}=||L_{\im{\chi}^{bb}}U^{bb}\Sigma^{bb}\left(V^{*\;bb}\left(WN\right)^{ba}\right)L_{C^{aa}}||_{_F}^{2},\nonumber \\
+% 	&E^{ba}=||L_{\im{\chi}^{bb}}U^{b\hat{b}}\Sigma^{b\hat{b}}\left(V^{*\;b\hat{b}}\left(WN\right)^{\hat{b}a}\right)L_{C^{aa}}||_{_F}^{2}.
+% 	\label{heatFroben}
+% \end{align}
+% The components can be formally equated based on the appearance of the different free space Green functions that appear. (There is no possible mixing of contributions.) In comparing these equations it is important to keep in mind that, although we have written all decompositions in the form $U\Sigma V^{*}$, the properties of the matrices from which the SVD derive can be quite different, $\mathcal{G}_{i}\neq\asym{G_{i}}$. Taking this into account, \eqref{selfOnly} will likely be far easier to compute than the corresponding term in \eqref{heatFroben}. \\ \\
+% \subsection{Forms of the Green Function and Basis Choices}
+% \noindent
+% We now begin to consider the implications of different, analytically equivalent, forms on the construction of the matrix elements arising in the foregoing analysis. One of the most important choices to be made is how to handle the free space Green function, in particular its singular component. Due to the fact that each matrix element is an integral, it turns out to be easier to work with an integral differential representation of the Green function. The most useful form in this regard is 
+% \begin{align}
+%  	&G_{i}\star=\begin{pmatrix}
+%  	\frac{1}{{k_{o}^{2}}}\left(\mathcal{P}- I_{3}\right) & \mathcal{K} \\
+%  	-\mathcal{K}	& \frac{1}{Z^{2}k_{o}^{2}}\left(\mathcal{P}- I_{3}\right)
+%  	\end{pmatrix}\star,
+% \end{align}
+% where $\mathcal{P}=\nabla\times\nabla\times I_{3}\star g_{i}$, $\mathcal{K}=\nabla\times g_{i}$, and $$g_{i}=\frac{e^{i k_{o}|\textbf{r}|}}{4\pi|\textbf{r}|}$$ is the scalar electromagnetic Green function. Focusing on the interaction between electric field and electric sources, since this is the only component required for computing heat transfer, in the above notation the JM-VIE equation becomes
+% \begin{align}
+% \left(\epsilon_{t}\star- \chi_{t}\star\mathcal{P}\star \right)j_{t}=j_{i}.
+% \label{jmEq}
+% \end{align} 
+% The first choice to be made in the discretization of this equation is the selection of an appropriate grid. For simplicity, we will embedded each body in a rectangular box of size $\left\{L^{a}_{x},L^{a}_{y},L^{a}_{z}\right\}$ split into cubic voxels. With this choice, the natural basis is then the domain functions of the individual cubes $\left\{q^{a}_{n}\right\}$ with a particular Cartesian directionality $\left\{\hat{x},\hat{y},\hat{z}\right\}$. Our notation will be that $q^{a}_{n,i}$ refers to the domain function of the $n$th cube in the $a$th body selecting the $i$th direction, with $i=\left\{1,2,3\right\}$ equated elementwise to $\left\{\hat{x},\hat{y},\hat{z}\right\}$. Similarly, the body will be supposed to be piecewise homogeneous with a constant permittivity in each voxel.\\ \\
+% The most difficult computation that must be performed is then $$\langle q_{m, j}^{b} |\mathcal{P}\star q^{a}_{n,i}\rangle .$$ Written out in full, this element becomes
+% \begin{align}
+% 	&\langle q_{m, j}^{b} |\mathcal{P}\star q^{a}_{n,i}\rangle = \int \left(q_{m}^{b}\left(r_{1}\right) \hat{j}\right)\cdot\nabla_{1}\times \nonumber \\
+% 	&\left(\int\left(\nabla_{1} g\left(r_{1}-r_{2}\right)q_{n}^{a}\left(r_{2}\right)\right)\times\hat{i}\right)= \nonumber -\sum_{k}\\
+% 	&\oint_{k} \left(\hat{n}_{k}\times \hat{j}\right)\cdot\left(\int\nabla_{1}g\left(r_{1}-r_{2}+\left(r^{b}_{m}-r^{a}_{n}\right)\right)\times\hat{i}\right) = \nonumber \\
+% 	&-\sum_{k}\oint_{k} \left(\hat{n}_{k}\times \hat{j}\right)\cdot\hat{i}\times \int\nabla_{2}g\left(r_{1}-r_{2}+\left(r^{b}_{m}-r^{a}_{n}\right)\right)=\nonumber\\
+% 	&\sum_{k,l} \left(\hat{n}_{k}\times \hat{j}\right)\cdot\left(\hat{n}_{l}\times\hat{i}\right)\oint\oint_{k,l} g\left(r_{1}-r_{2}+\left(r^{b}_{m}-r^{a}_{n}\right)\right).
+% 	\label{surfaceInts}
+% \end{align}
+% For each pair of elements, \eqref{surfaceInts} generates a $3\times 3$ interaction block, internally indexed by the nine possible Cartesian orientation combinations. We will refer to this construction as $\mathcal{P}^{ba}_{mn}$, dropping the Cartesian indices. The translational invariance of the scalar Green function $g_{i}$ makes \eqref{surfaceInts} shift invariant in Cartesian indexes of the voxels. That is, if both $m$ and $n$ are shifted by an equal number of voxels, the resulting matrix is equivalent to the unshifted version. This make each total $\mathcal{P}^{ba}$ matrix Toeplitz symmetric, reducing the computational cost of both calculation and storage of the $\mathcal{P}$ matrix. (For further explanation refer to the Toeplitz and Circulant forms appendix.)
+\appendix
+\subsection{Toeplitz and Circulant Forms}
+\noindent
+In the main text, we state that the translation invariance of the Green function results in the $\mathcal{P}$ matrix having a symmetric block Toeplitz form. Later, we then expanded this matrix to a block circulant form to further aid calculations. In this appendix, we provide additional details explaining these two statements. We begin with the symmetric block Toeplitz form. In our construction of the problem, there are five levels of indexing:\\ \\
+1. The two body indices (self and external interactions).\\ \\
+2. The $\left\{x,y,z\right\}$ the voxel number indices of the two basis functions with the cuboid girds (one index pair for each Cartesian coordinate).\\ \\
+3. The $\left\{\hat{i},\hat{j}\right\}$ pair of Cartesian direction indices.\\ \\
+The qualification of symmetric block Toeplitz means that at each level of indexing the matrix subblocks have a Toeplitz form. For example, starting at the highest level of indexing for a particular self body interaction, the matrix blocks are indexed by the $x_{n}x_{m}$ voxel values. These matrix blocks have a Toeplitz form 
+\begin{equation}
+	\mathcal{P}=
+	\begin{pmatrix}
+ 	&x_{11} &x_{12} &x_{13} &x_{14}\;\;\;\\
+ 	&x_{21} &x_{11} &x_{12} &x_{13}\;\;\;\\
+ 	&x_{31} &x_{21} &x_{11} &x_{12}\;\;\;\\
+ 	&x_{41} &x_{31} &x_{21} &x_{11}\;\;\;	
+ 	\end{pmatrix}. 
+ 	\label{toeplitz}
+\end{equation} 
+(in this example we consider a $4\times 4\times 4$ cubiod grid.) If we choose one of these matrices, for instance $x_{14}$, then the $y$ index subblocks are again Toeplitz
+\begin{equation}
+  	x_{14}= 
+  	\begin{pmatrix}
+  	&y^{_{14}}_{11} &y^{_{14}}_{12} &y^{_{14}}_{13} &y^{_{14}}_{14}\;\;\;\\
+ 	&y^{_{14}}_{21} &y^{_{14}}_{11} &y^{_{14}}_{12} &y^{_{14}}_{13}\;\;\;\\
+ 	&y^{_{14}}_{31} &y^{_{14}}_{21} &y^{_{14}}_{11} &y^{_{14}}_{12}\;\;\;\\
+ 	&y^{_{14}}_{41} &y^{_{14}}_{31} &y^{_{14}}_{21} &y^{_{14}}_{11}\;\;\;
+	\end{pmatrix}. \nonumber
+\end{equation}  
+Going deeper, the $z$ index subblock of a given $y$ block also show this same structure
+\begin{equation}
+  	y^{_{14}}_{12}= 
+  	\begin{pmatrix}
+  	&z^{_{12;14}}_{11} &z^{_{12;14}}_{12} &z^{_{12;14}}_{13} &z^{_{12;14}}_{14}\;\;\;\\
+ 	&z^{_{12;14}}_{21} &z^{_{12;14}}_{11} &z^{_{12;14}}_{12} &z^{_{12;14}}_{13}\;\;\;\\
+ 	&z^{_{12;14}}_{31} &z^{_{12;14}}_{21}&z^{_{12;14}}_{11} &z^{_{12;14}}_{12}\;\;\\
+ 	&z^{_{12;14}}_{41} &z^{_{12;14}}_{31} &z^{_{12;14}}_{21} &z^{_{12;14}}_{11}\;\;\;
+	\end{pmatrix},\nonumber
+\end{equation}  
+as do the $3\times 3$ matrices associated with each $z$ block. At each level, the Toeplitz blocks  can be embedded in circulant blocks by treating either first or last element as a reflective boundary. The meaning of this statement again becomes clear in example. Taking $\mathcal{P}$ as in \eqref{toeplitz}, at the outermost level the embedded matrix becomes
+\begin{equation}
+ 	\mathcal{P}_\mathcal{C}=\left(
+ 	\begin{array}{cccc|cccc}
+ 	x_{11} &x_{12} &x_{13} &x_{14} &x_{aa} &x_{41} &x_{31} &x_{21} \\
+ 	x_{21} &x_{11} &x_{12} &x_{13} &x_{14} &x_{aa} &x_{41} &x_{31} \\
+ 	x_{31} &x_{21} &x_{11} &x_{12} &x_{13} &x_{14} &x_{aa} &x_{41} \\
+ 	x_{41} &x_{31} &x_{21} &x_{11} &x_{12} &x_{13} &x_{14} &x_{aa} \\
+ 	\hline 
+ 	x_{aa} &x_{41} &x_{31} &x_{21} &x_{11} &x_{12} &x_{13} &x_{13} \\
+ 	x_{14} &x_{aa} &x_{41} &x_{31} &x_{21} &x_{11} &x_{12} &x_{13} \\
+	x_{13} &x_{14} &x_{aa} &x_{41} &x_{31} &x_{21} &x_{11} &x_{12} \\
+	x_{12} &x_{13} &x_{14} &x_{aa} &x_{41} &x_{31} &x_{21} &x_{11} \\
+	\end{array}\right),
+	\label{circulant}
+\end{equation} 
+where the $x_{ij}$ entries that appear are also embedded in circulant subblocks (expanded forms of the identically named $x_{ij}$ as used previously). Unlike the block Toeplitz form, which is not Toeplitz matrix, the block circulant form is circulant. The usefulness of this procedure stems from the special properties of circulant matrices. Specifically, the eigenvectors are the Fourier vectors and the eigenvalues are
+\begin{equation}
+	\lambda_{j}=c_{0}+c_{n-1}\omega_{j}+c_{n-2}\omega_{j}^{2}+\ldots+c_{1}\omega_{j}^{n-1},  	
+	\label{eigen}
+\end{equation}  
+where $\omega_{j}=e^{2\pi i j/n}$, and $c_{i}$ are the entires along a single row of the circulant matrix. This lets us the expand the individual tensor components of the matrix, $\left(N_{x}^{s}+N_{x}^{t}\right)\times \left(N^{s}_{y}+N^{t}_{y}\right) \times \left(N^{s}_{z}+N^{t}_{z}\right)$ with $s$ standing for the source object and $t$ the target, as 
+\begin{equation}
+ \mathcal{P}^{\hat{i},\hat{j}}_{C}=F^{*}\left(F \left(c\right)\right)F,
+\label{circulantFourier}
+\end{equation}
+where $F$ is the unnormalized Fourier transform, $e^{-2\pi i j/n}$ convention, and $c$ is the first column. Using the fast Fourier transform algorithm, these operation are much more computationally efficient than standard matrix multiplication, taking the number of actions that needs to be performed from $\left(N_{x}N_{y}N_{z}\right)^{2}$ to approximately $N_{x}N_{y}N_{z}lg\left(N_{x}N_{y}N_{z}\right)$. The basic premise of the fast Fourier transform is discussed in the next appendix.   
+\subsection{Removal of embedding overhead}
+\noindent
+Given the circulant embedding described above, the operation that must generally be carried out to compute the action of $\bmm{G}_{\circ}$ on a source vector $\bmm{s}$ is 
+\begin{equation}
+	\bmm{P}\bmm{F}^{\dagger}_{c}\tilde{\bmm{G}}_{\circ}\bmm{F}_{c}\bmm{E}\bmm{s},
+	\label{embeddingForm}
+\end{equation}
+where $\bmm{F}_{c}$ is the Fourier transform operator in the ``circulant space'', $\tilde{\bmm{G}}_{\circ}$ is the Fourier transform of the first column of $\tilde{\bmm{G}}_{\circ}$, $\bmm{E}$ is the embedding operation, and $\bmm{P}$ is the projection operation. 
+The computational overhead that would seem to be implied by the embedding and projection operations can be removed by treating these operations in the Fourier basis. 
+\\ \\
+Suppose that the dimension of $\bmm{s}$ is $n$, and let $\bmm{c}_{k}$ denote the Fourier transform coefficients of the step function on the first $n$ dimensions of the circulant space. 
+Take $\bmm{s}_{c}$ to be the vector obtained by repeating $\bmm{s}$. 
+In matrix form, the Eq.\eqref{embeddingForm} is equivalent to
+% \begin{align}
+% 	\bmm{P}\bmm{F}_{c}^{\dagger}\left[\diag\tilde{\bmm{G}}_{\circ}^{0}\right]
+% 	\begin{Bmatrix}
+% 		\tilde{\bmm{s}}_{0} \\
+% 		0 \\
+% 		\tilde{\bmm{s}}_{1} \\
+% 		0 \\
+% 		\vdots
+% 	\end{Bmatrix}
+% 	\begin{bmatrix}
+		
+% 	\end{bmatrix}
+% \end{align}
+
+
+
+\subsection{Fast Fourier Transform}
+\noindent 
+The $N$ roots of unity of the exponential function furnish all irreducible representations of the cyclic group $C_{N}$. For $N$ discrete spacings, they also provide the possible values of the Fourier kernel. This connection gives the matrix form of the Fourier transformation special properties that can be used to dramatically improve the efficiency of computations.\\ \\
+There are two ways to think about the the matrix form of the Fourier transform for $N$ cubes. First, it is the character table of $C_{N}$: the element at index $\left\{l,m\right\}$ is $e^{2\pi i \left(lm\right)/N}$, where $l$ and $m$ range from $0$ to $N-1$. As such, the columns and rows of the Fourier transform matrix (DFT) are orthogonal under the conjugate inner product, and by including a prefactor of $1/\sqrt{N}$ become orthonormal. It is also the projection onto the different irreducible representations. As rotations are abelian, any irreducible representation is a one dimensional subspace, and so the total space of functions over $N$ discrete points can be decomposed into these vectors. The matrix of the Fourier transform is the collection of inner products with these vectors.\\ \\
+The central idea of the fast Fourier transform (FFT) is that if $N=2^{n}$ then there is a set of group morphism $m_{i}$ equating representations on $N_{i}$ with representations on $N_{i+1}\oplus N_{i+1}$ where $N_{i+1}=N_{i}/2$. The existence of these transformations can be understood in two steps. Begin by picturing the $N$ sampling points of a vector as the $N$ roots of unity in the complex plane, and subdivide the collection of points into two sets by selections alternating. Take the inner product with the same irreducible vector on each of the these subspaces, say $e^{2 \pi i m/(N/2)}$. By then multiplying the result from one of the two subspaces with any rotation of the group $e^{\pi i m/(N/2)}$ smaller than a $e^{i\pi}$, effectively the inner product with  $e^{2\pi i\left(m\right)/N}$. Using this basis and one shifted by $\pi$, which must be distinct, all vectors of the larger group are accounted for. In matrix form 
+\begin{align}
+	F_{i+1}=
+	\begin{pmatrix}
+		I_{N/2} &\;\;\;D \\
+		I_{N/2} &-D 
+	\end{pmatrix}
+	\begin{pmatrix}
+		F_{i} & 0 \\
+		0 & F_{i}
+	\end{pmatrix}
+		\sigma,
+		\nonumber
+\end{align}
+where $\sigma$ is the matrix of odd-even permutations, and $D$ a diagonal matrix with entries $e^{2\pi i n/N}$ for $n\leq \left(N-1\right)/2$.\\ \\
+The complete algorithm uses factorization recursively. With careful consideration, the form of the self referential $\sigma$ matrix can be determined without the need for direct computation, meaning that prior to multiplying with the $D$ matrices the algorithm is linear. For a vector of size $2^{l}$, $l$ steps are then required to form the proper Fourier transformed vector, each requiring $N$ multiplications. As a result, the number of steps needed by the algorithm is  
+$$FFT\propto N\ln_{2}\left(N\right),$$
+in the limit of large $N$. Note however that this relies on specific vector sizes. For most FFT libraries similar algorithms are implemented if $n$ is any combination of powers of the primes $\left\{2,3,5,7\right\}$ with increasing performance for smaller repeated primes (ideally $2^{n}$).
+% \section{GMRES Solver}
+% \noindent
+% To solve the linear systems resulting in our the volume current formulation, we have implemented a restarted, deflating, gpu GMRES solver following the recent work of Daas et al.~\cite{al2018enlarged}. 
+% \section{Units}
+% \noindent
+% There are two unit choices worth noting. First, in our formulation of the basis functions, all volumetric considerations are place on the basis duals. That is, the coefficient of a scalar field $F\left(x\right)$ on a cubic basis element of size $s\lambda$, $|q_{nml}\rangle$, is given by $$\langle q_{nml}|F\left(x\right)\rangle = F_{nml}=\frac{1}{s^{3}\lambda^{3}}\iiint\limits_{0}^{~~~s\lambda} dV F\left(x\right),$$
+% where $\lambda$ is the wavelength and $s$ is the scale of the cube relative to this metric. With choice Eq.\eqref{surfaceInts} becomes 
+% \begin{align}
+% 	&\langle q^{b}_{m,j}|\mathcal{P}\star q_{n,i}^{a}\rangle =\nonumber \\ 
+% 	&\frac{s_{b}^{2}}{s_{a}}\sum\limits_{k,l}\left(\hat{n}_{k}\times\hat{j}\right)\cdot\left(\hat{n}_{l}\times\hat{i}\right)\oint\limits_{0}^{1}dS_{k}\oint\limits_{0}^{1}dS_{l}\nonumber \\
+% 	&\lambda ~g\left(\lambda\left(r_{1}-r_{2}+\left(s_{b}\left(r_{m}^{b}\right)-s_{a}\left(r_{n}^{a}\right)\right)\right)\right),
+% 	\label{greenUnits}
+% \end{align}
+% where the $s_{a}$ and $s_{b}$ functions scale the in cube vectors by the appropriate relative scale.
+% Second, to maintain near unit values in the Green function calculation, we do not include the usual factor of $1/k_{o}^{2}$ in returned approximations. Instead, this dependence is shifted to the electric field, $\mathcal{E} = \textbf{E}~k_{o}$, and conversion factors
+% \begin{equation}
+% 	\mathcal{E}^{b}_{_{\left(m,j\right)}} = i\mathcal{Z}~ \mathcal{G}^{b,a}_{_{\left(m,j\right)},_{\left(n,i\right)}} j^{a}_{_{\left(n,i\right)}}\nonumber
+% \end{equation}
+% where $\mathcal{Z}$ is the impedance of free space, $119.617\pi\left(\Omega\right)$. Accordingly, using the relation 
+% $$\langle j^{*}_{i} j_{j}\rangle = \frac{4\omega\epsilon_{o}}{\pi}\text{Im}\left[\chi_{ij}\right]\Theta\left(\omega,T_{i}\right),$$
+% the Frobenius norm form of heat transfer with our conventions becomes
+% \begin{equation}
+% 	2\frac{|\Theta\left(\omega, T_{a}\right) -\Theta\left(\omega,T_{b}\right)|}{\pi}||\mathcal{H}^{b,a}_{_{\left(m,i\right)},_{\left(n,j\right)}}||^{2}_{_F},
+% \end{equation}
+% where $$\mathcal{H}^{b,a}_{_{\left(l,h\right)},_{\left(p,k\right)}} = \eta^{b}_{_{\left(l,h\right)},_{\left(m,i\right)}}\mathcal{G}^{b,a}_{_{\left(m,i\right)},_{\left(n,j\right)}}\eta^{b}_{_{\left(n,j\right)},_{\left(p,k\right)}},$$ is the heat transfer kernel, 
+% $$\Theta\left(\omega, T\right) = \frac{\hbar\omega}{e^{\beta_{_T} \hbar\omega}-1},$$
+% is the Planck function and $\eta_{_{\ldots}}$ is the square root of the positive definite symmetric matrix $\text{Im}~\left(\chi_{_{\ldots}}\right)$. 
+% \section{Parallelism and Multiple Instances}
+% \noindent
+% Julia's distributed module effectively launches additional Julia instances under a head (master / controller) instance. This feature naturally allows multiple VI systems to be run simultaneously: each system is run on its own worker, which effective becomes a system identifier. In following this procedure, it is important to consider the total number of threads that will be used. Each Julia instance is allowed to access the number of threads set by the environment variable JULIA\_NUM\_THREADS. If the total number of threads (JULIA\_NUM\_THREADS x active workers) exceeds the number of accessible logical threads, the program will incur performance penalties.
+% \section{Speed Up Proposals}
+% \noindent  
+% $\star$ There is a potential speed up based on our current knowledge of $\mathcal{G}^{ba}_{t}$ compared to the algorithm described in the text in case of small separations. The current JM-VIE method is always calculate the SVD of $G^{ba}_{i}$ which begins to have large rank if the two bodies are brought near one another. However, we have seen that $G^{ba}_{t}$ is typically still low rank in these case. From $G^{ba}_{t}=\pi^{b}G_{i}WN\pi^{a}$ we have $G^{ba}_{t}=G_{i}^{bb}\left(WN\right)^{ba}+G_{i}^{b\hat{b}}\left(WN\right)^{\hat{b}a}$. For $G^{ab}$ to be low rank we expect that these terms are individually low rank, since they involve different locations of the free space green function. In this case, rather than first performing an SVD on the free space Green function and then using the resulting vector to probe $\left(WN\right)^{\hat{b}a}$, it may be faster to probe $\left(WN\right)^{\hat{b}a}$ directly with random vectors (producing a SVD of this matrix).\\ $\rightarrow$ Initial test of this idea have not been promising (Weiliang). Calculation of the rank of $\left(WN\right)^{\hat{b}a}$ for metallic boxes with a near-field separation show no improvement over that of $G_{i}^{ba}$.\\ \\
+% $\star$ Another potential speed up, again based on $\mathcal{G}_{t}^{ba}$ having a low rank, is to avoid these decompositions altogether. Using $$\Phi^{ba}= ||L_{\im{\chi}^{bb}}\pi^{b}G_{i}\left(WN\right)\pi^{a}L^{*}_{C^{aa}}||^{2}_{_F}$$ an SVD for $\pi^{b}\mathcal{G}_{i}\left(WN\right)\pi^{a}$ can be determined using the same machinery of the decomposition method. The main idea of this possible method is to draw a random vector of dual basis coefficients $r^{*}$ and use it as a probe of the matrix $r^{*}\pi^{b}\mathcal{G}_{i}\left(WN\right)\pi^{a}$. This allows samples of the codomain of $\pi^{b}\mathcal{G}_{i}\left(WN\right)\pi^{a}$ to be computed in two step: $\left(r^{b\;*}\mathcal{G}_{i}\right)\left(WN\right)\pi^{a} = \left(\mathcal{G}^{*}_{i}r^{b}\right)^{*}\left(WN\right)\pi^{a}$. That is, first computing $\mathcal{G}^{*}_{i}r^{b}$, and then from this result perform an inverse solve on $WN$. Since these two computations effectively sampled $\mathcal{G}^{ba}$ only a iterations should be required. (In a full algorithm, a similar procedure should also be carried out on the domain of $\pi^{b}G_{i}\left(WN\right)\pi^{a}$. Letting $r$ denote a random vector, Lorentz reciprocity allows us to write $\pi^{b}G_{i}\left(WN\right)\pi^{a}r$ as $\pi^{b}\gamma\left(WN\right)^{T}\gamma \left(G_{i} r^{a}\right)$, where $\gamma$ is a matrix flipping the sign of the magnetic field and the $T$ superscript denotes the transpose. The two computations are then $G_{i}r^{a}=y$ and $y^{T}\gamma\left(WN\right)\gamma\pi_{b}$.)\\ \\
+% $\rightarrow$ Again, tests performed by Weiliang have shown no speed up compared to the orignal proposal of the algorithm given above. The result on which the intuition of both this proposal and the one above was formed compared the rank of the SVD of $\mathcal{G}_{t}^{ba}$ for two dimensional cases to the rank of the SVD of $\pi^{b}\mathcal{G}_{i}\left(WN\right)\pi^{a}$ for three dimensional cases. On a fair playing field, three dimensional heat transfer, these two quantities seem to have very similar ranks, with $\pi^{b}\mathcal{G}_{i}\left(WN\right)\pi^{a}$ observed to be slightly smaller.\\ \\
+% $\star$ Without modifying the basic ingredients of the algorithm, it may be possible to improve computational efficiency through the selection of different preconditioners. Currently, the form used in solving \eqref{jmEq}, in matrix form, is
+% \begin{equation}
+% 	\left(I - \epsilon_{t}^{-1}\chi_{t}\mathcal{P}\right)j_{t}=\epsilon_{t}^{-1}j_{i}.
+% \end{equation}
+% Intuitively, it makes sense that this performs well. If $\epsilon_{t}^{-1}\chi_{t}$ were constant, then $\left(I - \epsilon_{t}^{-1}\chi_{t}\mathcal{P}\right)$ could be embedded in a circulant form using the same approach described above for $\mathcal{P}$. The inverse would then be easily calculable, in principle allowing a direct solve. So long as $\epsilon_{t}^{-1}\chi_{t}$ is approximately constant it stands to reason that a large number of iterations will not be required to solve the actual problem. We can, however, reduce the influence of the variation of $\epsilon_{t}$ and $\chi_{t}$ even further. If the above understanding is in fact true, we may be able to further reduce the number of iterations required for each solve. The idea is to use the fact that, based on the circulant form, $\mathcal{P}^{-1}$ is no more challenging to calculate and use than $\mathcal{P}$. Inserting these matrices as left preconditioner 
+% \begin{align}
+%   	&\left(I - \epsilon_{t}^{-1}\chi_{t}\mathcal{P}\right)\mathcal{P}^{-1}\mathcal{P}j_{t}=\epsilon_{t}^{-1}j_{i}, \nonumber \\
+%   	&\left(\mathcal{P}^{-1} - \epsilon_{t}^{-1}\chi_{t}\right)y_{t}=\epsilon_{t}^{-1}j_{i}, \nonumber
+% \end{align}  
+% where $y_{t}=\mathcal{P}j_{t}$. Rather than multiplying $\mathcal{P}$ in this formulation $\epsilon_{t}^{-1}\chi_{t}$ becomes an additive alteration affecting only the main diagonal of the total operator. Once $y_{t}$ converges, the final total current is then given as $\mathcal{P}^{-1}y_{t}=j_{t}$, which again should be no more difficult to find and use than $\mathcal{P}$.\\ \\
+% $\rightarrow$ This formulation is complicated by the fact the inverse $\mathcal{P}^{-1}$ is not the inverse of the individual blocks. While it still may be worth exploring, it certainly more complicated than the direct approach. 
+% \section{Implementation Notes}
+% \noindent
+% To implement anisotropic response, VISolverUtilities.bdyMask! will need to be changed.\\ \\
+% Fields are broken up first by body, then Cartesian index, then cube number. For cube number, x changes fastest then y, and then z.\\ \\
+% Turn these notes into proper documentation once the program is functional.\\ \\
+% Potential non-locality will be implemented on the GPU using a for loops (non-locality functions). ie. Implementation requires changes to the CUDA code. This can be black boxed later with flags.\\ \\
+% There are two block work areas. Area 0 is for input and area 1 for output.\\ \\
+% Body pair designations follow a reverse notation (the block index of the Green function): the first array is the target bodies, the second is the source bodies.
+\subsection{\S Particulars}
+$\bullet$ In order to simplify the Green function action, Gla enforces that the number of cells in each Cartesian dimension of a volume be divisible by two. 
+If the user enters an odd cell number, one additional cell is added, and the cell scale is redefined.
+\\ \\
+$\bullet$ I have flipped the information storage convention for the reduced green function when the number of target cells is larger than the number of source cells. 
+After the first element, the entries correspond to the target volume loop, stored in standard ascending, rather than reversed order.  
+\bibliography{gilaLib}
+\end{document} 
