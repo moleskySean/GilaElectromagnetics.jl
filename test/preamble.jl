@@ -1,5 +1,5 @@
-using LinearAlgebra.BLAS, FFTW, Base.Threads, Serialization, Random, 
-BenchmarkTools, Gila
+using CUDA, LinearAlgebra, LinearAlgebra.BLAS, FFTW, Base.Threads, 
+Serialization, Random, BenchmarkTools, Gila, Test
 # get number of active threads
 threads = nthreads()
 # Set the number of BLAS threads. The number of Julia threads is set as an 

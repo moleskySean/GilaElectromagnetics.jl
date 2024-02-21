@@ -7,11 +7,10 @@ const cubAbsTol = 1e-9;
 # tolerance for cell contact
 const cntTol = 1e-8;
 """
-
-	genEgoExt!(egoCrc::AbstractArray{T}, trgVol::GlaVol, 
+    genEgoExt!(egoCrcExt::AbstractArray{T,5}, trgVol::GlaVol, 
 	srcVol::GlaVol, cmpInf::GlaKerOpt)::Nothing where 
 	T<:Union{ComplexF64,ComplexF32}
-
+	
 Calculate circulant vector for the Green function between a target volume, 
 trgVol, and source volume, srcVol.
 """
@@ -39,12 +38,12 @@ Calculate circulant vector of the Green function on a single domain.
 function genEgoSlf!(egoCrcSlf::AbstractArray{T,5}, slfVol::GlaVol, 
 	cmpInf::GlaKerOpt)::Nothing where T<:Union{ComplexF64,ComplexF32}
 
-	facPar = facPar()
+	facLst = facPar()
 	trgFac = Float64.(cubFac(slfVol.scl))
 	srcFac = Float64.(cubFac(slfVol.scl))
 	srcGrd = sepGrd(slfVol, slfVol, 0)
 	# calculate Green function values
-	genEgoCrcSlf!(slfVol, egoCrcSlf, srcGrd, trgFac, srcFac, facPar, cmpInf)
+	genEgoCrcSlf!(slfVol, egoCrcSlf, srcGrd, trgFac, srcFac, facLst, cmpInf)
 	return nothing
 end
 #=
@@ -63,23 +62,19 @@ function genEgoCrcExt!(egoCrcExt::AbstractArray{T,5},
 	srcGrdScl = getproperty.(srcVol.grd, :step)
 	trgGrdScl = getproperty.(trgVol.grd, :step)
 	# upper and lower edges of the source volume
-	srcEdg = (srcVol.org .+ (srcVol.scl .+ srcGrdScl .* 
-		(srcVol.cel - mod.(srcVol.cel, 2))) .// 2, 
-		srcVol.org .- (srcVol.scl .+ srcGrdScl .* 
-		(srcVol.cel - mod.(srcVol.cel, 2))) .// 2)
+	srcEdg = (getproperty.(srcVol.grd, :start) .- (srcVol.scl .//2), 
+			getproperty.(srcVol.grd, :stop) .+ (srcVol.scl .//2))
 	# upper and lower edges of the target volume
-	trgEdg = (trgVol.org .+ (trgVol.scl .+ trgGrdScl .* 
-		(trgVol.cel - mod.(trgVol.cel, 2))) .// 2, 
-		trgVol.org .- (trgVol.scl .+ srcGrdScl .* 
-		(trgVol.cel - mod.(trgVol.cel, 2))) .// 2)
-	# preparatory separation vector
-	srcTrgPS = (abs.(srcEdg[1] .- trgEdg[2]), abs.(srcEdg[2] .- trgEdg[1])) 
-	# calculate separation vector
-	srcTrgSep = min.(srcTrgPS[1], srcTrgPS[2])
+	trgEdg = (getproperty.(trgVol.grd, :start) .- (trgVol.scl .//2), 
+			getproperty.(trgVol.grd, :stop) .+ (trgVol.scl .//2))
+	# check for volume coincidence
+	cinChk = prod((srcEdg[1] .<= trgEdg[1]) .* (trgEdg[1] .<= srcEdg[2])) || 
+		prod((srcEdg[1] .<= trgEdg[2]) .* (trgEdg[2] .<= srcEdg[2]))
 	# check for volume overlap
-	if ~prod((ones(3) .* cntTol) .< srcTrgSep)
-		if srcTrgSep[1] < -cntTol || srcTrgSep[2] < -cntTol || 
-			srcTrgSep[3] < -cntTol
+	ovrChk = sum((srcEdg[1] .< trgEdg[1]) .* (trgEdg[1] .< srcEdg[2])) +
+		sum((srcEdg[1] .< trgEdg[2]) .* (trgEdg[2] .< srcEdg[2]))
+	if cinChk 
+		if ovrChk > 0
 			error("Source and target volumes are overlapping.")
 		end
 		# generate self Green function for contact cells
@@ -111,14 +106,12 @@ function genEgoCrcSlf!(slfVol::GlaVol, egoCrc::AbstractArray{T,5},
 	# allocate intermediate storage for Toeplitz interaction vector
 	egoToe = Array{eltype(egoCrc)}(undef, 3, 3, slfVol.cel...)
 	# write Green function, ignoring weakly singular integrals
-	@threads for outItr ∈ CartesianIndices(egoToe[1,1,1,:,:])
-		@inbounds for innItr ∈ CartesianIndices(egoToe[1,1,:,1,1])
-		 egoFunInn!(egoToe, CartesianIndex(innItr, outItr), srcGrd, slfVol.scl, 
-		 	trgFac, srcFac, facPar, cmpInf)
-		end
+	@threads for crtItr ∈ CartesianIndices(egoToe[1,1,:,:,:])
+		@inbounds egoFunInn!(egoToe, crtItr, srcGrd, slfVol.scl, trgFac, 
+			srcFac, facPar, cmpInf)
 	end
 	# Gauss-Legendre quadrature
-	glQud = gaussQuad1(cmpInf.intOrd) 
+	glQud = gauQud(cmpInf.intOrd) 
 	# correction values for singular integrals
 	# return order of normal faces is xx yy zz
 	wS = (^(prod(slfVol.scl), -1) .* wekS(slfVol.scl, glQud, cmpInf))
@@ -129,19 +122,16 @@ function genEgoCrcSlf!(slfVol::GlaVol, egoCrc::AbstractArray{T,5},
 	# correct singular integrals for coincident and adjacent cells
 	for posItr ∈ CartesianIndices(ntuple(itr -> min(slfVol.cel[itr], 2), 3))
 		egoFunSng!(view(egoToe, :, :, posItr), posItr, wS, wE, wV, 
-			srcGrd, slfVol.scl, trgFac, srcFac, facPar, cmpInf)
+			srcGrd, slfVol, trgFac, srcFac, facPar, cmpInf)
 	end
 	# include identity component
 	egoToe[1,1,1,1,1] -= 1 / (cmpInf.frqPhz^2)
 	egoToe[2,2,1,1,1] -= 1 / (cmpInf.frqPhz^2)
 	egoToe[3,3,1,1,1] -= 1 / (cmpInf.frqPhz^2)
 	# embed self Toeplitz vector into a circulant vector
-	@threads for outItr ∈ CartesianIndices(egoCrc[1,1,1,:,:])
-		@inbounds for innItr ∈ CartesianIndices(egoCrc[1,1,:,1,1])
-			egoToeCrc!(view(egoCrc, :, :, CartesianIndex(innItr, outItr)), 
-				egoToe, CartesianIndex(innItr, outItr), 
-				div.(size(egoCrc)[3:5], 2))
-		end
+	@threads for crtItr ∈ CartesianIndices(egoCrc[1,1,:,:,:])
+		@inbounds egoToeCrc!(view(egoCrc, :, :, crtItr), egoToe, crtItr, 
+			div.(size(egoCrc)[3:5], 2))
 	end
 	return nothing
 end
@@ -177,7 +167,8 @@ that grids span the separations between a pair of volumes. No field flips are
 required when calculating an external Green function. 
 =#
 @inline function egoFunExt!(egoCrcExt::AbstractArray{T,2}, 
-	posInd::CartesianIndex{3}, indSpt::Array{<:Integer,1}, 
+	posInd::CartesianIndex{3}, 
+	indSpt::Union{Array{<:Integer,1},NTuple{3,<:Integer}}, 
 	sepGrdTrg::Array{<:StepRange,1}, sepGrdSrc::Array{<:StepRange,1}, 
 	sclTrg::NTuple{3,<:Number}, sclSrc::NTuple{3,<:Number}, 
 	trgFac::Array{<:Number,3}, srcFac::Array{<:AbstractFloat,3}, 
@@ -203,7 +194,7 @@ of volumes. No field flip is required for external Green function.
 =#
 function egoFunExtCnt!(cntVol::GlaVol, egoCrc::AbstractArray{T,2},
 	egoCrcCnt::AbstractArray{T,5}, posInd::CartesianIndex{3}, 
-	indSpt::Array{<:Integer,1}, sepGrdTrg::Array{<:StepRange,1}, 
+	indSpt::NTuple{3, <:Integer}, sepGrdTrg::Array{<:StepRange,1}, 
 	sepGrdSrc::Array{<:StepRange,1}, sclTrg::NTuple{3,<:Number}, 
 	sclSrc::NTuple{3,<:Number}, trgFac::Array{<:AbstractFloat,3}, 
 	srcFac::Array{<:AbstractFloat,3}, facPar::Array{<:Integer,2}, 
@@ -317,14 +308,13 @@ Create contact volume for self Green function calculations.
 function genCntVol(trgVol::GlaVol, srcVol::GlaVol)::GlaVol
 	# scale for greatest common division of source and target cells
 	cntScl = min.(trgVol.scl, srcVol.scl)
-	#
 	# divisions of target and source cells
-	trgDiv = trgVol.scl ./ cntScl
-	srcDiv = srcVol.scl ./ cntScl
+	trgDiv = Integer.(trgVol.scl ./ cntScl)
+	srcDiv = Integer.(srcVol.scl ./ cntScl)
 	# create padded self interaction domain for simplification of code
-	cntCel = [trgDiv[1] + srcDiv[1],trgDiv[2] + srcDiv[2],
-		trgDiv[3] + srcDiv[3]]
-	return GilaMem.GlaVol(cntCel, cntScl, (0.0, 0.0, 0.0))
+	cntCel = (trgDiv[1] + srcDiv[1], trgDiv[2] + srcDiv[2], 
+		trgDiv[3] + srcDiv[3])
+	return GlaVol(cntCel, cntScl, (0//1, 0//1, 0//1))
 end
 #=
 General self Green function interaction element. 
@@ -359,7 +349,7 @@ standard source to target matrix convention used elsewhere.
 =#
 function egoFunSng!(egoCrc::AbstractArray{T,2}, posInd::CartesianIndex{3}, 
 	wS::Vector{R}, wE::Vector{R}, wV::Vector{R}, 
-	srcGrd::Array{<:StepRange,1}, scl::NTuple{3,<:Number}, 
+	srcGrd::Array{<:StepRange,1}, slfVol::GlaVol, 
 	trgFac::Array{<:AbstractFloat,3}, srcFac::Array{<:AbstractFloat,3}, 
 	facPar::Array{<:Integer,2}, cmpInf::GlaKerOpt)::Nothing where 
 	{T<:Union{ComplexF64,ComplexF32}, R<:Union{ComplexF64,ComplexF32}}
@@ -384,7 +374,8 @@ function egoFunSng!(egoCrc::AbstractArray{T,2}, posInd::CartesianIndex{3},
 		1 1 0 1 1 1
 		1 1 1 1 1 0
 		1 1 1 1 0 1]
-	elseif posInd == CartesianIndex(2, 1, 1) 
+	elseif posInd == CartesianIndex(2, 1, 1) && slfVol.scl[1] == 
+		getproperty(slfVol.grd[1], :step)
 		corVal = [
 		0.0  wS[1]  wE[7]  wE[7]  wE[8]  wE[8]
 		0.0  0.0    0.0    0.0    0.0    0.0
@@ -399,7 +390,9 @@ function egoFunSng!(egoCrc::AbstractArray{T,2}, posInd::CartesianIndex{3},
 		0 1 0 1 1 1
 		0 1 1 1 1 0
 		0 1 1 1 0 1]
-	elseif (posInd[1], posInd[2], posInd[3]) == (2, 1, 2)
+	elseif posInd == CartesianIndex(2, 1, 2) && slfVol.scl[1] == 
+		getproperty(slfVol.grd[1], :step) && slfVol.scl[3] == 
+		getproperty(slfVol.grd[3], :step) 
 		corVal = [
 		0.0  wE[2]  wV[4]  wV[4]  0.0  wE[8]
 		0.0  0.0    0.0    0.0    0.0  0.0
@@ -414,7 +407,8 @@ function egoFunSng!(egoCrc::AbstractArray{T,2}, posInd::CartesianIndex{3},
 		0 1 0 1 0 1
 		0 1 1 1 0 1
 		0 0 0 0 0 0] 
-	elseif posInd == CartesianIndex(1, 1, 2) 
+	elseif posInd == CartesianIndex(1, 1, 2) && slfVol.scl[3] == 
+		getproperty(slfVol.grd[3], :step)
 		corVal = [
 		wE[2]  0.0    wV[4]  wV[4]  0.0  wE[8]
 		0.0    wE[2]  wV[4]  wV[4]  0.0  wE[8]
@@ -429,7 +423,8 @@ function egoFunSng!(egoCrc::AbstractArray{T,2}, posInd::CartesianIndex{3},
 		1 1 0 1 0 1
 		1 1 1 1 0 1
 		0 0 0 0 0 0]
-	elseif posInd == CartesianIndex(1, 2, 1) 
+	elseif posInd == CartesianIndex(1, 2, 1) && slfVol.scl[2] == 
+		getproperty(slfVol.grd[2], :step)
 		corVal = [
 		wE[1]  0.0    0.0  wE[7]  wV[5]  wV[5]
 		0.0    wE[1]  0.0  wE[7]  wV[5]  wV[5]
@@ -444,7 +439,9 @@ function egoFunSng!(egoCrc::AbstractArray{T,2}, posInd::CartesianIndex{3},
 		0 0 0 0 0 0
 		1 1 0 1 1 0
 		1 1 0 1 0 1]
-	elseif posInd == CartesianIndex(2, 2, 1) 
+	elseif posInd == CartesianIndex(2, 2, 1) && slfVol.scl[1] == 
+		getproperty(slfVol.grd[1], :step) && slfVol.scl[2] == 
+		getproperty(slfVol.grd[2], :step)
 		corVal = [
 		0.0  wE[1]  0.0  wE[7]  wV[5]  wV[5]
 		0.0  0.0    0.0  0.0    0.0    0.0
@@ -459,7 +456,9 @@ function egoFunSng!(egoCrc::AbstractArray{T,2}, posInd::CartesianIndex{3},
 		0 0 0 0 0 0
 		0 1 0 1 1 0
 		0 1 0 1 0 1]  
-	elseif posInd == CartesianIndex(1, 2, 2) 
+	elseif posInd == CartesianIndex(1, 2, 2) && slfVol.scl[2] == 
+		getproperty(slfVol.grd[2], :step) && slfVol.scl[3] == 
+		getproperty(slfVol.grd[3], :step) 
 		corVal = [
 		wV[1]  0.0    0.0  wV[4]  0.0  wV[5]
 		0.0    wV[1]  0.0  wV[4]  0.0  wV[5]
@@ -474,7 +473,10 @@ function egoFunSng!(egoCrc::AbstractArray{T,2}, posInd::CartesianIndex{3},
 		0 0 0 0 0 0
 		1 1 0 1 0 1
 		0 0 0 0 0 0]  
-	elseif posInd == CartesianIndex(2, 2, 2) 
+	elseif posInd == CartesianIndex(2, 2, 2) && slfVol.scl[1] == 
+		getproperty(slfVol.grd[1], :step) && slfVol.scl[2] == 
+		getproperty(slfVol.grd[2], :step) && slfVol.scl[3] == 
+		getproperty(slfVol.grd[3], :step)
 		corVal = [
 		0.0  wV[1]  0.0  wV[4]  0.0  wV[5]
 		0.0  0.0    0.0  0.0    0.0  0.0
@@ -490,14 +492,27 @@ function egoFunSng!(egoCrc::AbstractArray{T,2}, posInd::CartesianIndex{3},
 		0 1 0 1 0 1
 		0 0 0 0 0 0]
 	else
-		println(posInd[1], posInd[2], posInd[3])
-		error("Attempted to access improper case.")
+		println("empty case selected.")
+		corVal = [
+		0.0  0.0  0.0  0.0  0.0  0.0
+		0.0  0.0  0.0  0.0  0.0  0.0
+		0.0  0.0  0.0  0.0  0.0  0.0
+		0.0  0.0  0.0  0.0  0.0  0.0
+		0.0  0.0  0.0  0.0  0.0  0.0
+		0.0  0.0  0.0  0.0  0.0  0.0]
+		mask = [
+		0 0 0 0 0 0
+		0 0 0 0 0 0
+		0 0 0 0 0 0
+		0 0 0 0 0 0
+		0 0 0 0 0 0
+		0 0 0 0 0 0]
 	end
 	# include uncorrected surface integrals
 	pairListUn = linCon[findall(iszero, transpose(mask))]
 	egoSrfAdp!(Float64(srcGrd[1][posInd[1]]), Float64(srcGrd[2][posInd[2]]), 
 		Float64(srcGrd[3][posInd[3]]), srfMat, trgFac, srcFac, pairListUn, 
-		facPar, Float64.(srfScl(scl, scl)), cmpInf)
+		facPar, Float64.(srfScl(slfVol.scl, slfVol.scl)), cmpInf)
 	# correct values of srfMat where needed
 	for fp ∈ 1:36
 		if mask[facPar[fp,1], facPar[fp,2]] == 1
@@ -630,8 +645,8 @@ end
 Return a reference index relative to the embedding index of the Green function. 
 =#
 @inline function indSel(posInd::T, indSpt::R)::CartesianIndex where 
-	{T<:Union{CartesianIndex, Tuple{Vararg{<:Integer}}}, 
-	R<:Union{CartesianIndex, Tuple{Vararg{<:Integer}}}}
+	{T<:Union{CartesianIndex, Tuple{Vararg{<:Integer}}, <:Integer}, 
+	R<:Union{CartesianIndex, Tuple{Vararg{<:Integer}}, <:Integer}}
 		
 	return CartesianIndex(map((x, y) -> x <= y ? x : 
 		(x == y + 1 ? 2 * y - x + 1 : 2 * y - x + 2), 
@@ -665,7 +680,7 @@ Options:
 gausschebyshev(), gausslegendre(), gaussjacobi(), gaussradau(), gausslobatto(), 
 gausslaguerre(), gausshermite()
 =#
-function gaussQuad1(ord::Int64)::Array{Float64,2}
+function gauQud(ord::Int64)::Array{Float64,2}
 
 	pos, val = gausslegendre(ord)
 	return [pos ;; val]

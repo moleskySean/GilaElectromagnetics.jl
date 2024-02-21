@@ -25,6 +25,9 @@ GlaOprMem---container for the volume interaction elements (as well as internal
 information) used in computing the Green function interaction between a pair of 
 volumes. GlaOprMem is effectively a stored Green function.
 
+GlaOprMem---generate operator memory structure, from a volume or pair of 
+volumes, for use by egoOpr!
+
 notable internal definitions
 ----------------------------
 GlaExtInf---memory structure for translating between distinct grid layouts.
@@ -54,22 +57,18 @@ glaGen calculates the unique elements of the electromagnetic Green functions,
 embedded in circulant form, via calls to the code contained in glaInt. 
 Integration tolerances ultimately used by glaInt.jl are introduced in this file.
 
-genEgoSlf!---computation of interaction elements for sources within one volume.
-
-genEgoExt!---computation of interaction elements between a source and target
-volume. The source and target volume are allowed to touch and have cell scales 
-that differ by integer factors. 
-
 exported definitions
 --------------------
 
 notable internal definitions
 ----------------------------
+genEgoSlf!---computation of interaction elements for sources within one volume.
+
+genEgoExt!---computation of interaction elements between a source and target
+volume. The source and target volume are allowed to touch and have cell scales 
+that differ by integer factors. 
 =#
 include("glaGen.jl")
-export genEgoSlf!, genEgoExt!
-# testing
-export sepGrd
 #=
 glaAct contains the package protocol for computing matrix vector products---the 
 action of the electromagnetic Green function on a specified current 
@@ -77,16 +76,12 @@ distribution---for a given volume or pair of volumes.
 
 exported definitions
 --------------------
-
 egoOpr!---given a GlaOprMem structure and source current distribution, 
 yield the resulting electromagnetic fields. 
-
-GlaOprMemGen---generate operator memory structure, from a volume or pair of 
-volumes, for use by egoOpr!
 
 notable internal definitions
 ----------------------------
 =#
 include("glaAct.jl")
-export GlaOprMemGen, egoOpr! 
+export egoOpr! 
 end

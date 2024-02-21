@@ -10,13 +10,12 @@ or identical source and target volumes, the function yields the self green
 function construction. 
 """
 function GlaOprMem(cmpInf::GlaKerOpt, trgVol::GlaVol,
-	srcVol::Union{GlaVol,Nothing}=nothing, 
+	srcVol::Union{GlaVol,Nothing}=nothing; 
 	egoFur::Union{AbstractArray{<:AbstractArray{T}, 1},
-	Nothing}=nothing)::GlaOprMem where T<:Union{ComplexF64,ComplexF32}
+	Nothing}=nothing, setType::DataType=ComplexF64)::GlaOprMem where 
+	T<:Union{ComplexF64,ComplexF32}
 	# flag for self green function case
 	slfFlg = 0
-	# ensure that number of cells is even, regenerate if not
-	trgVol = glaVolEveGen(trgVol)
 	# self green function case
 	if isnothing(srcVol) || trgVol == srcVol
 		slfFlg = 1
@@ -24,8 +23,13 @@ function GlaOprMem(cmpInf::GlaKerOpt, trgVol::GlaVol,
 		mixInf = GlaExtInf(trgVol, srcVol)
 	# external green function case
 	else
-		# ensure that number of cells is even, regenerate if not
-		srcVol = glaVolEveGen(srcVol)
+		# ensure that sum number of cells is even, regenerate if not
+		if sum(mod.(trgVol.cel .+ srcVol.cel, 2)) != 0	
+			# regenerate target volume so that number of cells is even
+			trgVol = glaVolEveGen(trgVol)
+			# regenerate source volume so that number of cells is even
+			srcVol = glaVolEveGen(srcVol)
+		end
 		# useful information for aligning source and target volumes
 		mixInf = GlaExtInf(trgVol, srcVol)
 	end
@@ -34,42 +38,46 @@ function GlaOprMem(cmpInf::GlaKerOpt, trgVol::GlaVol,
 	# total number of target and source partitions
 	totParTrg = prod(mixInf.trgDiv)
 	totParSrc = prod(mixInf.srcDiv)
+	# branching depth of multiplication
+	lvl = 3
+	# number of multiplication branches		
+	eoDim = ^(2, lvl)
 	# generate circulant green function, from GilaCrc module
 	if isnothing(egoFur)
 		# memory for circulant green function vector
-		egoCrc = Array{ComplexF64}(undef, 3, 3, totCelCrc..., totParTrg, 
-			totParSrc)
+		egoCrc = Array{ComplexF64}(undef, 3, 3, totCelCrc..., totParSrc, 
+			totParTrg)
 		# self green function case
 		if slfFlg == 1
 			genEgoSlf!(selectdim(selectdim(egoCrc, 7, 1), 6, 1), trgVol, cmpInf)
 		# external green function case
 		else
 			# partition source and target for consistent distance offsets
-			for srcItr ∈ 1:totParSrc, 
-				# relative grid position
-				srcGrdPos = Tuple(mixInf.srcPar[srcItr]) .- (1, 1, 1)
+			for trgItr ∈ eachindex(1:totParTrg)
+				# target grid offset
+				trgGrdOff = Tuple(mixInf.trgPar[trgItr]) 
 				# offset of center of partition from center of volume
-				srcOrgOff = Rational.((srcGrdPos .- (mixInf.srcDiv .- 1) 
-					.// 2) .* srcVol.scl .+ srcVol.org)
+				trgOrgOff = Rational.((trgGrdOff .- (mixInf.trgDiv .- 1) 
+					.// 2) .* trgVol.scl .+ trgVol.org)
 				# grid scale of partition
-				srcGrdScl = mixInf.srcDiv .* srcVol.scl
+				trgGrdScl = mixInf.trgDiv .* trgVol.scl
 				# create target volume partition
-				srcVolPar = GlaVol(mixInf.srcCel, srcVol.scl, srcOrgOff, 
-					srcGrdScl)
-				for trgItr ∈ 1:totParTrg
+				trgVolPar = GlaVol(mixInf.trgCel, trgVol.scl, trgOrgOff, 
+					trgGrdScl)
+				for srcItr ∈ eachindex(1:totParSrc) 
 					# relative grid position
-					trgGrdPos = Tuple(mixInf.trgPar[trgItr]) .- (1, 1, 1)
+					srcGrdOff = Tuple(mixInf.srcPar[srcItr]) 
 					# offset of center of partition from center of volume
-					trgOrgOff = Rational.((trgGrdPos .- (mixInf.trgDiv .- 1) 
-						.// 2) .* trgVol.scl .+ trgVol.org)
+					srcOrgOff = Rational.((srcGrdOff .- (mixInf.srcDiv .- 1) 
+						.// 2) .* srcVol.scl .+ srcVol.org)
 					# grid scale of partition
-					trgGrdScl = mixInf.trgDiv .* trgVol.scl
+					srcGrdScl = mixInf.srcDiv .* srcVol.scl
 					# create target volume partition
-					trgVolPar = GlaVol(mixInf.trgCel, trgVol.scl, trgOrgOff, 
-						trgGrdScl)
+					srcVolPar = GlaVol(mixInf.srcCel, srcVol.scl, srcOrgOff, 
+						srcGrdScl)
 					# generate green function information for partition pair
-					genEgoExt!(selectdim(selectdim(egoCrc, 7, srcItr), 6, 
-						trgItr), trgVolPar, srcVolPar, cmpInf)
+					genEgoExt!(selectdim(selectdim(egoCrc, 7, trgItr), 6, 
+						srcItr), trgVolPar, srcVolPar, cmpInf)
 				end
 			end	
 		end
@@ -77,76 +85,70 @@ function GlaOprMem(cmpInf::GlaKerOpt, trgVol::GlaVol,
 		if maximum(isnan.(egoCrc)) == 1 || maximum(isinf.(egoCrc)) == 1
 			error("Computed circulant contains non-numeric values.")
 		end
-		# branching depth of multiplication
-		lvl = 3
 		# Fourier transform of circulant green function
-		egoFurPrp = Array{eltype(egoCrc)}(undef, totCelCrc..., 6, totParTrg, 
-			totParSrc)
+		egoFurPrp = Array{eltype(egoCrc)}(undef, totCelCrc..., 6, totParSrc, 
+			totParTrg)
 		# plan Fourier transform
 		fftCrcOut = plan_fft(egoCrc[1,1,:,:,:,1,1], (1, 2, 3))
 		# Fourier transform of the green function, making use of real space 
 		# symmetry under transposition--entries are xx, yy, zz, xy, xz, yz
-		for srcItr ∈ 1:totParSrc , trgItr ∈ 1:totParTrg, 
-			colItr ∈ 1:3, rowItr ∈ 1:colItr
+		for trgItr ∈ eachindex(1:totParTrg), srcItr ∈ eachindex(1:totParSrc),
+			colItr ∈ eachindex(1:3), rowItr ∈ eachindex(1:colItr)
 			# vector direction moved to outer volume index---largest stride
-			egoFurPrp[:,:,:,blkEgoItr(3 * (colItr - 1) + rowItr),trgItr,
-				srcItr] =  fftCrcOut * egoCrc[rowItr,colItr,:,:,:,trgItr,srcItr]
+			egoFurPrp[:,:,:,blkEgoItr(3 * (colItr - 1) + rowItr), srcItr, 
+				trgItr] =  fftCrcOut * egoCrc[rowItr,colItr,:,:,:,srcItr,trgItr]
 		end
 		# verify integrity of Fourier transform data
 		if maximum(isnan.(egoFurPrp)) == 1 || maximum(isinf.(egoFurPrp)) == 1
 			error("Fourier transform of circulant contains non-numeric values.")
 		end
-		# number of multiplication branches		
-		eoDim = ^(2, lvl)
 		# number of unique green function blocks
 		ddDim = 6
-		# total number of cells in a branch of the multiplication operation
-		# glaVolEveGen enforces that number of cells is even 
+		# Green function construction information
 		mixInf = GlaExtInf(trgVol, srcVol)
 		# determine whether source or target volume contains more cells
 		srcDomDir = map(<, mixInf.trgCel, mixInf.srcCel)
 		trgDomDir = map(!, srcDomDir)
 		# number of unique elements in each cartesian index for a branch
-		truInf = div.(max.(mixInf.trgCel, mixInf.srcCel), 2) .+ 1 
-		# start, step, and end positions for information copy
-		indBeg = (2 .* trgDomDir) .+ (div.(totCelCrc, 2) .* srcDomDir)
-		indStp = trgDomDir .- srcDomDir
-		indEnd = ((div.(totCelCrc, 2) .- truInf .+ 2) .* srcDomDir) .+ 
-			(truInf .* trgDomDir)
-		# copy ranges for intermediate Fourier values
-		cpyColInt = collect(Iterators.product(Tuple(map(tuple, ones(Int,3), 
-		 	map(StepRange, indBeg, indStp, indEnd)))...))
-		# copy ranges for final Fourier values
-		cpyColFur = collect(Iterators.product(Tuple(map(tuple, ones(Int,3), 
-                                map(:, 2 .* ones(Int,3), truInf)))...))
+		truInf = Array{Int}(undef,3)
+		for dirItr ∈ eachindex(1:3)
+			# row and column entries are symmetric or anti-symmetric
+			if mixInf.trgCel[dirItr] == mixInf.srcCel[dirItr] && 
+				prod(mixInf.srcDiv) == 1 && prod(mixInf.trgDiv) == 1 && 
+				trgVol.org[dirItr] == srcVol.org[dirItr]
+				# store only necessary information
+				truInf[dirItr] = max(Integer(ceil(mixInf.trgCel[dirItr] / 2)) + 
+					iseven(mixInf.trgCel[dirItr]), 2)
+			# glaVolEveGen enforces that number of cells is even 
+			else
+				truInf[dirItr] = totCelCrc[dirItr] ÷ 2
+			end
+		end
+		# information copy indicies
+		cpyRng = tuple(map(UnitRange, ones(Int,3), truInf)...)
 		# final Fourier coefficients for a given branch
-		egoFur = Array{Array{eltype(egoCrc)}}(undef, eoDim)
+		egoFur = Array{Array{setType}}(undef, eoDim)
 		# intermediate storage
-		egoFurInt = Array{eltype(egoCrc)}(undef, div.(totCelCrc, 2)..., ddDim, 
-			totParTrg, totParSrc)
+		egoFurInt = Array{setType}(undef, max.(div.(totCelCrc, 2), (2,2,2))..., 
+			ddDim, totParSrc, totParTrg)
 		# only one one eighth of the green function is unique 
 		for eoItr ∈ 0:(eoDim - 1)
 			# odd / even branch extraction
-			egoFur[eoItr + 1] = Array{eltype(egoCrc)}(undef, truInf..., ddDim, 
-				totParTrg, totParSrc)
+			egoFur[eoItr + 1] = Array{setType}(undef, truInf..., ddDim, 
+				totParSrc, totParTrg)
 			# first division is along smallest stride -> largest binary division
-			egoFurInt[:,:,:,:,:,:] .= egoFurPrp[(1 + 
+			egoFurInt[:,:,:,:,:,:] .= setType.(egoFurPrp[(1 + 
 				mod(div(eoItr, 4), 2)):2:(end - 1 + mod(div(eoItr, 4), 2)), 
 				(1 + mod(div(eoItr, 2), 2)):2:(end - 1 + mod(div(eoItr, 2), 2)),
-				(1 + mod(eoItr, 2)):2:(end - 1 + mod(eoItr, 2)),:,:,:]
-			# number of copy combinations to consider
-			cpyCom = 8
-			# extract unique information---!flipped storage convention when 
-			# number of source cells is larger than the number of target cells
-			# edge information much be copied without reversing direction
-			for cpyItr ∈ 1:cpyCom
-				egoFur[eoItr + 1][CartesianIndices(cpyColFur[cpyItr]),:,:,:] .= 
-				egoFurInt[CartesianIndices(cpyColInt[cpyItr]),:,:,:]
+				(1 + mod(eoItr, 2)):2:(end - 1 + mod(eoItr, 2)),:,:,:])
+			# extract unique information
+			@threads for cpyItr ∈ CartesianIndices(cpyRng)
+				egoFur[eoItr + 1][cpyItr,:,:,:] .= egoFurInt[cpyItr,:,:,:]
 			end
 		end
 	end
 	# verify that egoCrc contains numeric values
-	for eoItr ∈ 1:8
+	for eoItr ∈ eachindex(1:eoDim)
 		if maximum(isnan.(egoFur[eoItr])) == 1 || 
 				maximum(isinf.(egoFur[eoItr])) == 1
 			error("Fourier information contains non-numeric values.")
@@ -155,8 +157,8 @@ function GlaOprMem(cmpInf::GlaKerOpt, trgVol::GlaVol,
 	if cmpInf.devMod == true
 		return GlaOprPrp(egoFur, trgVol, srcVol, mixInf, cmpInf, ComplexF32)
 	else
-		setTyp = eltype(eltype(egoFur))
-		return GlaOprPrp(egoFur, trgVol, srcVol, mixInf, cmpInf, setTyp)
+		setType = eltype(eltype(egoFur))
+		return GlaOprPrp(egoFur, trgVol, srcVol, mixInf, cmpInf, setType)
 	end
 end
 #=
@@ -164,7 +166,7 @@ Memory preparation sub-protocol.
 =#
 function GlaOprPrp(egoFur::AbstractArray{<:AbstractArray{T}}, trgVol::GlaVol,
 	srcVol::GlaVol, mixInf::GlaExtInf, cmpInf::GlaKerOpt, 
-	setTyp::DataType)::GlaOprMem where T<:Union{ComplexF64,ComplexF32}
+	setType::DataType)::GlaOprMem where T<:Union{ComplexF64,ComplexF32}
 	###MEMORY DECLARATION
 	# number of embedding levels---dimensionality of ambient space
 	lvls = 3
@@ -172,51 +174,61 @@ function GlaOprPrp(egoFur::AbstractArray{<:AbstractArray{T}}, trgVol::GlaVol,
 	# match operator size for distinct source and target volumes
 	# sum of source and target volumes being divisible by 2 is guaranteed by 
 	# glaVolEveGen in GlaOprMemGen
-	celInf = div.(mixInf.trgCel .+ mixInf.srcCel, 2)
-	# active GPU
-	if cmpInf.devMod == true 
-		celInfDev = CuArray{Int32}(undef, lvls)
-		copyto!(celInfDev, Int32.(celInf))
-	end
+	brnSze = div.(mixInf.trgCel .+ mixInf.srcCel, 2)
 	# binary indexing system of even and odd coefficient extraction
 	eoDim = ^(2, lvls)
 	# phase transformations (internal for block Toeplitz transformations)
-	phzInf = Array{Array{setTyp}}(undef, lvls)
+	phzInf = Array{Array{setType}}(undef, lvls)
 	# Fourier transform plans
 	if cmpInf.devMod == false
 		fftPlnFwd = Array{FFTW.cFFTWPlan}(undef, lvls)
 		fftPlnRev = Array{FFTW.ScaledPlan}(undef, lvls)
-		# Fourier transform planning area
-		fftWrk = Array{setTyp}(undef, celInf..., lvls)
 	# active GPU 		
 	else
-		egoFurDev = Array{CuArray{setTyp}}(undef, eoDim)
-		phzInfDev = Array{CuArray{setTyp}}(undef, lvls)
+		egoFurDev = Array{CuArray{setType}}(undef, eoDim)
+		phzInfDev = Array{CuArray{setType}}(undef, lvls)
 		fftPlnFwdDev = Array{CUDA.CUFFT.cCuFFTPlan}(undef, lvls)
 		fftPlnRevDev = Array{AbstractFFTs.ScaledPlan}(undef, lvls)
-		fftWrkDev = CuArray{setTyp}(undef, celInf..., lvls)
 	end
 	###MEMORY PREPARATION
 	# initialize Fourier transform plans
 	if cmpInf.devMod == false
-		for dir ∈ 1:lvls	
-			fftPlnFwd[dir] = plan_fft!(fftWrk, [dir]; flags = FFTW.MEASURE)
-			fftPlnRev[dir] = plan_ifft!(fftWrk, [dir]; flags = FFTW.MEASURE)
+		for dir ∈ eachindex(1:lvls)
+			# size of vector changes throughout application for external Green 
+			vecSzeFwd = ntuple(x -> x <= dir ? brnSze[x] : mixInf.srcCel[x], 3)
+			vecSzeRev = ntuple(x -> x > dir ? mixInf.trgCel[x] : brnSze[x], 3)
+			# Fourier transform planning area
+			fftWrkFwd = Array{setType}(undef, vecSzeFwd..., lvls, 
+				prod(mixInf.srcDiv))
+			fftWrkRev = Array{setType}(undef, vecSzeRev..., lvls, 
+				prod(mixInf.trgDiv))
+			# create Fourier transform plans
+			fftPlnFwd[dir] = plan_fft!(fftWrkFwd, [dir]; flags = FFTW.MEASURE)
+			fftPlnRev[dir] = plan_ifft!(fftWrkRev, [dir]; flags = FFTW.MEASURE)
 		end
 	else
-		for dir ∈ 1:lvls
-			@CUDA.sync fftPlnFwdDev[dir] =  plan_fft!(fftWrkDev, dir)
-			@CUDA.sync fftPlnRevDev[dir] =  plan_ifft!(fftWrkDev, dir)
+		for dir ∈ eachindex(1:lvls)
+			# size of vector changes throughout application for external Green 
+			vecSzeFwd = ntuple(x -> x <= dir ? brnSze[x] : mixInf.srcCel[x], 3)
+			vecSzeRev = ntuple(x -> x > dir ? mixInf.trgCel[x] : brnSze[x], 3)
+			# Fourier transform planning area
+			fftWrkFwdDev = CuArray{setType}(undef, vecSzeFwd..., lvls, 
+				prod(mixInf.srcDiv))
+			fftWrkRevDev = CuArray{setType}(undef, vecSzeRev..., lvls, 
+				prod(mixInf.trgDiv))
+			# create Fourier transform plans
+			@CUDA.sync fftPlnFwdDev[dir] =  plan_fft!(fftWrkFwdDev, [dir])
+			@CUDA.sync fftPlnRevDev[dir] =  plan_ifft!(fftWrkRevDev, [dir])
 		end
 	end
 	# computation of phase transformation
-	for itr ∈ 1:lvls
+	for itr ∈ eachindex(1:lvls)
 		# allows calculation odd coefficient numbers
-		phzInf[itr] = [exp(-im * pi * k / celInf[itr]) for 
-			k ∈ 0:(celInf[itr] - 1)]
+		phzInf[itr] = setType.([exp(-im * pi * k / brnSze[itr]) for 
+			k ∈ 0:(brnSze[itr] - 1)])
 		# active GPU
 		if cmpInf.devMod == true 		
-			phzInfDev[itr] = CuArray{setTyp}(undef, celInf...)
+			phzInfDev[itr] = CuArray{setType}(undef, brnSze...)
 			copyto!(selectdim(phzInfDev, 1, itr), 
 				selectdim(phzInf, 1, itr))
 		end
@@ -226,12 +238,14 @@ function GlaOprPrp(egoFur::AbstractArray{<:AbstractArray{T}}, trgVol::GlaVol,
 	# total number of target and source partitions
 	totParTrg = prod(mixInf.trgDiv)
 	totParSrc = prod(mixInf.srcDiv) 
+	# number of unique memory elements
+	truInf = div.(max.(mixInf.trgCel, mixInf.srcCel), 2) .+ 1
 	# transfer Fourier coefficients to GPU if active
 	if cmpInf.devMod == true 
 		# active GPU
-		for eoItr ∈ 0:(eoDim - 1), ddItr ∈ 1:6
-			egoFurDev[eoItr + 1] = CuArray{setTyp}(undef, hlfRup..., ddDim, 
-				totParTrg, totParSrc)
+		for eoItr ∈ 0:(eoDim - 1), ddItr ∈ eachindex(1:6)
+			egoFurDev[eoItr + 1] = CuArray{setType}(undef, truInf..., ddDim, 
+				totParSrc, totParTrg)
 			copyto!(selectdim(egoFurDev, 1, eoItr + 1), 
 				selectdim(egoFur, 1, eoItr + 1))
 		end
@@ -239,11 +253,11 @@ function GlaOprPrp(egoFur::AbstractArray{<:AbstractArray{T}}, trgVol::GlaVol,
 	# wait for completion of GPU operation, create memory structure
 	if cmpInf.devMod == true 
 		CUDA.synchronize(CUDA.stream())
-		GlaOprMem(cmpInf, trgVol, srcVol, mixInf, celInf, celInfDev, 
-			egoFurDev, fftPlnFwdDev, fftPlnRevDev, phzInfDev)
+		GlaOprMem(cmpInf, trgVol, srcVol, mixInf, brnSze, egoFurDev,
+			fftPlnFwdDev, fftPlnRevDev, phzInfDev)
 	else
-		return GlaOprMem(cmpInf, trgVol, srcVol, mixInf, celInf, celInf, 
-			egoFur, fftPlnFwd, fftPlnRev, phzInf)
+		return GlaOprMem(cmpInf, trgVol, srcVol, mixInf, brnSze, egoFur,
+			fftPlnFwd, fftPlnRev, phzInf)
 	end
 end
 #=
