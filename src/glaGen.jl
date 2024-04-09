@@ -128,6 +128,9 @@ function genEgoCrcSlf!(slfVol::GlaVol, egoCrc::AbstractArray{T,5},
 	egoToe[1,1,1,1,1] -= 1 / (cmpInf.frqPhz^2)
 	egoToe[2,2,1,1,1] -= 1 / (cmpInf.frqPhz^2)
 	egoToe[3,3,1,1,1] -= 1 / (cmpInf.frqPhz^2)
+
+	@show egoToe[:,:,1,1,1]
+
 	# embed self Toeplitz vector into a circulant vector
 	@threads for crtItr ∈ CartesianIndices(egoCrc[1,1,:,:,:])
 		@inbounds egoToeCrc!(view(egoCrc, :, :, crtItr), egoToe, crtItr, 

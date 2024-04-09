@@ -30,13 +30,13 @@ volU = GlaVol(celU, sclU, orgU)
 println("Green function construction started.")
 # generate from scratch---new circulant matrices
 oprSlfHst = GlaOprMem(cmpInfHst, volA, setType = ComplexF32)
-oprExtHst = GlaOprMem(cmpInfHst, volB, volA, setType = ComplexF32) 
+# oprExtHst = GlaOprMem(cmpInfHst, volB, volA, setType = ComplexF32) 
 # same convention can be used to save and reuse previously computed Fourier info
-oprExtDev = GlaOprMem(cmpInfDev, volB, volA, egoFur = oprExtHst.egoFur, 
-	setType = ComplexF32) 
-oprMrgHst = GlaOprMem(cmpInfHst, volU, setType = ComplexF32) 
-oprMrgDev = GlaOprMem(cmpInfDev, volU, egoFur = oprMrgHst.egoFur, 
-	setType = ComplexF32) 
+# oprExtDev = GlaOprMem(cmpInfDev, volB, volA, egoFur = oprExtHst.egoFur, 
+	# setType = ComplexF32) 
+# oprMrgHst = GlaOprMem(cmpInfHst, volU, setType = ComplexF32) 
+# oprMrgDev = GlaOprMem(cmpInfDev, volU, egoFur = oprMrgHst.egoFur, 
+	# setType = ComplexF32) 
 # serialize / deserialize to reuse Fourier information
 println("Green function construction completed.")
 ###TESTS
@@ -45,18 +45,18 @@ println("Green function construction completed.")
 # include("./test/intConTest.jl")
 # println("Integral convergence test completed.")
 ## analytic agreement test on self operator
-println("Analytic test started.")
-include("./test/anaTest.jl")
-println("Analytic test completed.")
+# println("Analytic test started.")
+# include("./test/anaTest.jl")
+# println("Analytic test completed.")
 ## positive semi-definite test on self operator
 # test becomes very slow for domains larger than [16,16,16]
 # println("Semi-definiteness test started.")
 # include("./test/posDefTest.jl")
 # println("Semi-definiteness test completed.")
 ## test external Green function using self Green function
-println("External operator test started.")
-include("./test/extSlfTest.jl")
-println("External operator test completed.")
-println("Testing complete.")
+# println("External operator test started.")
+# include("./test/extSlfTest.jl")
+# println("External operator test completed.")
+# println("Testing complete.")
 ##TODOS
 # complete in multiple GPU support

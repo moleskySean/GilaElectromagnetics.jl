@@ -62,7 +62,7 @@ struct GlaKerOpt
 	frqPhz::Number
 	intOrd::Integer
 	adjMod::Bool
-	devMod::Union{Bool, Array{<:Bool,1}}
+	devMod::Union{Bool,Array{<:Bool,1}}
 	numTrd::Union{Tuple{},NTuple{3,<:Integer}}
 	numBlk::Union{Tuple{},NTuple{3,<:Integer}}
 end

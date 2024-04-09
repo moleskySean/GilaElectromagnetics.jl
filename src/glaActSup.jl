@@ -51,9 +51,9 @@ function genPrtKer!(maxX::Integer, maxY::Integer, maxZ::Integer,
 	strY = gridDim().y * blockDim().y
 	strZ = gridDim().z * blockDim().z
 	# thread indices
-	idX = threadIdx().x + (blockIdx().x - 1) * blockDim().x 
-	idY = threadIdx().y + (blockIdx().y - 1) * blockDim().y 
-	idZ = threadIdx().z + (blockIdx().z - 1) * blockDim().z
+	idX = threadIdx().x + (blockIdx().x - 0x1) * blockDim().x 
+	idY = threadIdx().y + (blockIdx().y - 0x1) * blockDim().y 
+	idZ = threadIdx().z + (blockIdx().z - 0x1) * blockDim().z
 	# copy partition data
 	@inbounds for itrZ = idZ:strZ:maxZ, itrY = idY:strY:maxY, 
 		itrX = idX:strX:maxX
@@ -97,9 +97,9 @@ function sptKer!(maxX::Integer, maxY::Integer, maxZ::Integer,
 	strY = gridDim().y * blockDim().y
 	strZ = gridDim().z * blockDim().z
 	# thread indices
-	idX = threadIdx().x + (blockIdx().x - 1) * blockDim().x 
-	idY = threadIdx().y + (blockIdx().y - 1) * blockDim().y 
-	idZ = threadIdx().z + (blockIdx().z - 1) * blockDim().z 
+	idX = threadIdx().x + (blockIdx().x - 0x1) * blockDim().x 
+	idY = threadIdx().y + (blockIdx().y - 0x1) * blockDim().y 
+	idZ = threadIdx().z + (blockIdx().z - 0x1) * blockDim().z 
 	# multiplication loop selected based on phase transformation direction
 	if sptDir == 1
 		# x phase---phzVec[itrX]
@@ -255,9 +255,9 @@ function sptBrnOvrKer!(prgVecEve::AbstractArray{T,5},
 	strY = gridDim().y * blockDim().y
 	strZ = gridDim().z * blockDim().z
 	# thread indices
-	idX = threadIdx().x + (begX - 1) + (blockIdx().x - 1) * blockDim().x 
-	idY = threadIdx().y + (begY - 1) + (blockIdx().y - 1) * blockDim().y 
-	idZ = threadIdx().z + (begZ - 1) + (blockIdx().z - 1) * blockDim().z 
+	idX = threadIdx().x + (begX - 0x1) + (blockIdx().x - 0x1) * blockDim().x 
+	idY = threadIdx().y + (begY - 0x1) + (blockIdx().y - 0x1) * blockDim().y 
+	idZ = threadIdx().z + (begZ - 0x1) + (blockIdx().z - 0x1) * blockDim().z 
 	# multiplication loop selected based on phase transformation direction
 	if dirSpt == 1
 		# x phase---phzVec[itrX]
@@ -314,9 +314,9 @@ function sptBrnStdKer!(prgVecEve::AbstractArray{T,5},
 	strY = gridDim().y * blockDim().y
 	strZ = gridDim().z * blockDim().z
 	# thread indices
-	idX = threadIdx().x + (begX - 1) + (blockIdx().x - 1) * blockDim().x 
-	idY = threadIdx().y + (begY - 1) + (blockIdx().y - 1) * blockDim().y 
-	idZ = threadIdx().z + (begZ - 1) + (blockIdx().z - 1) * blockDim().z 
+	idX = threadIdx().x + (begX - 0x1) + (blockIdx().x - 0x1) * blockDim().x 
+	idY = threadIdx().y + (begY - 0x1) + (blockIdx().y - 0x1) * blockDim().y 
+	idZ = threadIdx().z + (begZ - 0x1) + (blockIdx().z - 0x1) * blockDim().z 
 	# multiplication loop selected based on phase transformation direction
 	if dirSpt == 1
 		# x phase---phzVec[itrX]
@@ -367,9 +367,9 @@ function sptBrnZroKer!(prgVecEve::AbstractArray{T,5},
 	strY = gridDim().y * blockDim().y
 	strZ = gridDim().z * blockDim().z
 	# thread indices
-	idX = threadIdx().x + (begX - 1) + (blockIdx().x - 1) * blockDim().x 
-	idY = threadIdx().y + (begY - 1) + (blockIdx().y - 1) * blockDim().y 
-	idZ = threadIdx().z + (begZ - 1) + (blockIdx().z - 1) * blockDim().z 
+	idX = threadIdx().x + (begX - 0x1) + (blockIdx().x - 0x1) * blockDim().x 
+	idY = threadIdx().y + (begY - 0x1) + (blockIdx().y - 0x1) * blockDim().y 
+	idZ = threadIdx().z + (begZ - 0x1) + (blockIdx().z - 0x1) * blockDim().z 
 	# zero appropriate elements
 	@inbounds for itrZ = idZ:strZ:endZ, itrY = idY:strY:endY, 
 		itrX = idX:strX:endX 
@@ -419,9 +419,9 @@ function mrgKer!(maxX::Integer, maxY::Integer, maxZ::Integer,
 	strY = gridDim().y * blockDim().y
 	strZ = gridDim().z * blockDim().z
 	# thread indices
-	idX = threadIdx().x + (blockIdx().x - 1) * blockDim().x 
-	idY = threadIdx().y + (blockIdx().y - 1) * blockDim().y 
-	idZ = threadIdx().z + (blockIdx().z - 1) * blockDim().z 
+	idX = threadIdx().x + (blockIdx().x - 0x1) * blockDim().x 
+	idY = threadIdx().y + (blockIdx().y - 0x1) * blockDim().y 
+	idZ = threadIdx().z + (blockIdx().z - 0x1) * blockDim().z 
 	# multiplication loop selected based on phase transformation direction
 	if mrgDir == 1
 		# x phase---phzVec[itrX]
@@ -521,9 +521,9 @@ function mrgTopKer!(mrgVec::AbstractArray{T,5}, maxX::Integer, maxY::Integer,
 	strY = gridDim().y * blockDim().y
 	strZ = gridDim().z * blockDim().z
 	# thread indices
-	idX = threadIdx().x + (blockIdx().x - 1) * blockDim().x 
-	idY = threadIdx().y + (blockIdx().y - 1) * blockDim().y 
-	idZ = threadIdx().z + (blockIdx().z - 1) * blockDim().z 
+	idX = threadIdx().x + (blockIdx().x - 0x1) * blockDim().x 
+	idY = threadIdx().y + (blockIdx().y - 0x1) * blockDim().y 
+	idZ = threadIdx().z + (blockIdx().z - 0x1) * blockDim().z 
 	# multiplication loop selected based on phase transformation direction
 	if mrgDir == 1
 		# x phase---phzVec[itrX]
@@ -564,9 +564,9 @@ function mrgBotKer!(mrgVec::AbstractArray{T,5}, maxX::Integer, maxY::Integer,
 	strY = gridDim().y * blockDim().y
 	strZ = gridDim().z * blockDim().z
 	# thread indices
-	idX = threadIdx().x + (blockIdx().x - 1) * blockDim().x 
-	idY = threadIdx().y + (blockIdx().y - 1) * blockDim().y 
-	idZ = threadIdx().z + (blockIdx().z - 1) * blockDim().z 
+	idX = threadIdx().x + (blockIdx().x - 0x1) * blockDim().x 
+	idY = threadIdx().y + (blockIdx().y - 0x1) * blockDim().y 
+	idZ = threadIdx().z + (blockIdx().z - 0x1) * blockDim().z 
 	# multiplication loop selected based on phase transformation direction
 	if mrgDir == 1
 		# x phase---phzVec[itrX]
@@ -763,9 +763,9 @@ function mulKerDev!(dimInf::AbstractVector{<:Integer},
 	strY = gridDim().y * blockDim().y
 	strZ = gridDim().z * blockDim().z
 	# thread indices
-	idX = threadIdx().x + (blockIdx().x - 1) * blockDim().x 
-	idY = threadIdx().y + (blockIdx().y - 1) * blockDim().y 
-	idZ = threadIdx().z + (blockIdx().z - 1) * blockDim().z 
+	idX = threadIdx().x + (blockIdx().x - 0x1) * blockDim().x 
+	idY = threadIdx().y + (blockIdx().y - 0x1) * blockDim().y 
+	idZ = threadIdx().z + (blockIdx().z - 0x1) * blockDim().z 
 	# multiplication loops
 	@inbounds for itrZ = idZ:strZ:dimInf[3], itrY = idY:strY:dimInf[2], 
 		itrX = idX:strX:dimInf[1] 
@@ -840,9 +840,9 @@ function mrgPrtKer!(maxX::Integer, maxY::Integer, maxZ::Integer,
 	strY = gridDim().y * blockDim().y
 	strZ = gridDim().z * blockDim().z
 	# thread indices
-	idX = threadIdx().x + (blockIdx().x - 1) * blockDim().x 
-	idY = threadIdx().y + (blockIdx().y - 1) * blockDim().y 
-	idZ = threadIdx().z + (blockIdx().z - 1) * blockDim().z
+	idX = threadIdx().x + (blockIdx().x - 0x1) * blockDim().x 
+	idY = threadIdx().y + (blockIdx().y - 0x1) * blockDim().y 
+	idZ = threadIdx().z + (blockIdx().z - 0x1) * blockDim().z
 	# copy partition data
 	@inbounds for itrZ = idZ:strZ:maxZ, itrY = idY:strY:maxY, 
 		itrX = idX:strX:maxX
