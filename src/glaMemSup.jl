@@ -6,8 +6,7 @@
 	Nothing}=nothing)::GlaOprMem where T<:Union{ComplexF64,ComplexF32}
 
 Prepare memory for green function operator---when called with a single GlaVol, 
-or identical source and target volumes, the function yields the self green 
-function construction. 
+or identical source and target volumes, yields the self construction. 
 """
 function GlaOprMem(cmpInf::GlaKerOpt, trgVol::GlaVol,
 	srcVol::Union{GlaVol,Nothing}=nothing; 
