@@ -32,7 +32,8 @@ function egoAna!(anaOut::AbstractArray{T}, slfVol::GlaVol,
 			(trgRng[3][crtItr[3]] - dipPos[3])^2)
 		# separation too small, use self-point approximation
 		if sep < sepTol
-			mul!(view(anaOut, linItr), (2.0 * ^(π, 2.0) * 2.0 * im / 3.0) .* id, dipVec)
+			mul!(view(anaOut, linItr), (2.0 * ^(π, 2.0) * 2.0 * im / 3.0) .* 
+				id, dipVec)
 		else
 			sH = (2 * π) .* (trgRng[1][crtItr[1]] - dipPos[1], 
 				trgRng[2][crtItr[2]] - dipPos[2], 

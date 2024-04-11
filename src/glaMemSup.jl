@@ -13,6 +13,10 @@ function GlaOprMem(cmpInf::GlaKerOpt, trgVol::GlaVol,
 	egoFur::Union{AbstractArray{<:AbstractArray{T}, 1},
 	Nothing}=nothing, setType::DataType=ComplexF64)::GlaOprMem where 
 	T<:Union{ComplexF64,ComplexF32}
+	# check functionality if device computation has been requested
+	if cmpInf.devMod == true && !CUDA.functional()
+		error("Device computation requested, but CUDA is not functional. For CPU computation use GlaKerOpt(false)---devMod = false---when declaring compute options.")
+	end
 	# flag for self green function case
 	slfFlg = 0
 	# self green function case
@@ -179,33 +183,18 @@ function GlaOprPrp(egoFur::AbstractArray{<:AbstractArray{T}}, trgVol::GlaVol,
 	# phase transformations (internal for block Toeplitz transformations)
 	phzInf = Array{Array{setType}}(undef, lvls)
 	# Fourier transform plans
-	if cmpInf.devMod == false
-		fftPlnFwd = Array{FFTW.cFFTWPlan}(undef, lvls)
-		fftPlnRev = Array{FFTW.ScaledPlan}(undef, lvls)
-	# active GPU 		
-	else
+	if cmpInf.devMod == true
 		egoFurDev = Array{CuArray{setType}}(undef, eoDim)
 		phzInfDev = Array{CuArray{setType}}(undef, lvls)
 		fftPlnFwdDev = Array{CUDA.CUFFT.cCuFFTPlan}(undef, lvls)
 		fftPlnRevDev = Array{AbstractFFTs.ScaledPlan}(undef, lvls)
+	else
+		fftPlnFwd = Array{FFTW.cFFTWPlan}(undef, lvls)
+		fftPlnRev = Array{FFTW.ScaledPlan}(undef, lvls)
 	end
 	###MEMORY PREPARATION
 	# initialize Fourier transform plans
-	if cmpInf.devMod == false
-		for dir ∈ eachindex(1:lvls)
-			# size of vector changes throughout application for external Green 
-			vecSzeFwd = ntuple(x -> x <= dir ? brnSze[x] : mixInf.srcCel[x], 3)
-			vecSzeRev = ntuple(x -> x > dir ? mixInf.trgCel[x] : brnSze[x], 3)
-			# Fourier transform planning area
-			fftWrkFwd = Array{setType}(undef, vecSzeFwd..., lvls, 
-				prod(mixInf.srcDiv))
-			fftWrkRev = Array{setType}(undef, vecSzeRev..., lvls, 
-				prod(mixInf.trgDiv))
-			# create Fourier transform plans
-			fftPlnFwd[dir] = plan_fft!(fftWrkFwd, [dir]; flags = FFTW.MEASURE)
-			fftPlnRev[dir] = plan_ifft!(fftWrkRev, [dir]; flags = FFTW.MEASURE)
-		end
-	else
+	if cmpInf.devMod == true
 		for dir ∈ eachindex(1:lvls)
 			# size of vector changes throughout application for external Green 
 			vecSzeFwd = ntuple(x -> x <= dir ? brnSze[x] : mixInf.srcCel[x], 3)
@@ -218,6 +207,20 @@ function GlaOprPrp(egoFur::AbstractArray{<:AbstractArray{T}}, trgVol::GlaVol,
 			# create Fourier transform plans
 			@CUDA.sync fftPlnFwdDev[dir] =  plan_fft!(fftWrkFwdDev, [dir])
 			@CUDA.sync fftPlnRevDev[dir] =  plan_ifft!(fftWrkRevDev, [dir])
+		end
+	else
+		for dir ∈ eachindex(1:lvls)
+			# size of vector changes throughout application for external Green 
+			vecSzeFwd = ntuple(x -> x <= dir ? brnSze[x] : mixInf.srcCel[x], 3)
+			vecSzeRev = ntuple(x -> x > dir ? mixInf.trgCel[x] : brnSze[x], 3)
+			# Fourier transform planning area
+			fftWrkFwd = Array{setType}(undef, vecSzeFwd..., lvls, 
+				prod(mixInf.srcDiv))
+			fftWrkRev = Array{setType}(undef, vecSzeRev..., lvls, 
+				prod(mixInf.trgDiv))
+			# create Fourier transform plans
+			fftPlnFwd[dir] = plan_fft!(fftWrkFwd, [dir]; flags = FFTW.MEASURE)
+			fftPlnRev[dir] = plan_ifft!(fftWrkRev, [dir]; flags = FFTW.MEASURE)
 		end
 	end
 	# computation of phase transformation
@@ -277,7 +280,7 @@ Block index for a given Cartesian index.
 	elseif crtInd == 9 
 		return 3
 	else
-		error("Improper use case.")
+		error("Improper use case, there are only nine blocks.")
 		return 0
 	end
 end

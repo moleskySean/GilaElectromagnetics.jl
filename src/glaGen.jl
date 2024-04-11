@@ -128,9 +128,6 @@ function genEgoCrcSlf!(slfVol::GlaVol, egoCrc::AbstractArray{T,5},
 	egoToe[1,1,1,1,1] -= 1 / (cmpInf.frqPhz^2)
 	egoToe[2,2,1,1,1] -= 1 / (cmpInf.frqPhz^2)
 	egoToe[3,3,1,1,1] -= 1 / (cmpInf.frqPhz^2)
-
-	@show egoToe[:,:,1,1,1]
-
 	# embed self Toeplitz vector into a circulant vector
 	@threads for crtItr ∈ CartesianIndices(egoCrc[1,1,:,:,:])
 		@inbounds egoToeCrc!(view(egoCrc, :, :, crtItr), egoToe, crtItr, 
@@ -144,7 +141,7 @@ implemented mask takes into account the relative flip in the assumed dipole
 direction under a coordinate reflection. 
 =#
 function egoToeCrc!(egoCrc::AbstractArray{T,2}, egoToe::AbstractArray{T,5}, 
-	posInd::CartesianIndex{3}, indSpt::Tuple{Vararg{<:Integer}})::Nothing where 
+	posInd::CartesianIndex{3}, indSpt::Tuple{Vararg{Integer}})::Nothing where 
 	T<:Union{ComplexF64,ComplexF32}
 	
 	if posInd[1] == (indSpt[1] + 1) || posInd[2] == (indSpt[2] + 1) || 
@@ -171,9 +168,9 @@ required when calculating an external Green function.
 =#
 @inline function egoFunExt!(egoCrcExt::AbstractArray{T,2}, 
 	posInd::CartesianIndex{3}, 
-	indSpt::Union{Array{<:Integer,1},NTuple{3,<:Integer}}, 
+	indSpt::Union{Array{<:Integer,1},NTuple{3,Integer}}, 
 	sepGrdTrg::Array{<:StepRange,1}, sepGrdSrc::Array{<:StepRange,1}, 
-	sclTrg::NTuple{3,<:Number}, sclSrc::NTuple{3,<:Number}, 
+	sclTrg::NTuple{3,Number}, sclSrc::NTuple{3,Number}, 
 	trgFac::Array{<:Number,3}, srcFac::Array{<:AbstractFloat,3}, 
 	facPar::Array{<:Integer,2}, cmpInf::GlaKerOpt)::Nothing where 
 	T<:Union{ComplexF64,ComplexF32}
@@ -197,9 +194,9 @@ of volumes. No field flip is required for external Green function.
 =#
 function egoFunExtCnt!(cntVol::GlaVol, egoCrc::AbstractArray{T,2},
 	egoCrcCnt::AbstractArray{T,5}, posInd::CartesianIndex{3}, 
-	indSpt::NTuple{3, <:Integer}, sepGrdTrg::Array{<:StepRange,1}, 
-	sepGrdSrc::Array{<:StepRange,1}, sclTrg::NTuple{3,<:Number}, 
-	sclSrc::NTuple{3,<:Number}, trgFac::Array{<:AbstractFloat,3}, 
+	indSpt::NTuple{3,Integer}, sepGrdTrg::Array{<:StepRange,1}, 
+	sepGrdSrc::Array{<:StepRange,1}, sclTrg::NTuple{3,Number}, 
+	sclSrc::NTuple{3,Number}, trgFac::Array{<:AbstractFloat,3}, 
 	srcFac::Array{<:AbstractFloat,3}, facPar::Array{<:Integer,2}, 
 	cmpInf::GlaKerOpt)::Nothing where T<:Union{ComplexF64,ComplexF32}
 	# separation vector
@@ -234,7 +231,7 @@ end
 General external Green function interaction element. 
 =#
 function egoFunOut!(egoCrc::AbstractArray{T,2}, grd::Array{<:AbstractFloat,1}, 
-	sclTrg::NTuple{3,<:Number}, sclSrc::NTuple{3,<:Number}, 
+	sclTrg::NTuple{3,Number}, sclSrc::NTuple{3,Number}, 
 	trgFac::Array{<:AbstractFloat,3}, srcFac::Array{<:AbstractFloat,3}, 
 	facPar::Array{<:Integer,2}, cmpInf::GlaKerOpt)::Nothing where 
 	T<:Union{ComplexF64,ComplexF32}
@@ -252,7 +249,7 @@ Compute Green function element for cells in contact.
 =#
 function egoCntOut!(cntVol::GlaVol, egoCrcCnt::Array{T,5}, 
 	egoCrc::AbstractArray{T,2}, posInd::CartesianIndex{3}, 
-	sclTrg::NTuple{3,<:Number}, sclSrc::NTuple{3,<:Number}, 
+	sclTrg::NTuple{3,Number}, sclSrc::NTuple{3,Number}, 
 	sepVec::Array{<:AbstractFloat,1})::Nothing where
 	T<:Union{ComplexF64,ComplexF32}
 	# safety zero local section of the Green function
@@ -323,7 +320,7 @@ end
 General self Green function interaction element. 
 =#
 function egoFunInn!(egoToe::AbstractArray{T,5}, posInd::CartesianIndex{3},
-	srcGrd::Array{<:StepRange,1}, scl::NTuple{3,<:Number}, 
+	srcGrd::Array{<:StepRange,1}, scl::NTuple{3,Number}, 
 	trgFac::Array{<:AbstractFloat,3}, srcFac::Array{<:AbstractFloat,3}, 
 	facPar::Array{<:Integer,2}, cmpInf::GlaKerOpt)::Nothing where 
 	T<:Union{ComplexF64,ComplexF32}
@@ -648,8 +645,8 @@ end
 Return a reference index relative to the embedding index of the Green function. 
 =#
 @inline function indSel(posInd::T, indSpt::R)::CartesianIndex where 
-	{T<:Union{CartesianIndex, Tuple{Vararg{<:Integer}}, <:Integer}, 
-	R<:Union{CartesianIndex, Tuple{Vararg{<:Integer}}, <:Integer}}
+	{T<:Union{CartesianIndex, Tuple{Vararg{Integer}}, Integer}, 
+	R<:Union{CartesianIndex, Tuple{Vararg{Integer}}, Integer}}
 		
 	return CartesianIndex(map((x, y) -> x <= y ? x : 
 		(x == y + 1 ? 2 * y - x + 1 : 2 * y - x + 2), 

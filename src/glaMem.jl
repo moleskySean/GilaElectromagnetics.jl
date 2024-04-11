@@ -13,9 +13,9 @@ during the memory preparation phase---see GlaOprMem in glaMemSup.jl.
 =#
 struct GlaVol
 
-	cel::NTuple{3,<:Integer}
-	scl::NTuple{3,<:Rational}
-	org::NTuple{3,<:Rational}
+	cel::NTuple{3,Integer}
+	scl::NTuple{3,Rational}
+	org::NTuple{3,Rational}
 	grd::Array{<:StepRange,1}
 	# boundary conditions here?
 end
@@ -33,11 +33,11 @@ Information for mapping between general source and target volumes.
 =#
 struct GlaExtInf
 
-	minScl::NTuple{3,<:Rational}
-	trgDiv::NTuple{3,<:Integer}
-	srcDiv::NTuple{3,<:Integer}
-	trgCel::NTuple{3,<:Integer}
-	srcCel::NTuple{3,<:Integer}
+	minScl::NTuple{3,Rational}
+	trgDiv::NTuple{3,Integer}
+	srcDiv::NTuple{3,Integer}
+	trgCel::NTuple{3,Integer}
+	srcCel::NTuple{3,Integer}
 	trgPar::CartesianIndices
 	srcPar::CartesianIndices
 end
@@ -53,7 +53,7 @@ Green function operator assembly and kernel operation options.
 .numBlk---number of threads to use when running GPU kernels 
 """
 #=
-If inConTest.jl was failed the default intOrd used in the simplified constructor
+If intConTest.jl was failed the default intOrd used in the simplified constructor
 may not be sufficient to insure that all integral values are properly converged.
 It may be prudent to create the associated GlaKerOpt with higher order. 
 =#
@@ -63,8 +63,8 @@ struct GlaKerOpt
 	intOrd::Integer
 	adjMod::Bool
 	devMod::Union{Bool,Array{<:Bool,1}}
-	numTrd::Union{Tuple{},NTuple{3,<:Integer}}
-	numBlk::Union{Tuple{},NTuple{3,<:Integer}}
+	numTrd::Union{Tuple{},NTuple{3,Integer}}
+	numBlk::Union{Tuple{},NTuple{3,Integer}}
 end
 """
 GlaOprMem
@@ -87,7 +87,7 @@ struct GlaOprMem
 	trgVol::GlaVol
 	srcVol::GlaVol
 	mixInf::GlaExtInf
-	dimInf::NTuple{3,<:Integer} 
+	dimInf::NTuple{3,Integer} 
 	egoFur::AbstractArray{<:AbstractArray{T},1} where 
 	T<:Union{ComplexF64,ComplexF32}
 	fftPlnFwd::AbstractArray{<:AbstractFFTs.Plan,1}
@@ -99,14 +99,14 @@ end
 Constructors
 =#
 """
-	GlaVol(cel::Array{<:Integer,1}, celScl::NTuple{3,<:Rational}, 
-	org::NTuple{3,<:Rational}, grdScl::NTuple{3,<:Rational}=celScl)::GlaVol
+	GlaVol(cel::Array{<:Integer,1}, celScl::NTuple{3,Rational}, 
+	org::NTuple{3,Rational}, grdScl::NTuple{3,Rational}=celScl)::GlaVol
 
 Constructor for Gila Volumes.
 """
-function GlaVol(cel::Union{Array{<:Integer,1},NTuple{3,<:Integer}}, 
-	celScl::NTuple{3,<:Rational}, org::NTuple{3,<:Rational}, 
-	grdScl::NTuple{3,<:Rational}=celScl)::GlaVol
+function GlaVol(cel::Union{Array{<:Integer,1},NTuple{3,Integer}}, 
+	celScl::NTuple{3,Rational}, org::NTuple{3,Rational}, 
+	grdScl::NTuple{3,Rational}=celScl)::GlaVol
 	
 	if !prod(celScl .<= grdScl)
 		error("The cell scale must be smaller than the grid scale to avoid 

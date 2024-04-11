@@ -73,7 +73,7 @@ positions. The cmpInf parameter determines the level of precision used for
 integral calculations. Namely, cmpInf.intOrd is used internally in all 
 weakly singular integral computations. 
 =#
-function wekS(scl::NTuple{3,<:Number}, glQud1::Array{<:AbstractFloat,2}, 
+function wekS(scl::NTuple{3,Number}, glQud1::Array{<:AbstractFloat,2}, 
 	cmpInf::GlaKerOpt)::Array{ComplexF64,1}
 
 	grdPts = Array{Float64}(undef, 3, 18)
@@ -90,7 +90,7 @@ end
 #=
 Weak self-integral of a particular face.
 =#
-function wekSDir(dir::Integer, scl::NTuple{3,<:Number}, 
+function wekSDir(dir::Integer, scl::NTuple{3,Number}, 
 	grdPts::Array{<:AbstractFloat,2}, glQud1::Array{<:AbstractFloat,2}, 
 	cmpInf::GlaKerOpt)::ComplexF64
 
@@ -121,7 +121,7 @@ end
 Head function for integration over edge adjacent square panels. See wekS for 
 input parameter descriptions. 
 =#
-function wekE(scl::NTuple{3,<:Number}, glQud1::Array{<:AbstractFloat,2}, 
+function wekE(scl::NTuple{3,Number}, glQud1::Array{<:AbstractFloat,2}, 
 	cmpInf::GlaKerOpt)::Array{ComplexF64,1}
 	
 	grdPts = Array{Float64,2}(undef, 3, 18)
@@ -166,7 +166,7 @@ Weak edge integrals for a given face as specified by dir.
 	dir = 3 -> x face -> [z-edge (++ gridY): xx(y), xy(y); 
 						  y-edge (++ gridZ) xx(z) xz(z)]
 =#
-function wekEDir(dir::Integer, scl::NTuple{3,<:Number}, 
+function wekEDir(dir::Integer, scl::NTuple{3,Number}, 
 	grdPts::Array{<:AbstractFloat,2}, glQud1::Array{<:AbstractFloat,2}, 
 	cmpInf::GlaKerOpt)::Array{ComplexF64,1}
 
@@ -208,7 +208,7 @@ end
 Head function returning integral values for the Ego function over vertex 
 adjacent square panels. See wekS for input parameter descriptions. 
 =#
-function wekV(scl::NTuple{3,<:Number}, glQud1::Array{<:AbstractFloat,2}, 
+function wekV(scl::NTuple{3,Number}, glQud1::Array{<:AbstractFloat,2}, 
 	cmpInf::GlaKerOpt)::Array{ComplexF64,1}
 
 	grdPts = Array{Float64,2}(undef,3,18)
@@ -236,7 +236,7 @@ Weak edge integrals for a given face as specified by dir.
 	dir = 2 -> y face -> [yy yz yx]
 	dir = 3 -> x face -> [xx xy xz]
 =#
-function wekVDir(dir::Integer, scl::NTuple{3,<:Number}, 
+function wekVDir(dir::Integer, scl::NTuple{3,Number}, 
 	grdPts::Array{<:AbstractFloat,2}, glQud1::Array{<:AbstractFloat,2}, 
 	cmpInf::GlaKerOpt)::Array{ComplexF64,1}
 
@@ -282,8 +282,8 @@ end
 #=
 Determine scaling factors for surface integrals.
 =#
-function srfScl(sclT::NTuple{3,<:Number}, 
-	sclS::NTuple{3,<:Number})::Array{Float64,1}
+function srfScl(sclT::NTuple{3,Number}, 
+	sclS::NTuple{3,Number})::Array{Float64,1}
 
 	srcScl = 1.0
 	trgScl = 1.0
@@ -311,7 +311,7 @@ L and U reference relative positions on the corresponding normal axis.
 Points are number in a counter-clockwise convention when viewing the 
 face from the exterior of the cube. 
 =#
-function cubFac(size::NTuple{3,<:Number})::Array{Float64,3}
+function cubFac(size::NTuple{3,Number})::Array{Float64,3}
 	
 	yzL = hcat([-size[1], -size[2], -size[3]], [-size[1], size[2], -size[3]], 
 		[-size[1], size[2], size[3]], [-size[1], -size[2], size[3]]) ./ 2
@@ -352,7 +352,7 @@ end
 Create grid point system for calculation for calculation of weakly singular 
 integrals. 
 =#
-function wekGrdPts!(dir::Integer, scl::NTuple{3,<:Number}, 
+function wekGrdPts!(dir::Integer, scl::NTuple{3,Number}, 
 	grdPts::Array{<:AbstractFloat,2})::Nothing
 
 	if dir == 1

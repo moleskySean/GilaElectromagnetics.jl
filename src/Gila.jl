@@ -7,8 +7,8 @@ Author: Sean Molesky
 Distribution: The code distributed under GNU LGPL.
 """
 module Gila
-using CUDA, AbstractFFTs, FFTW, Base.Threads, LinearAlgebra, 
-FastGaussQuadrature, Cubature, ThreadsX 
+using AbstractFFTs, FFTW, LinearAlgebra, FastGaussQuadrature, Cubature, 
+CUDA, Base.Threads, ThreadsX 
 #=
 glaMem defines the memory structures used in Gila. 
 
@@ -59,17 +59,16 @@ Integration tolerances ultimately used by glaInt.jl are introduced in this file.
 
 exported definitions
 --------------------
+
+notable internal definitions
+----------------------------
 genEgoSlf!---computation of interaction elements for sources within one volume.
 
 genEgoExt!---computation of interaction elements between a source and target
 volume. The source and target volume are allowed to touch and have cell scales 
 that differ by integer factors. 
-
-notable internal definitions
-----------------------------
 =#
 include("glaGen.jl")
-export genEgoSlf!, genEgoExt!
 #=
 glaAct contains the package protocol for computing matrix vector products---the 
 action of the electromagnetic Green function on a specified current 
