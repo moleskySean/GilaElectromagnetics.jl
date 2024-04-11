@@ -9,3 +9,5 @@ doc/*.fls
 doc/*.log
 doc/*.gz
 doc/*Notes.bib
+# personal task list file
+todo.jl
