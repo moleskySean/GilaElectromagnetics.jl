@@ -1,12 +1,12 @@
 """
-Gila implements single (complex) frequency electromagnetic Green functions 
-between generalized source and target cuboid ``volumes''. Technical details 
-are available in the supporting glaDoc file.
+GilaElectromagnetics implements single (complex) frequency electromagnetic Green
+functions between generalized source and target cuboid ``volumes''. Technical 
+details are available in the supporting document files.
 
 Author: Sean Molesky 
 Distribution: The code distributed under GNU LGPL.
 """
-module Gila
+module GilaElectromagnetics
 using AbstractFFTs, FFTW, LinearAlgebra, FastGaussQuadrature, Cubature, 
 CUDA, Base.Threads, ThreadsX 
 #=

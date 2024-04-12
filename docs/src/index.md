@@ -1,4 +1,4 @@
-# Gila.jl
+# GilaElectromagnetics.jl
 
-Documentation for Gila.jl
-https://github.com/moleskySean/Gila.jl
+Documentation for GilaElectromagnetics.jl
+https://github.com/moleskySean/GilaElectromagnetics.jl

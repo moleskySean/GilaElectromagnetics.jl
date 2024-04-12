@@ -1,18 +1,18 @@
-# The Gila Module
+# The GilaElectromagnetics Module
 
 ```@docs
-Gila
+GilaElectromagnetics
 ```
 
 ## Module Index
 
 ```@index
-Modules = [Gila]
+Modules = [GilaElectromagnetics]
 Order   = [:constant, :type, :function, :macro]
 ```
 ## Detailed API
 
 ```@autodocs
-Modules = [Gila]
+Modules = [GilaElectromagnetics]
 Order   = [:constant, :type, :function, :macro]
 ```
