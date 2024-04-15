@@ -1,6 +1,6 @@
 ###UTILITY LOADING
 using CUDA, AbstractFFTs, FFTW, Base.Threads, LinearAlgebra, LinearAlgebra.BLAS, 
-Random, Gila, Test
+Random, GilaElectromagnetics, Test
 include("preamble.jl")
 ###SETTINGS
 # number of cells in each volume 

@@ -1,8 +1,8 @@
 using Documenter
-using Gila
+using GilaElectromagnetics
 
 push!(LOAD_PATH,"../src/")
-makedocs(sitename="Gila.jl Documentation",
+makedocs(sitename="GilaElectromagnetics.jl Documentation",
          pages = [
             "Index" => "index.md",
             "An other page" => "docIndex.md",
@@ -13,6 +13,6 @@ makedocs(sitename="Gila.jl Documentation",
 # See "Hosting Documentation" and deploydocs() in the Documenter manual
 # for more information.
 deploydocs(
-    repo = "github.com/moleskySean/Gila.jl.git",
+    repo = "github.com/moleskySean/GilaElectromagnetics.jl.git",
     devbranch = "main"
 )

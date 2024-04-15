@@ -1,5 +1,5 @@
 ###UTILITY LOADING
-using Gila
+using GilaElectromagnetics
 #=
 Basic code to examine the (dense) matrix of a self Green function. For a 
 standard desktop computer, memory issues will likely begin around a thousand 

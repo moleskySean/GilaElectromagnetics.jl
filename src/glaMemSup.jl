@@ -45,7 +45,7 @@ function GlaOprMem(cmpInf::GlaKerOpt, trgVol::GlaVol,
 	lvl = 3
 	# number of multiplication branches		
 	eoDim = ^(2, lvl)
-	# generate circulant green function, from GilaCrc module
+	# generate circulant green function, from glaGen 
 	if isnothing(egoFur)
 		# memory for circulant green function vector
 		egoCrc = Array{ComplexF64}(undef, 3, 3, totCelCrc..., totParSrc, 

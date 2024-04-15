@@ -7,13 +7,19 @@ function wekIntChk(scl::NTuple{3,<:Rational}, glOrd::Integer)::Array{Float64,1}
 
 	opts = GlaKerOpt(false)
 	# weak integral values for internally set quadrature order
-	ws1 = Gila.wekS(scl, Gila.gauQud(glOrd), opts)
-	we1 = Gila.wekE(scl, Gila.gauQud(glOrd), opts)
-	wv1 = Gila.wekV(scl, Gila.gauQud(glOrd), opts)
+	ws1 = GilaElectromagnetics.wekS(scl, GilaElectromagnetics.gauQud(glOrd), 
+		opts)
+	we1 = GilaElectromagnetics.wekE(scl, GilaElectromagnetics.gauQud(glOrd), 
+		opts)
+	wv1 = GilaElectromagnetics.wekV(scl, GilaElectromagnetics.gauQud(glOrd), 
+		opts)
 	# weak integral values for additional quadrature points
-	ws2 = Gila.wekS(scl, Gila.gauQud(glOrd + 8), opts)
-	we2 = Gila.wekE(scl, Gila.gauQud(glOrd + 8), opts)
-	wv2 = Gila.wekV(scl, Gila.gauQud(glOrd + 8), opts)
+	ws2 = GilaElectromagnetics.wekS(scl, GilaElectromagnetics.gauQud(glOrd + 8), 
+		opts)
+	we2 = GilaElectromagnetics.wekE(scl, GilaElectromagnetics.gauQud(glOrd + 8), 
+		opts)
+	wv2 = GilaElectromagnetics.wekV(scl, GilaElectromagnetics.gauQud(glOrd + 8), 
+		opts)
 	# differences
 	intDifS = real(maximum(abs.(ws1 .- ws2) ./ abs.(ws2)))
 	intDifE = real(maximum(abs.(we1 .- we2) ./ abs.(we2)))
