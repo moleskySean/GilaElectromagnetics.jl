@@ -6,7 +6,7 @@ are available in the supporting glaDoc file.
 Author: Sean Molesky 
 Distribution: The code distributed under GNU LGPL.
 """
-module Gila
+module GilaElectroMag
 using AbstractFFTs, FFTW, LinearAlgebra, FastGaussQuadrature, Cubature, 
 CUDA, Base.Threads, ThreadsX 
 #=

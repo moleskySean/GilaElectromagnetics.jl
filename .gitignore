@@ -1,4 +1,4 @@
-# Gila temporary files, e.g. previously computed Fourier information
+# GilaElectromagnetics temporary files, e.g. previously computed Fourier information
 tmp/
 # ignore latex generation files
 docs/*.aux
