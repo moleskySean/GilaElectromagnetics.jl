@@ -13,10 +13,12 @@ function construction.
 include("glaMemSup.jl")
 ###PROCEDURE
 """
-	
-	egoOpr!(egoMem::GlaOprMem)::Nothing
+	egoOpr!(egoMem::GlaOprMem, 
+	actVec::AbstractArray{T})::AbstractArray{T} where 
+	T<:Union{ComplexF64,ComplexF32}
 
-Act with the electric Green function on the memory location linked to egoMem. 
+Applies the electric Green function to actVec (current), returning the output 
+field. actVec is internally modified by egoOpr! to reduce needed allocation. 
 """
 #=
 egoOpr! has no internal check for NaN entries---checks are done by GlaOprMem. 
@@ -24,11 +26,18 @@ egoOpr! has no internal check for NaN entries---checks are done by GlaOprMem.
 function egoOpr!(egoMem::GlaOprMem, 
 	actVec::AbstractArray{T})::AbstractArray{T} where 
 	T<:Union{ComplexF64,ComplexF32}
-	# device execution
-	if prod(egoMem.cmpInf.devMod)
-		return egoBrnDev!(egoMem, 0, 0, actVec)
+	# check that actVec is the correct size
+	if (egoMem.mixInf.srcCel..., 3) = size(actVec)
+		# device execution
+		if prod(egoMem.cmpInf.devMod)
+			return egoBrnDev!(egoMem, 0, 0, actVec)
+		else
+			return egoBrnHst!(egoMem, 0, 0, actVec)
+		end
 	else
-		return egoBrnHst!(egoMem, 0, 0, actVec)
+		error("Size of input vector does not match size of source volume. 
+		Required data layout is (srcCelX, srcCelY, srcCelZ, 3).")	
+		return actVec
 	end
 end
 # Support functions for operator action
@@ -72,9 +81,9 @@ function egoBrnHst!(egoMem::GlaOprMem, lvl::Integer, bId::Integer,
 		# check if size of current active vector dimension is compatible 
 		if size(orgVec)[lvl + 1] == brnSze[lvl + 1]
 			prgVec = similar(orgVec)
-			# split branch, includes phase operation and stream sync
-			sptBrnHst!(size(orgVec)[1:3], prgVec, lvl + 1, egoMem.phzInf[lvl + 1], 
-				parNumSrc, orgVec, egoMem.cmpInf)
+			# split branch: perform phase shift
+			sptBrnHst!(size(orgVec)[1:3], prgVec, lvl + 1, 
+				egoMem.phzInf[lvl + 1], parNumSrc, orgVec, egoMem.cmpInf)
 			# rename vectors for consistent convention with general branching
 			prgVecEve = orgVec 
 			prgVecOdd = prgVec
@@ -156,7 +165,7 @@ function egoBrnHst!(egoMem::GlaOprMem, lvl::Integer, bId::Integer,
 		if parNumTrg == 1
 			return reshape(retVec, egoMem.mixInf.trgCel..., 3)
 		else
-			return mrgPrt(egoMem.mixInf, egoMem.cmpInf, parNumTrg, retVec)
+			return mrgPrtHst(egoMem.mixInf, egoMem.cmpInf, parNumTrg, retVec)
 		end
 	end
 	return retVec
@@ -204,8 +213,8 @@ function egoBrnDev!(egoMem::GlaOprMem, lvl::Integer, bId::Integer,
 			prgVec = CuArray{eltype(orgVec)}(undef, size(orgVec)[1:3]...,
 				3, parNumSrc)
 			# split branch, includes phase operation and stream sync
-			sptBrnDev!(size(orgVec)[1:3], prgVec, lvl + 1, egoMem.phzInf[lvl + 1], 
-				parNumSrc, orgVec, egoMem.cmpInf)
+			sptBrnDev!(size(orgVec)[1:3], prgVec, lvl + 1, 
+				egoMem.phzInf[lvl + 1], parNumSrc, orgVec, egoMem.cmpInf)
 			# rename vectors for consistent convention with general branching
 			prgVecEve = orgVec 
 			prgVecOdd = prgVec
@@ -294,7 +303,7 @@ function egoBrnDev!(egoMem::GlaOprMem, lvl::Integer, bId::Integer,
 		if parNumTrg == 1
 			return reshape(retVec, egoMem.mixInf.trgCel..., 3)
 		else
-			return mrgPrt(egoMem.mixInf, egoMem.cmpInf, parNumTrg, retVec)
+			return mrgPrtDev(egoMem.mixInf, egoMem.cmpInf, parNumTrg, retVec)
 		end
 	end
 	return retVec

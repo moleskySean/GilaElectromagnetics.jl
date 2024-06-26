@@ -1,7 +1,7 @@
 ###UTILITY LOADING
 using GilaElectromagnetics
 #=
-Basic code to examine the (dense) matrix of a self Green function. For a 
+Basic code to generate the (dense) matrix of a self Green function. For a 
 standard desktop computer, memory issues will likely begin around a thousand 
 cells---16^3 is 4096.
 =#
@@ -25,7 +25,7 @@ function genEgoMat(celScl::NTuple{3,<:Rational},
 	mixInf = GlaExtInf(slfVol, slfVol)
 	# generate circulant green function---GilaCrc module
 	egoCrc = Array{ComplexF64}(undef, 3, 3, (mixInf.trgCel .+ mixInf.srcCel)...)
-	Gila.genEgoSlf!(egoCrc, slfVol, cmpInf)
+	GilaElectromagnetics.genEgoSlf!(egoCrc, slfVol, cmpInf)
 	# verify that egoCrc contains numeric values
 	if maximum(isnan.(egoCrc)) == 1 || maximum(isinf.(egoCrc)) == 1
 		error("Computed circulant contains non-numeric values.")
@@ -68,8 +68,8 @@ function genEgoMat(celScl::NTuple{3,<:Rational},
 			egoMat[3 + off, 3] = egoCrc[3,3,crtInd]
 		end
 	end
-	# expand block Toeplitz structure
-	for dimItr ∈ eachindex(1:2)
+	#expand block Toeplitz structure
+	for dimItr ∈ eachindex(1:3)
 		wrtSymToeBlc!(egoMat, (3 * prod(celNum[1:(dimItr - 1)]), 
 			3 * prod(celNum[1:(dimItr - 1)])), celNum[dimItr])
 	end
