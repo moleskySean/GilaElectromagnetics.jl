@@ -158,7 +158,7 @@ function GlaOprMem(cmpInf::GlaKerOpt, trgVol::GlaVol,
 		end
 	end
 	if cmpInf.devMod == true
-		return GlaOprPrp(egoFur, trgVol, srcVol, mixInf, cmpInf, ComplexF32)
+		return GlaOprPrp(egoFur, trgVol, srcVol, mixInf, cmpInf, setType)
 	else
 		setType = eltype(eltype(egoFur))
 		return GlaOprPrp(egoFur, trgVol, srcVol, mixInf, cmpInf, setType)

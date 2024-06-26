@@ -3,6 +3,8 @@ using CUDA, AbstractFFTs, FFTW, Base.Threads, LinearAlgebra, LinearAlgebra.BLAS,
 Random, GilaElectromagnetics, Test
 include("preamble.jl")
 ###SETTINGS
+# type for tests
+useType = ComplexF32
 # number of cells in each volume 
 # to run external operator test, celU should be the union of celA and celB
 celB = (16, 16, 16)
@@ -33,16 +35,16 @@ volU = GlaVol(celU, sclU, orgU)
 ###OPERATOR MEMORY
 println("Green function construction started.")
 # generate from scratch---new circulant matrices
-oprSlfHst = GlaOprMem(cmpInfHst, volA, setType = ComplexF32)
-oprExtHst = GlaOprMem(cmpInfHst, volB, volA, setType = ComplexF32) 
+oprSlfHst = GlaOprMem(cmpInfHst, volA, setType = useType)
+oprExtHst = GlaOprMem(cmpInfHst, volB, volA, setType = useType) 
 # merged domains to check validity of external operator construction
-oprMrgHst = GlaOprMem(cmpInfHst, volU, setType = ComplexF32) 
+oprMrgHst = GlaOprMem(cmpInfHst, volU, setType = useType) 
 # run same test on device
 if CUDA.functional()
 	oprExtDev = GlaOprMem(cmpInfDev, volB, volA, egoFur = oprExtHst.egoFur, 
-		setType = ComplexF32) 
+		setType = useType) 
 	oprMrgDev = GlaOprMem(cmpInfDev, volU, egoFur = oprMrgHst.egoFur, 
-		setType = ComplexF32)
+		setType = useType)
 end
 # serialize / deserialize to reuse Fourier information
 println("Green function construction completed.")

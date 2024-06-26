@@ -3,12 +3,12 @@ Compare external and self Green functions
 =#
 ## verify agreement of host and device computation
 # input vector for merged Green function
-innVecMrgHst = zeros(ComplexF32, celU..., 3)
+innVecMrgHst = zeros(useType, celU..., 3)
 # source current limited to celA half
 rand!(view(innVecMrgHst, :, 1:celA[2], :, :))
 # prepare device computation if CUDA is functional
 if CUDA.functional()
-	innVecMrgDev = CUDA.zeros(ComplexF32, celU..., 3)
+	innVecMrgDev = CUDA.zeros(useType, celU..., 3)
 	# transfer information to GPU
 	copyto!(innVecMrgDev, innVecMrgHst)
 	# confirm host and device computation give equivalent results
@@ -19,16 +19,16 @@ if CUDA.functional()
 end
 ## verify agreement of self and merged external Green function
 # input vector for merged Green function
-innVecMrgHst = zeros(ComplexF32, celU..., 3)
+innVecMrgHst = zeros(useType, celU..., 3)
 # source current limited to celA half
 rand!(view(innVecMrgHst, :, 1:celA[2], :, :))
 # input vector for host external Green function
-innVecExtHst = zeros(ComplexF32, celA..., 3)
+innVecExtHst = zeros(useType, celA..., 3)
 # transfer information to external Green function 
 copyto!(innVecExtHst, view(innVecMrgHst, 1:celA[1], 1:celA[2], 1:celA[3], :))
 if CUDA.functional()
 	# input vector for device external Green function
-	innVecExtDev = CUDA.zeros(ComplexF32, celA..., 3)
+	innVecExtDev = CUDA.zeros(useType, celA..., 3)
 	# transfer information to external device Green function 
 	copyto!(innVecExtDev, innVecExtHst)
 	# confirm host and device computation give equivalent results
