@@ -115,4 +115,8 @@ println("Semi-definiteness test completed.")
 println("External operator test started.")
 include("extSlfTest.jl")
 println("External operator test completed.")
+#test the GreensOperator structs
+println("GreensOperator test started.")
+include("oprTest.jl")
+println("GreensOperator test completed.")
 println("Testing complete.")

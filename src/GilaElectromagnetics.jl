@@ -84,4 +84,24 @@ notable internal definitions
 =#
 include("glaAct.jl")
 export egoOpr! 
+
+#=
+Defines some structs that act like actual operators
+
+Exported definitions
+--------------------
+GreensOperator---a struct that wraps `egoOpr!` for easy use of the Greens
+function
+
+gilasize---like `size`, but gives the size of the input/output arrays for a
+GreensOperator in tensor form
+
+isadjoint---returns true if the operator is the adjoint of the Greens operator
+
+isselfoperator---returns true if the operator is a self operator
+
+isexternaloperator---returns true if the operator is an external operator
+=#
+include("glaOpr.jl")
+export GreensOperator, gilasize, isadjoint, isselfoperator, isexternaloperator
 end
