@@ -1,6 +1,6 @@
 ###UTILITY LOADING
 using CUDA, AbstractFFTs, FFTW, Base.Threads, LinearAlgebra, LinearAlgebra.BLAS, 
-Random, GilaElectromagnetics, Test
+Random, GilaElectromagnetics, Test, Serialization, Scratch
 include("preamble.jl")
 ###SETTINGS
 # number of cells in each volume 
@@ -32,17 +32,68 @@ volA = GlaVol(celA, sclA, orgA)
 volU = GlaVol(celU, sclU, orgU)
 ###OPERATOR MEMORY
 println("Green function construction started.")
+
+function getFur(fname)
+	preload_dir = @get_scratch!("preload")
+	if isfile(joinpath(preload_dir, fname))
+		return deserialize(joinpath(preload_dir, fname))
+	end
+	return nothing
+end
+
+function writeFur(fur, fname)
+	preload_dir = @get_scratch!("preload")
+	serialize(joinpath(preload_dir, fname), fur)
+end
+
 # generate from scratch---new circulant matrices
-oprSlfHst = GlaOprMem(cmpInfHst, volA, setType = ComplexF32)
-oprExtHst = GlaOprMem(cmpInfHst, volB, volA, setType = ComplexF32) 
+furSlfHst = getFur("slfHst.fur")
+if isnothing(furSlfHst)
+	oprSlfHst = GlaOprMem(cmpInfHst, volA, setType = ComplexF32)
+	writeFur(oprSlfHst.egoFur, "slfHst.fur")
+	furSlfHst = oprSlfHst.egoFur
+else
+	oprSlfHst = GlaOprMem(cmpInfHst, volA, egoFur = furSlfHst, setType = ComplexF32)
+end
+furExtHst = getFur("extHst.fur")
+if isnothing(furExtHst)
+	oprExtHst = GlaOprMem(cmpInfHst, volB, volA, setType = ComplexF32)
+	furExtHst = oprExtHst.egoFur
+	writeFur(furExtHst, "extHst.fur")
+else
+	oprExtHst = GlaOprMem(cmpInfHst, volB, volA, egoFur = furExtHst, setType = ComplexF32)
+end
+
 # merged domains to check validity of external operator construction
-oprMrgHst = GlaOprMem(cmpInfHst, volU, setType = ComplexF32) 
+furMrgHst = getFur("mrgHst.fur")
+if isnothing(furMrgHst)
+	oprMrgHst = GlaOprMem(cmpInfHst, volU, setType = ComplexF32)
+	writeFur(oprMrgHst.egoFur, "mrgHst.fur")
+	furMrgHst = oprMrgHst.egoFur
+else
+	oprMrgHst = GlaOprMem(cmpInfHst, volU, egoFur = furMrgHst, setType = ComplexF32)
+end
+
 # run same test on device
 if CUDA.functional()
-	oprExtDev = GlaOprMem(cmpInfDev, volB, volA, egoFur = oprExtHst.egoFur, 
-		setType = ComplexF32) 
-	oprMrgDev = GlaOprMem(cmpInfDev, volU, egoFur = oprMrgHst.egoFur, 
-		setType = ComplexF32)
+	furExtDev = getFur("extDev.fur")
+	if isnothing(furExtDev)
+		oprExtDev = GlaOprMem(cmpInfDev, volB, volA, setType = ComplexF32)
+		writeFur(oprExtDev.egoFur, "extDev.fur")
+		furExtDev = oprExtDev.egoFur
+	else
+		oprExtDev = GlaOprMem(cmpInfDev, volB, volA, egoFur = furExtDev, 
+			setType = ComplexF32)
+	end
+	furMrgDev = getFur("mrgDev.fur")
+	if isnothing(furMrgDev)
+		oprMrgDev = GlaOprMem(cmpInfDev, volU, setType = ComplexF32)
+		writeFur(oprMrgDev.egoFur, "mrgDev.fur")
+		furMrgDev = oprMrgDev.egoFur
+	else
+		oprMrgDev = GlaOprMem(cmpInfDev, volU, egoFur = furMrgDev, 
+			setType = ComplexF32)
+	end
 end
 # serialize / deserialize to reuse Fourier information
 println("Green function construction completed.")
