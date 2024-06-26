@@ -27,7 +27,7 @@ function egoOpr!(egoMem::GlaOprMem,
 	actVec::AbstractArray{T})::AbstractArray{T} where 
 	T<:Union{ComplexF64,ComplexF32}
 	# check that actVec is the correct size
-	if (egoMem.mixInf.srcCel..., 3) = size(actVec)
+	if (egoMem.mixInf.srcCel..., 3) == size(actVec)
 		# device execution
 		if prod(egoMem.cmpInf.devMod)
 			return egoBrnDev!(egoMem, 0, 0, actVec)
