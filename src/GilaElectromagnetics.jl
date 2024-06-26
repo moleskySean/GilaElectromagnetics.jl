@@ -84,7 +84,6 @@ notable internal definitions
 =#
 include("glaAct.jl")
 export egoOpr! 
-<<<<<<< HEAD
 #=
 glaEgoMat provides direct computation of the dense matrix defined by the 
 electromagnetic Green function in free space. The code is only written for self 
@@ -95,6 +94,4 @@ notable internal definitions
 genEgoMat---return the dense matrix of a self Green function.
 =#
 include("../utl/glaEgoMat.jl")
-=======
->>>>>>> parent of a968d47 (Add GreensOperator: A wrapper around `egoOpr!`)
 end

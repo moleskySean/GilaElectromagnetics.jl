@@ -66,8 +66,4 @@ println("Semi-definiteness test completed.")
 println("External operator test started.")
 include("extSlfTest.jl")
 println("External operator test completed.")
-<<<<<<< HEAD
 println("Testing complete.")
-=======
-println("Testing complete.")
->>>>>>> parent of a968d47 (Add GreensOperator: A wrapper around `egoOpr!`)
