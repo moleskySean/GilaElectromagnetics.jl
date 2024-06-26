@@ -1,6 +1,6 @@
 ###UTILITY LOADING
 using CUDA, AbstractFFTs, FFTW, Base.Threads, LinearAlgebra, LinearAlgebra.BLAS, 
-Random, GilaElectromagnetics, Test, Serialization, Scratch
+Random, GilaElectromagnetics, Test
 include("preamble.jl")
 ###SETTINGS
 # type for tests
@@ -34,68 +34,17 @@ volA = GlaVol(celA, sclA, orgA)
 volU = GlaVol(celU, sclU, orgU)
 ###OPERATOR MEMORY
 println("Green function construction started.")
-
-function getFur(fname)
-	preload_dir = @get_scratch!("preload")
-	if isfile(joinpath(preload_dir, fname))
-		return deserialize(joinpath(preload_dir, fname))
-	end
-	return nothing
-end
-
-function writeFur(fur, fname)
-	preload_dir = @get_scratch!("preload")
-	serialize(joinpath(preload_dir, fname), fur)
-end
-
 # generate from scratch---new circulant matrices
-furSlfHst = getFur("slfHst.fur")
-if isnothing(furSlfHst)
-	oprSlfHst = GlaOprMem(cmpInfHst, volA, setType = useType)
-	writeFur(oprSlfHst.egoFur, "slfHst.fur")
-	furSlfHst = oprSlfHst.egoFur
-else
-	oprSlfHst = GlaOprMem(cmpInfHst, volA, egoFur = furSlfHst, setType = useType)
-end
-furExtHst = getFur("extHst.fur")
-if isnothing(furExtHst)
-	oprExtHst = GlaOprMem(cmpInfHst, volB, volA, setType = useType)
-	furExtHst = oprExtHst.egoFur
-	writeFur(furExtHst, "extHst.fur")
-else
-	oprExtHst = GlaOprMem(cmpInfHst, volB, volA, egoFur = furExtHst, setType = useType)
-end
-
+oprSlfHst = GlaOprMem(cmpInfHst, volA, setType = useType)
+oprExtHst = GlaOprMem(cmpInfHst, volB, volA, setType = useType) 
 # merged domains to check validity of external operator construction
-furMrgHst = getFur("mrgHst.fur")
-if isnothing(furMrgHst)
-	oprMrgHst = GlaOprMem(cmpInfHst, volU, setType = useType)
-	writeFur(oprMrgHst.egoFur, "mrgHst.fur")
-	furMrgHst = oprMrgHst.egoFur
-else
-	oprMrgHst = GlaOprMem(cmpInfHst, volU, egoFur = furMrgHst, setType = useType)
-end
-
+oprMrgHst = GlaOprMem(cmpInfHst, volU, setType = useType) 
 # run same test on device
 if CUDA.functional()
-	furExtDev = getFur("extDev.fur")
-	if isnothing(furExtDev)
-		oprExtDev = GlaOprMem(cmpInfDev, volB, volA, setType = useType)
-		writeFur(oprExtDev.egoFur, "extDev.fur")
-		furExtDev = oprExtDev.egoFur
-	else
-		oprExtDev = GlaOprMem(cmpInfDev, volB, volA, egoFur = furExtDev, 
-			setType = useType)
-	end
-	furMrgDev = getFur("mrgDev.fur")
-	if isnothing(furMrgDev)
-		oprMrgDev = GlaOprMem(cmpInfDev, volU, setType = useType)
-		writeFur(oprMrgDev.egoFur, "mrgDev.fur")
-		furMrgDev = oprMrgDev.egoFur
-	else
-		oprMrgDev = GlaOprMem(cmpInfDev, volU, egoFur = furMrgDev, 
-			setType = useType)
-	end
+	oprExtDev = GlaOprMem(cmpInfDev, volB, volA, egoFur = oprExtHst.egoFur, 
+		setType = useType) 
+	oprMrgDev = GlaOprMem(cmpInfDev, volU, egoFur = oprMrgHst.egoFur, 
+		setType = useType)
 end
 # serialize / deserialize to reuse Fourier information
 println("Green function construction completed.")
@@ -117,8 +66,8 @@ println("Semi-definiteness test completed.")
 println("External operator test started.")
 include("extSlfTest.jl")
 println("External operator test completed.")
-#test the GreensOperator structs
-println("GreensOperator test started.")
-include("oprTest.jl")
-println("GreensOperator test completed.")
+<<<<<<< HEAD
 println("Testing complete.")
+=======
+println("Testing complete.")
+>>>>>>> parent of a968d47 (Add GreensOperator: A wrapper around `egoOpr!`)
