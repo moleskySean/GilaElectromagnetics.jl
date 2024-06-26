@@ -88,10 +88,29 @@ export egoOpr!
 glaEgoMat provides direct computation of the dense matrix defined by the 
 electromagnetic Green function in free space. The code is only written for self 
 volumes. 
-
 notable internal definitions
 ----------------------------
 genEgoMat---return the dense matrix of a self Green function.
 =#
 include("../utl/glaEgoMat.jl")
+
+#=
+Defines some structs that act like actual operators
+
+Exported definitions
+--------------------
+GreensOperator---a struct that wraps `egoOpr!` for easy use of the Greens
+function
+
+gilasize---like `size`, but gives the size of the input/output arrays for a
+GreensOperator in tensor form
+
+isadjoint---returns true if the operator is the adjoint of the Greens operator
+
+isselfoperator---returns true if the operator is a self operator
+
+isexternaloperator---returns true if the operator is an external operator
+=#
+include("glaOpr.jl")
+export GreensOperator, gilasize, isadjoint, isselfoperator, isexternaloperator
 end
