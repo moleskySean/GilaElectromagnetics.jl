@@ -19,13 +19,13 @@ Construct a self Green's operator.
 - `cel::NTuple{3, Int}`: The number of cells in each dimension.
 - `scl::NTuple{3, Rational}`: The size of each cell in each dimension (in units
 of wavelength).
-- `org::NTuple{3, Rational}`: The origin of the volume in each dimension (in
+- `org::NTuple{3, Rational}=(0//1, 0//1, 0//1)`: The origin of the volume in each dimension (in
 units of wavelength).
 - `useGpu::Bool=false`: Whether to use the GPU (true) or CPU (false).
 - `setType::DataType=ComplexF64`: The element type of the operator. Must be a
 subtype of `Complex`.
 """
-function GlaOpr(cel::NTuple{3, Int}, scl::NTuple{3, Rational}, org::NTuple{3, Rational}; useGpu::Bool=false, setType::DataType=ComplexF64)
+function GlaOpr(cel::NTuple{3, Int}, scl::NTuple{3, Rational}, org::NTuple{3, Rational}=(0//1, 0//1, 0//1); useGpu::Bool=false, setType::DataType=ComplexF64)
 	if !(setType <: Complex)
 		throw(ArgumentError("set_type must be a subtype of Complex"))
 	end
