@@ -1,7 +1,7 @@
 name = "GilaElectromagnetics"
 uuid = "d021e48d-d5bb-41e2-b1a9-c560019218de"
 authors = ["moleskySean <sean.molesky@polymtl.ca>"]
-version = "1.0.2"
+version = "1.0.3"
 
 [deps]
 AbstractFFTs = "621f4979-c628-5d54-868e-fcf4e3e8185c"
