@@ -79,30 +79,9 @@ exported definitions
 egoOpr!---given a GlaOprMem structure and source current distribution, 
 yield the resulting electromagnetic fields. 
 
-notable internal definitions
-----------------------------
-=#
-include("glaAct.jl")
-export egoOpr! 
-#=
-glaEgoMat provides direct computation of the dense matrix defined by the 
-electromagnetic Green function in free space. The code is only written for self 
-volumes. 
+GlaOpr---a struct that wraps `egoOpr!` for easy use of the Greens function
 
-notable internal definitions
-----------------------------
-genEgoMat---return the dense matrix of a self Green function.
-=#
-include("../utl/glaEgoMat.jl")
-#=
-Defines some structs that act like actual operators
-
-Exported definitions
---------------------
-GlaOpr---a struct that wraps `egoOpr!` for easy use of the Greens
-function
-
-gilasize---like `size`, but gives the size of the input/output arrays for a
+glaSze---like `size`, but gives the size of the input/output arrays for a
 GreensOperator in tensor form
 
 isadjoint---returns true if the operator is the adjoint of the Greens operator
@@ -110,7 +89,21 @@ isadjoint---returns true if the operator is the adjoint of the Greens operator
 isselfoperator---returns true if the operator is a self operator
 
 isexternaloperator---returns true if the operator is an external operator
+
+notable internal definitions
+----------------------------
 =#
-include("glaOpr.jl")
-export GlaOpr, glaSize, isadjoint, isselfoperator, isexternaloperator
+include("glaAct.jl")
+export egoOpr!, GlaOpr, glaSze, isadjoint, isselfoperator, isexternaloperator 
+#=
+glaEgoMat provides direct computation of the dense matrix defined by the 
+electromagnetic Green function in free space. The code is only written for self 
+volumes. glaEgoMat includes glaLinAlg, which allows the Green function to act a 
+matrix for many LinearAlgebra applications. 
+
+notable internal definitions
+----------------------------
+genEgoMat---return the dense matrix of a self Green function.
+=#
+include("../utl/glaEgoMat.jl")
 end

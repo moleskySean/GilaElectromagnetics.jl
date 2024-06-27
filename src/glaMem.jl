@@ -95,6 +95,18 @@ struct GlaOprMem
 	phzInf::AbstractArray{<:AbstractArray{T},1} where 
 	T<:Union{ComplexF64,ComplexF32}
 end
+"""
+	GlaOpr
+
+Abstraction wrapper for GlaOprMem. 
+
+# Fields
+- `mem::GlaOprMem`: Data to process the Green function.
+"""
+struct GlaOpr
+
+	mem::GlaOprMem
+end
 #=
 Constructors
 =#

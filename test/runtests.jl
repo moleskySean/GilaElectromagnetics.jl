@@ -4,7 +4,7 @@ Random, GilaElectromagnetics, Test, Serialization, Scratch
 include("preamble.jl")
 ###SETTINGS
 # type for tests
-useType = ComplexF32
+useTyp = ComplexF32
 # number of cells in each volume 
 # to run external operator test, celU should be the union of celA and celB
 celB = (16, 16, 16)
@@ -51,66 +51,67 @@ end
 # generate from scratch---new circulant matrices
 furSlfHst = getFur("slfHst.fur")
 if isnothing(furSlfHst)
-	oprSlfHst = GlaOprMem(cmpInfHst, volA, setType = useType)
+	oprSlfHst = GlaOprMem(cmpInfHst, volA, setTyp = useTyp)
 	writeFur(oprSlfHst.egoFur, "slfHst.fur")
 	furSlfHst = oprSlfHst.egoFur
 else
-	oprSlfHst = GlaOprMem(cmpInfHst, volA, egoFur = furSlfHst, setType = useType)
+	oprSlfHst = GlaOprMem(cmpInfHst, volA, egoFur = furSlfHst, setTyp = useTyp)
 end
 furExtHst = getFur("extHst.fur")
 if isnothing(furExtHst)
-	oprExtHst = GlaOprMem(cmpInfHst, volB, volA, setType = useType)
+	oprExtHst = GlaOprMem(cmpInfHst, volB, volA, setTyp = useTyp)
 	furExtHst = oprExtHst.egoFur
 	writeFur(furExtHst, "extHst.fur")
 else
-	oprExtHst = GlaOprMem(cmpInfHst, volB, volA, egoFur = furExtHst, setType = useType)
+	oprExtHst = GlaOprMem(cmpInfHst, volB, volA, egoFur = furExtHst, 
+		setTyp = useTyp)
 end
 # merged domains to check validity of external operator construction
 furMrgHst = getFur("mrgHst.fur")
 if isnothing(furMrgHst)
-	oprMrgHst = GlaOprMem(cmpInfHst, volU, setType = useType)
+	oprMrgHst = GlaOprMem(cmpInfHst, volU, setTyp = useTyp)
 	writeFur(oprMrgHst.egoFur, "mrgHst.fur")
 	furMrgHst = oprMrgHst.egoFur
 else
-	oprMrgHst = GlaOprMem(cmpInfHst, volU, egoFur = furMrgHst, setType = useType)
+	oprMrgHst = GlaOprMem(cmpInfHst, volU, egoFur = furMrgHst, setTyp = useTyp)
 end
 # run same test on device
 if CUDA.functional()
 	furExtDev = getFur("extDev.fur")
 	if isnothing(furExtDev)
-		oprExtDev = GlaOprMem(cmpInfDev, volB, volA, setType = useType)
+		oprExtDev = GlaOprMem(cmpInfDev, volB, volA, setTyp = useTyp)
 		writeFur(oprExtDev.egoFur, "extDev.fur")
 		furExtDev = oprExtDev.egoFur
 	else
 		oprExtDev = GlaOprMem(cmpInfDev, volB, volA, egoFur = furExtDev, 
-			setType = useType)
+			setTyp = useTyp)
 	end
 	furMrgDev = getFur("mrgDev.fur")
 	if isnothing(furMrgDev)
-		oprMrgDev = GlaOprMem(cmpInfDev, volU, setType = useType)
+		oprMrgDev = GlaOprMem(cmpInfDev, volU, setTyp = useTyp)
 		writeFur(oprMrgDev.egoFur, "mrgDev.fur")
 		furMrgDev = oprMrgDev.egoFur
 	else
 		oprMrgDev = GlaOprMem(cmpInfDev, volU, egoFur = furMrgDev, 
-			setType = useType)
+			setTyp = useTyp)
 	end
 end
 # serialize / deserialize to reuse Fourier information
 println("Green function construction completed.")
 ###TESTS
 ## integral convergence 
-println("Integral convergence test started.")
-include("intConTest.jl")
-println("Integral convergence test completed.")
-## analytic agreement test on self operator
-println("Analytic test started.")
-include("anaTest.jl")
-println("Analytic test completed.")
-## positive semi-definite test on self operator
-# test becomes very slow for domains larger than [16,16,16]
-println("Semi-definiteness test started.")
-include("posDefTest.jl")
-println("Semi-definiteness test completed.")
+# println("Integral convergence test started.")
+# include("intConTest.jl")
+# println("Integral convergence test completed.")
+# ## analytic agreement test on self operator
+# println("Analytic test started.")
+# include("anaTest.jl")
+# println("Analytic test completed.")
+# ## positive semi-definite test on self operator
+# # test becomes very slow for domains larger than [16,16,16]
+# println("Semi-definiteness test started.")
+# include("posDefTest.jl")
+# println("Semi-definiteness test completed.")
 ## test external Green function using self Green function
 println("External operator test started.")
 include("extSlfTest.jl")

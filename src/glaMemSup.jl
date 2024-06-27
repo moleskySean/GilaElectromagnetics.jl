@@ -11,7 +11,7 @@ or identical source and target volumes, yields the self construction.
 function GlaOprMem(cmpInf::GlaKerOpt, trgVol::GlaVol,
 	srcVol::Union{GlaVol,Nothing}=nothing; 
 	egoFur::Union{AbstractArray{<:AbstractArray{T}, 1},
-	Nothing}=nothing, setType::DataType=ComplexF64)::GlaOprMem where 
+	Nothing}=nothing, setTyp::DataType=ComplexF64)::GlaOprMem where 
 	T<:Union{ComplexF64,ComplexF32}
 	# check functionality if device computation has been requested
 	if cmpInf.devMod == true && !CUDA.functional()
@@ -130,17 +130,17 @@ function GlaOprMem(cmpInf::GlaKerOpt, trgVol::GlaVol,
 		# information copy indicies
 		cpyRng = tuple(map(UnitRange, ones(Int,3), truInf)...)
 		# final Fourier coefficients for a given branch
-		egoFur = Array{Array{setType}}(undef, eoDim)
+		egoFur = Array{Array{setTyp}}(undef, eoDim)
 		# intermediate storage
-		egoFurInt = Array{setType}(undef, max.(div.(totCelCrc, 2), (2,2,2))..., 
+		egoFurInt = Array{setTyp}(undef, max.(div.(totCelCrc, 2), (2,2,2))..., 
 			ddDim, totParSrc, totParTrg)
 		# only one one eighth of the green function is unique 
 		for eoItr ∈ 0:(eoDim - 1)
 			# odd / even branch extraction
-			egoFur[eoItr + 1] = Array{setType}(undef, truInf..., ddDim, 
+			egoFur[eoItr + 1] = Array{setTyp}(undef, truInf..., ddDim, 
 				totParSrc, totParTrg)
 			# first division is along smallest stride -> largest binary division
-			egoFurInt[:,:,:,:,:,:] .= setType.(egoFurPrp[(1 + 
+			egoFurInt[:,:,:,:,:,:] .= setTyp.(egoFurPrp[(1 + 
 				mod(div(eoItr, 4), 2)):2:(end - 1 + mod(div(eoItr, 4), 2)), 
 				(1 + mod(div(eoItr, 2), 2)):2:(end - 1 + mod(div(eoItr, 2), 2)),
 				(1 + mod(eoItr, 2)):2:(end - 1 + mod(eoItr, 2)),:,:,:])
@@ -158,10 +158,10 @@ function GlaOprMem(cmpInf::GlaKerOpt, trgVol::GlaVol,
 		end
 	end
 	if cmpInf.devMod == true
-		return GlaOprPrp(egoFur, trgVol, srcVol, mixInf, cmpInf, setType)
+		return GlaOprPrp(egoFur, trgVol, srcVol, mixInf, cmpInf, setTyp)
 	else
-		setType = eltype(eltype(egoFur))
-		return GlaOprPrp(egoFur, trgVol, srcVol, mixInf, cmpInf, setType)
+		setTyp = eltype(eltype(egoFur))
+		return GlaOprPrp(egoFur, trgVol, srcVol, mixInf, cmpInf, setTyp)
 	end
 end
 #=
@@ -169,7 +169,7 @@ Memory preparation sub-protocol.
 =#
 function GlaOprPrp(egoFur::AbstractArray{<:AbstractArray{T}}, trgVol::GlaVol,
 	srcVol::GlaVol, mixInf::GlaExtInf, cmpInf::GlaKerOpt, 
-	setType::DataType)::GlaOprMem where T<:Union{ComplexF64,ComplexF32}
+	setTyp::DataType)::GlaOprMem where T<:Union{ComplexF64,ComplexF32}
 	###MEMORY DECLARATION
 	# number of embedding levels---dimensionality of ambient space
 	lvls = 3
@@ -181,11 +181,11 @@ function GlaOprPrp(egoFur::AbstractArray{<:AbstractArray{T}}, trgVol::GlaVol,
 	# binary indexing system of even and odd coefficient extraction
 	eoDim = ^(2, lvls)
 	# phase transformations (internal for block Toeplitz transformations)
-	phzInf = Array{Array{setType}}(undef, lvls)
+	phzInf = Array{Array{setTyp}}(undef, lvls)
 	# Fourier transform plans
 	if cmpInf.devMod == true
-		egoFurDev = Array{CuArray{setType}}(undef, eoDim)
-		phzInfDev = Array{CuArray{setType}}(undef, lvls)
+		egoFurDev = Array{CuArray{setTyp}}(undef, eoDim)
+		phzInfDev = Array{CuArray{setTyp}}(undef, lvls)
 		fftPlnFwdDev = Array{CUDA.CUFFT.cCuFFTPlan}(undef, lvls)
 		fftPlnRevDev = Array{AbstractFFTs.ScaledPlan}(undef, lvls)
 	else
@@ -200,9 +200,9 @@ function GlaOprPrp(egoFur::AbstractArray{<:AbstractArray{T}}, trgVol::GlaVol,
 			vecSzeFwd = ntuple(x -> x <= dir ? brnSze[x] : mixInf.srcCel[x], 3)
 			vecSzeRev = ntuple(x -> x > dir ? mixInf.trgCel[x] : brnSze[x], 3)
 			# Fourier transform planning area
-			fftWrkFwdDev = CuArray{setType}(undef, vecSzeFwd..., lvls, 
+			fftWrkFwdDev = CuArray{setTyp}(undef, vecSzeFwd..., lvls, 
 				prod(mixInf.srcDiv))
-			fftWrkRevDev = CuArray{setType}(undef, vecSzeRev..., lvls, 
+			fftWrkRevDev = CuArray{setTyp}(undef, vecSzeRev..., lvls, 
 				prod(mixInf.trgDiv))
 			# create Fourier transform plans
 			@CUDA.sync fftPlnFwdDev[dir] =  plan_fft!(fftWrkFwdDev, [dir])
@@ -214,9 +214,9 @@ function GlaOprPrp(egoFur::AbstractArray{<:AbstractArray{T}}, trgVol::GlaVol,
 			vecSzeFwd = ntuple(x -> x <= dir ? brnSze[x] : mixInf.srcCel[x], 3)
 			vecSzeRev = ntuple(x -> x > dir ? mixInf.trgCel[x] : brnSze[x], 3)
 			# Fourier transform planning area
-			fftWrkFwd = Array{setType}(undef, vecSzeFwd..., lvls, 
+			fftWrkFwd = Array{setTyp}(undef, vecSzeFwd..., lvls, 
 				prod(mixInf.srcDiv))
-			fftWrkRev = Array{setType}(undef, vecSzeRev..., lvls, 
+			fftWrkRev = Array{setTyp}(undef, vecSzeRev..., lvls, 
 				prod(mixInf.trgDiv))
 			# create Fourier transform plans
 			fftPlnFwd[dir] = plan_fft!(fftWrkFwd, [dir]; flags = FFTW.MEASURE)
@@ -226,11 +226,11 @@ function GlaOprPrp(egoFur::AbstractArray{<:AbstractArray{T}}, trgVol::GlaVol,
 	# computation of phase transformation
 	for itr ∈ eachindex(1:lvls)
 		# allows calculation odd coefficient numbers
-		phzInf[itr] = setType.([exp(-im * pi * k / brnSze[itr]) for 
+		phzInf[itr] = setTyp.([exp(-im * pi * k / brnSze[itr]) for 
 			k ∈ 0:(brnSze[itr] - 1)])
 		# active GPU
 		if cmpInf.devMod == true 		
-			phzInfDev[itr] = CuArray{setType}(undef, brnSze...)
+			phzInfDev[itr] = CuArray{setTyp}(undef, brnSze...)
 			copyto!(selectdim(phzInfDev, 1, itr), 
 				selectdim(phzInf, 1, itr))
 		end
@@ -246,7 +246,7 @@ function GlaOprPrp(egoFur::AbstractArray{<:AbstractArray{T}}, trgVol::GlaVol,
 	if cmpInf.devMod == true 
 		# active GPU
 		for eoItr ∈ 0:(eoDim - 1), ddItr ∈ eachindex(1:6)
-			egoFurDev[eoItr + 1] = CuArray{setType}(undef, truInf..., ddDim, 
+			egoFurDev[eoItr + 1] = CuArray{setTyp}(undef, truInf..., ddDim, 
 				totParSrc, totParTrg)
 			copyto!(selectdim(egoFurDev, 1, eoItr + 1), 
 				selectdim(egoFur, 1, eoItr + 1))
@@ -284,3 +284,97 @@ Block index for a given Cartesian index.
 		return 0
 	end
 end
+"""
+	
+	GlaOpr(cel::NTuple{3, Int}, scl::NTuple{3, Rational}, 
+	org::NTuple{3, Rational}=(0//1, 0//1, 0//1); 
+	useGpu::Bool=false, setTyp::DataType=ComplexF64)
+
+Construct a self Green operator.
+
+# Arguments
+- `cel::NTuple{3, Int}`: The number of cells in each dimension.
+- `scl::NTuple{3, Rational}`: The size of each cell in each dimension 
+(in units of wavelength).
+- `org::NTuple{3, Rational}=(0//1, 0//1, 0//1)`: The origin of the volume in 
+each dimension (in units of wavelength).
+- `useGpu::Bool=false`: Whether to use the GPU (true) or CPU (false).
+- `setTyp::DataType=ComplexF64`: The element type of the operator. Must be a
+subtype of `Complex`.
+"""
+function GlaOpr(cel::NTuple{3, Int}, scl::NTuple{3, Rational}, 
+	org::NTuple{3, Rational}=(0//1, 0//1, 0//1); useGpu::Bool=false, 
+	setTyp::DataType=ComplexF64)::GlaOpr
+	if !(setTyp <: Complex)
+		throw(ArgumentError("setTyp must be a subtype of Complex"))
+	end
+	options = GlaKerOpt(useGpu)
+	slfVol = GlaVol(cel, scl, org)
+	slfMem = GlaOprMem(options, slfVol, setTyp=setTyp)
+	return GlaOpr(slfMem)
+end
+"""
+    GlaOpr(celSrc::NTuple{3, Int}, sclSrc::NTuple{3, Rational}, 
+	orgSrc::NTuple{3, Rational}, celTrg::NTuple{3, Int}, 
+	sclTrg::NTuple{3, Rational}, orgTrg::NTuple{3, Rational}; 
+	useGpu::Bool=false, setTyp::DataType=ComplexF64)
+
+Construct an external Green's operator.
+
+# Arguments
+- `celSrc::NTuple{3, Int}`: The number of cells in each dimension of the source
+volume.
+- `sclSrc::NTuple{3, Rational}`: The size of each cell in each dimension of the
+source volume (in units of wavelength).
+- `orgSrc::NTuple{3, Rational}`: The origin of the source volume in each
+dimension (in units of wavelength).
+- `celTrg::NTuple{3, Int}`: The number of cells in each dimension of the target
+volume.
+- `sclTrg::NTuple{3, Rational}`: The size of each cell in each dimension of the
+target volume (in units of wavelength).
+- `orgTrg::NTuple{3, Rational}`: The origin of the target volume in each
+dimension (in units of wavelength).
+- `useGpu::Bool=false`: Whether to use the GPU (true) or CPU (false).
+- `setTyp::DataType=ComplexF64`: The element type of the operator. Must be a
+subtype of `Complex`.
+"""
+function GlaOpr(celSrc::NTuple{3, Int}, sclSrc::NTuple{3, Rational}, 
+	orgSrc::NTuple{3, Rational}, celTrg::NTuple{3, Int}, 
+	sclTrg::NTuple{3, Rational}, orgTrg::NTuple{3, Rational}; 
+	useGpu::Bool=false, setTyp::DataType=ComplexF64)::GlaOpr
+	if !(setTyp <: Complex)
+		throw(ArgumentError("set_type must be a subtype of Complex"))
+	end
+	opt = GlaKerOpt(useGpu)
+	volSrc = GlaVol(celSrc, sclSrc, orgSrc)
+	volTrg = GlaVol(celTrg, sclTrg, orgTrg)
+	extMem = GlaOprMem(opt, volTrg, volSrc, setTyp=setTyp)
+	return GlaOpr(extMem)
+end
+
+"""
+    glaSze(opr::GlaOpr)
+
+Returns the size of the input/output arrays for a GlaOpr in tensor form.
+
+# Arguments
+- `op::GlaOpr`: The operator to check.
+
+# Returns
+- A tuple of the sizes of the input and output arrays in tensor form.
+"""
+glaSze(opr::GlaOpr) = ((opr.mem.trgVol.cel..., 3), (opr.mem.srcVol.cel..., 3))
+"""
+	glaSze(op::GlaOpr, dim::Int)
+
+Returns the size of the input/output arrays for a GlaOpr in tensor form.
+
+# Arguments
+- `op::GlaOpr`: The operator to check.
+- `dim::Int`: The length of the dimension to check.
+
+# Returns
+- The size of the input/output arrays for a GlaOpr in tensor form.
+"""
+glaSze(opr::GlaOpr, dim::Int) = ((opr.mem.trgVol.cel..., 3), 
+	(opr.mem.srcVol.cel..., 3))[dim]

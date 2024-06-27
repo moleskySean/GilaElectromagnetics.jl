@@ -1,7 +1,7 @@
 ###MEMORY 
 #=
 
-	function GlaOprMem(cmpInf::GlaKerOpt, trgVol::GlaVol,
+	GlaOprMem(cmpInf::GlaKerOpt, trgVol::GlaVol, 
 	srcVol::Union{GlaVol,Nothing}=nothing, 
 	egoFur::Union{AbstractArray{<:AbstractArray{T}},
 	Nothing}=nothing)::GlaOprMem where T<:Union{ComplexF64,ComplexF32}
@@ -9,6 +9,14 @@
 Prepare memory for green function operator---when called with a single GlaVol, 
 or identical source and target volumes, the function yields the self green 
 function construction. 
+
+	GlaOpr(celSrc::NTuple{3, Int}, sclSrc::NTuple{3, Rational}, 
+	orgSrc::NTuple{3, Rational}, celTrg::NTuple{3, Int}, 
+	sclTrg::NTuple{3, Rational}, orgTrg::NTuple{3, Rational}; 
+	useGpu::Bool=false, setType::DataType=ComplexF64)
+
+Construct an external Green's operator.
+
 =#
 include("glaMemSup.jl")
 ###PROCEDURE
@@ -308,3 +316,9 @@ function egoBrnDev!(egoMem::GlaOprMem, lvl::Integer, bId::Integer,
 	end
 	return retVec
 end
+###INTEGRATION
+#=
+Basic linear algebra definitions for egoOpr, allowing integration and simplified
+use. 
+=#
+include("glaLinAlg.jl")
