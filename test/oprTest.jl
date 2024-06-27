@@ -17,7 +17,7 @@ function generic_tests(op::GlaOpr)
 
 	# Create some data to feed to Gila
 	x = ones(eltype(op), size(op, 2))
-	x_gilashape = reshape(x, gilaSize(op, 2))
+	x_gilashape = reshape(x, glaSize(op, 2))
 	x_gilashape_copy = deepcopy(x_gilashape)
 	if op.mem.cmpInf.devMod
 		x_gilashape_copy = CuArray(x_gilashape_copy)
@@ -29,7 +29,7 @@ function generic_tests(op::GlaOpr)
 	@test acted_x_gilashape ≈ reference_acted_x
 
 	# Make sure the input vector is not mutated
-	@test x_gilashape == reshape(ones(eltype(op), size(op, 2)), gilaSize(op, 2))
+	@test x_gilashape == reshape(ones(eltype(op), size(op, 2)), glaSize(op, 2))
 
 	# Make sure the vector multiplication is correct
 	acted_x = op * x
@@ -64,7 +64,7 @@ end
 
 @testset "Self operator host" begin
 	@test size(self_operator_host) == (16*16*16*3, 16*16*16*3)
-	@test gilaSize(self_operator_host) == ((16, 16, 16, 3), (16, 16, 16, 3))
+	@test glaSize(self_operator_host) == ((16, 16, 16, 3), (16, 16, 16, 3))
 	@test isselfoperator(self_operator_host) == true
 	@test isexternaloperator(self_operator_host) == false
 	generic_tests(self_operator_host)
@@ -72,7 +72,7 @@ end
 
 @testset "External operator host" begin
 	@test size(external_operator_host) == (16*16*16*3, 16*16*16*3)
-	@test gilaSize(external_operator_host) == ((16, 16, 16, 3), (16, 16, 16, 3))
+	@test glaSize(external_operator_host) == ((16, 16, 16, 3), (16, 16, 16, 3))
 	@test isselfoperator(external_operator_host) == false
 	@test isexternaloperator(external_operator_host) == true
 	generic_tests(external_operator_host)
@@ -80,7 +80,7 @@ end
 
 @testset "Merge operator host" begin
 	@test size(merge_operator_host) == (16*32*16*3, 16*32*16*3)
-	@test gilaSize(merge_operator_host) == ((16, 32, 16, 3), (16, 32, 16, 3))
+	@test glaSize(merge_operator_host) == ((16, 32, 16, 3), (16, 32, 16, 3))
 	@test isselfoperator(merge_operator_host) == true
 	@test isexternaloperator(merge_operator_host) == false
 	generic_tests(merge_operator_host)
@@ -89,7 +89,7 @@ end
 if CUDA.functional()
 	@testset "External operator device" begin
 		@test size(external_operator_device) == (16*16*16*3, 16*16*16*3)
-		@test gilaSize(external_operator_device) == ((16, 16, 16, 3), (16, 16, 16, 3))
+		@test glaSize(external_operator_device) == ((16, 16, 16, 3), (16, 16, 16, 3))
 		@test isselfoperator(external_operator_device) == false
 		@test isexternaloperator(external_operator_device) == true
 		generic_tests(external_operator_device)
@@ -97,7 +97,7 @@ if CUDA.functional()
 
 	@testset "Merge operator device" begin
 		@test size(merge_operator_device) == (16*32*16*3, 16*32*16*3)
-		@test gilaSize(merge_operator_device) == ((16, 32, 16, 3), (16, 32, 16, 3))
+		@test glaSize(merge_operator_device) == ((16, 32, 16, 3), (16, 32, 16, 3))
 		@test isselfoperator(merge_operator_device) == true
 		@test isexternaloperator(merge_operator_device) == false
 		generic_tests(merge_operator_device)

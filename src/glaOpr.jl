@@ -77,7 +77,7 @@ LinearAlgebra.ishermitian(::GlaOpr) = false
 LinearAlgebra.isdiag(::GlaOpr) = false
 
 """
-    gilaSize(op::GreensOperator)
+    glaSize(op::GreensOperator)
 
 Returns the size of the input/output arrays for a GreensOperator in tensor form.
 
@@ -87,10 +87,10 @@ Returns the size of the input/output arrays for a GreensOperator in tensor form.
 # Returns
 - A tuple of the sizes of the input and output arrays in tensor form.
 """
-gilaSize(op::GlaOpr) = ((op.mem.trgVol.cel..., 3), (op.mem.srcVol.cel..., 3))
+glaSize(op::GlaOpr) = ((op.mem.trgVol.cel..., 3), (op.mem.srcVol.cel..., 3))
 
 """
-	gilaSize(op::GreensOperator, dim::Int)
+	glaSize(op::GreensOperator, dim::Int)
 
 Returns the size of the input/output arrays for a GreensOperator in tensor form.
 
@@ -101,7 +101,7 @@ Returns the size of the input/output arrays for a GreensOperator in tensor form.
 # Returns
 - The size of the input/output arrays for a GreensOperator in tensor form.
 """
-gilaSize(op::GlaOpr, dim::Int) = ((op.mem.trgVol.cel..., 3), (op.mem.srcVol.cel..., 3))[dim]
+glaSize(op::GlaOpr, dim::Int) = ((op.mem.trgVol.cel..., 3), (op.mem.srcVol.cel..., 3))[dim]
 
 function Base.adjoint(op::GlaOpr)
 	cmpInfCpy = deepcopy(op.mem.cmpInf)
@@ -123,14 +123,14 @@ function Base.:*(op::GlaOpr, x::AbstractArray{T, 4}) where T <: Complex
 end
 
 function Base.:*(op::GlaOpr, x::AbstractArray{T}) where T <: Complex
-	xArr4 = reshape(x, gilaSize(op, 2))
+	xArr4 = reshape(x, glaSize(op, 2))
 	out = op * xArr4
-	if prod(size(x)) == prod(gilaSize(op, 1))
+	if prod(size(x)) == prod(glaSize(op, 1))
 		return reshape(out, size(x))
 	elseif ndims(x) == 1
 		return vec(out)
 	end
-	return reshape(out, gilaSize(op, 1))
+	return reshape(out, glaSize(op, 1))
 end
 
 function LinearAlgebra.mul!(out::AbstractArray{T}, op::GlaOpr, inp::AbstractArray{T}, α::Number, β::Number) where T <: Complex

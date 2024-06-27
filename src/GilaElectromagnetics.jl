@@ -112,5 +112,5 @@ isselfoperator---returns true if the operator is a self operator
 isexternaloperator---returns true if the operator is an external operator
 =#
 include("glaOpr.jl")
-export GlaOpr, gilaSize, isadjoint, isselfoperator, isexternaloperator
+export GlaOpr, glaSize, isadjoint, isselfoperator, isexternaloperator
 end
