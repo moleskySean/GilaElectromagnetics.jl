@@ -118,14 +118,14 @@ function Base.show(io::IO, opr::GlaOpr)
 	end
 	print(io, "GlaOpr for ")
 	if isselfoperator(opr)
-		print(io, "a $(eltype(opr)) (" * join(opr.mem.srcVol.cel, "×") * ") 
-			volume ")
+		print(io, "a $(eltype(opr)) (" * join(opr.mem.srcVol.cel, "×") *
+			  ") volume ")
 		print(io, "of size (" * join(opr.mem.srcVol.scl, "×") * ")λ")
 	else
-		print(io, "$(eltype(opr)) (" * join(opr.mem.srcVol.cel, "×") * ") 
-			-> (" * join(opr.mem.trgVol.cel, "×") * ") volumes ")
-		print(io, "of sizes (" * join(opr.mem.srcVol.scl, "×") * ")λ 
-			-> (" * join(opr.mem.trgVol.scl, "×") * ")λ ")
+		print(io, "$(eltype(opr)) (" * join(opr.mem.srcVol.cel, "×") *
+			  ") -> (" * join(opr.mem.trgVol.cel, "×") * ") volumes ")
+		print(io, "of sizes (" * join(opr.mem.srcVol.scl, "×") *
+			  ")λ -> (" * join(opr.mem.trgVol.scl, "×") * ")λ ")
 		print(io, "with separation (" * join(opr.mem.trgVol.org .- 
 			opr.mem.srcVol.org, ", ") * ")λ")
 	end
