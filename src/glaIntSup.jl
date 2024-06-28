@@ -91,11 +91,15 @@ function wekVIntKer(slvInd::CartesianIndex{3}, glqOrd::Integer, sngMod::Bool,
 	
 	xPts = Array{Float64,2}(undef, 3, 2)
 	θA = θf(0.0, π / 3.0, glQud[slvInd[1],1])
-	LA = 2.0 * sqrt(3.0) / (sin(θA) + sqrt(3.0) * cos(θA))
+	sθA, cθA = sincos(θA)
+	LA = 2.0 * sqrt(3.0) / (sθA + sqrt(3.0) * cθA)
 	θB = θf(0.0, π / 3.0, glQud[slvInd[2],1])
-	LB = 2.0 * sqrt(3.0) / (sin(θB) + sqrt(3.0) * cos(θB)) 
+	sθB, cθB = sincos(θB)
+	LB = 2.0 * sqrt(3.0) / (sθB + sqrt(3.0) * cθB) 
 	θC = θf(0.0, atan(LB / LA), glQud[slvInd[3],1])
+	sθC, cθC = sincos(θC)
 	θD = θf(atan(LB / LA), π / 2.0, glQud[slvInd[3],1])
+	sθD, cθD = sincos(θD)
 	intValC = 0.0 + im * 0.0
 	intValD = 0.0 + im * 0.0
 	θX = 0.0
@@ -103,14 +107,14 @@ function wekVIntKer(slvInd::CartesianIndex{3}, glqOrd::Integer, sngMod::Bool,
 	if sngMod == true
 		# loop D
 		@inbounds for itrC ∈ 1:glqOrd
-			θX = θf(0.0, LA / cos(θC), glQud[itrC,1])
+			θX = θf(0.0, LA / cθC, glQud[itrC,1])
 			spxV!(xPts, θX, θC, θB, θA)
 			intValC += glQud[itrC,2] * (θX^3) * 
 			kerEVN(rPts, xPts, cmpInf.frqPhz)
 		end
 		# loop E
 		@inbounds for itrD ∈ 1:glqOrd
-			θX = θf(0.0, LB / sin(θD), glQud[itrD,1])
+			θX = θf(0.0, LB / sθD, glQud[itrD,1])
 			spxV!(xPts, θX, θD, θB, θA)
 			intValD += glQud[itrD,2] * (θX^3) * 
 			kerEVN(rPts, xPts, cmpInf.frqPhz)
@@ -118,22 +122,22 @@ function wekVIntKer(slvInd::CartesianIndex{3}, glqOrd::Integer, sngMod::Bool,
 	else
 		# loop D
 		@inbounds for itrC ∈ 1:glqOrd
-			θX = θf(0.0, LA / cos(θC), glQud[itrC,1])
+			θX = θf(0.0, LA / cθC, glQud[itrC,1])
 			spxV!(xPts, θX, θC, θB, θA)
 			intValC += glQud[itrC,2] * (θX^3) * 
 			kerEV(rPts, xPts, cmpInf.frqPhz)
 		end
 		# loop E
 		@inbounds for itrD ∈ 1:glqOrd
-			θX = θf(0.0, LB / sin(θD), glQud[itrD,1])
+			θX = θf(0.0, LB / sθD, glQud[itrD,1])
 			spxV!(xPts, θX, θD, θB, θA)
 			intValD += glQud[itrD,2] * (θX^3) * 
 			kerEV(rPts, xPts, cmpInf.frqPhz)
 		end
 	end
 	return glQud[slvInd[1],2] * glQud[slvInd[2],2] * 
-	glQud[slvInd[3],2] * (atan(LB / LA) * (LA * sin(θC) * intValC - LB * 
-	cos(θD) * intValD) + 0.5 * π * LB * cos(θD) * intValD)
+	glQud[slvInd[3],2] * (atan(LB / LA) * (LA * sθC * intValC - LB * 
+	cθD * intValD) + 0.5 * π * LB * cθD * intValD)
 end
 
 @inline function ψlimS(idf::Integer)::Tuple{Float64,Float64}
@@ -177,17 +181,18 @@ end
 
 @inline function ηlimE(idf::Integer, θ::AbstractFloat)::Tuple{Float64,Float64}
 	
+	sθ, cθ = sincos(θ)
 	if idf == 1
-		return (0.0, atan(sin(θ) + sqrt(3.0) * cos(θ)))
+		return (0.0, atan(sθ + sqrt(3.0) * cθ))
 	elseif idf == 2
-		return (atan(sin(θ) - sqrt(3.0) * cos(θ)), 
-			atan(sin(θ) + sqrt(3.0) * cos(θ)))
+		return (atan(sθ - sqrt(3.0) * cθ), 
+			atan(sθ + sqrt(3.0) * cθ))
 	elseif idf == 3 || idf == 4
-		return (0.0, atan(sin(θ) - sqrt(3.0) * cos(θ)))
+		return (0.0, atan(sθ - sqrt(3.0) * cθ))
 	elseif idf == 5
-		return (atan(sin(θ) + sqrt(3.0) * cos(θ)), 0.5 * π)
+		return (atan(sθ + sqrt(3.0) * cθ), 0.5 * π)
 	elseif idf == 6
-		return (atan(sin(θ) - sqrt(3.0) * cos(θ)), 0.5 * π)
+		return (atan(sθ - sqrt(3.0) * cθ), 0.5 * π)
 	else
 		error("Unrecognized identifier.")
 	end
@@ -239,8 +244,9 @@ function nE(idf1::Integer, idf2::Integer, θB::T, θ1::T, rPts::Array{T,2},
 	intVal2 = 0.0 + 0.0im
 	glqOrd = size(glQud)[1]
 	if idf1 == 1 || idf1 == 2 
-		γ = (sin(θ1) + sqrt(3.0) * cos(θ1) - tan(θB)) / 
-		(sin(θ1) + sqrt(3.0) * cos(θ1) + tan(θB))
+		sθ1, cθ1 = sincos(θ1)
+		γ = (sθ1 + sqrt(3.0) * cθ1 - tan(θB)) / 
+		(sθ1 + sqrt(3.0) * cθ1 + tan(θB))
 		for n ∈ 1:glqOrd
 			intVal1 += glQud[n, 2] * intNE(n, 1, γ, θB, θ1, rPts, glQud, 
 				idf2, cmpInf)
@@ -280,18 +286,21 @@ end
 	
 	if idf1 == 1
 		η = θf(0.0, γ, glQud[n,1])
-		λ = sqrt(3.0) * (1 + η)  /  (cos(θB) * (sin(θ1) + sqrt(3.0) * cos(θ1)))
+		sθ1, cθ1 = sincos(θ1)
+		λ = sqrt(3.0) * (1 + η)  /  (cos(θB) * (sθ1 + sqrt(3.0) * cθ1))
 	elseif idf1 == 2
 		η = θf(γ, 1.0, glQud[n,1])
 		λ = sqrt(3.0) * (1.0 - abs(η)) / sin(θB)
 	elseif idf1 == 3
 		η = θf(γ, 1.0, glQud[n,1])
+		sθ1, cθ1 = sincos(θ1)
 		λ = sqrt(3.0) * (1.0 - abs(η)) / 
-		(cos(θB) * (sin(θ1) - sqrt(3.0) * cos(θ1)))
+		(cos(θB) * (sθ1 - sqrt(3.0) * cθ1))
 	elseif idf1 == 4
 		η = θf(0.0, 1.0, glQud[n,1])
+		sθ1, cθ1 = sincos(θ1)
 		λ = sqrt(3.0) * (1.0 - abs(η)) / 
-		(cos(θB) * (sin(θ1) - sqrt(3.0) * cos(θ1)))
+		(cos(θB) * (sθ1 - sqrt(3.0) * cθ1))
 	elseif idf1 == 5
 		η = θf(0.0, 1.0, glQud[n,1])
 		λ = sqrt(3.0) * (1.0 - η) / sin(θB)
@@ -310,10 +319,11 @@ function aS(rPts::Array{T,2}, θ1::T, θB::T, θ::T, dir::Integer,
 	η1 = 0.0 
 	η2 = 0.0 
 	ξ1 = 0.0
+	sθ1, cθ1 = sincos(θ1)
 	@inbounds for n ∈ 1:glqOrd
-		(η1, ξ1) = subTri(θB, θ * sin(θ1), dir)
-		(η2, ξ2) = subTri(θf(0.0, θ, glQud[n,1]) * cos(θ1) + θB, 
-			(θ - θf(0.0, θ, glQud[n,1])) * sin(θ1), dir)
+		(η1, ξ1) = subTri(θB, θ * sθ1, dir)
+		(η2, ξ2) = subTri(θf(0.0, θ, glQud[n,1]) * cθ1 + θB, 
+			(θ - θf(0.0, θ, glQud[n,1])) * sθ1, dir)
 		spx!(xPts, η1, η2, ξ1, ξ2)
 		aInt += glQud[n,2] * θf(0.0, θ, glQud[n,1]) * 
 		kerSN(rPts, xPts, cmpInf.frqPhz)
@@ -375,20 +385,25 @@ end
 function spxV!(xPts::Array{T,2}, θ4::T, θ3::T, θB::T, θ1::T)::Nothing where 
 	T <: AbstractFloat
 
-	spx!(xPts, θ4 * cos(θ3) * cos(θ1) - 1.0, θ4 * sin(θ3) * cos(θB) - 
-		1.0, θ4 * cos(θ3) * sin(θ1), θ4 * sin(θ3) * sin(θB))
+	sθB, cθB = sincos(θB)
+	sθ1, cθ1 = sincos(θ1)
+	sθ3, cθ3 = sincos(θ3)
+	spx!(xPts, θ4 * cθ3 * cθ1 - 1.0, θ4 * sθ3 * cθB - 1.0, θ4 * cθ3 * sθ1, θ4 *
+		 sθ3 * sθB)
 	return nothing
 end
 
 function spxE!(xPts::Array{T,2}, λ::T, η::T, θB::T, θ1::T, 
 	idf::Integer)::Nothing where T<:AbstractFloat
 
+	sθB, cθB = sincos(θB)
+	sθ1, cθ1 = sincos(θ1)
 	if idf == 1
-		spx!(xPts, η, λ * cos(θB) * cos(θ1) - η , λ * sin(θB), 
-			λ * cos(θB) * sin(θ1))
+		spx!(xPts, η, λ * cθB * cθ1 - η , λ * sθB, 
+			λ * cθB * sθ1)
 	elseif idf ==  - 1
-		spx!(xPts,  -η,  -(λ * cos(θB) * cos(θ1) - η) , λ * sin(θB), 
-			λ * cos(θB) * sin(θ1))
+		spx!(xPts,  -η,  -(λ * cθB * cθ1 - η) , λ * sθB, 
+			λ * cθB * sθ1)
 	else
 		error("Unrecognized identifier.")
 	end
