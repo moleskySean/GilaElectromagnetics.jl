@@ -1,8 +1,4 @@
-# The GilaElectromagnetics Module
-
-```@docs
-GilaElectromagnetics
-```
+# Library
 
 ## Module Index
 
