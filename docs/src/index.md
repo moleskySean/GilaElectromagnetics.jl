@@ -4,6 +4,7 @@ Documentation for GilaElectromagnetics.jl, a julia package implementing the thre
 
 ## Use cases
 
+TODO!!!
 
 ## Installation
 

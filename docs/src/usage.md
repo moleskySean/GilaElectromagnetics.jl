@@ -1,3 +1,9 @@
 # Usage
 
-put references of functions / library here
+## Green's operator
+
+
+## Scattering problem
+
+
+## Fields
