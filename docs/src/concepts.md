@@ -19,7 +19,7 @@ As goes with most of classical electromagnetics, the starting point is Maxwell's
 \nabla \cdot B = 0
 ```
 
-Here, the electric and magnetic fields are denoted by ``E`` and ``H`` respectively. Associated to them are the auxiliary fields ``D`` and ``B``, described by their respective constitutive relations :
+The electric and magnetic fields are denoted by ``E`` and ``H`` respectively. Associated to them are the auxiliary fields ``D`` and ``B``, described by their respective constitutive relations :
 
 ```math
 D = \epsilon E
@@ -69,7 +69,7 @@ H
 The equation above must be tweaked to have a Hermitian matrix in Fourier space so that it has physical meaning.
 
 !!! note "Hermitian matrix"
-    A square matrix ``A`` composed of complex elements is said to be *Hermitian* (denoted by subscript ``\dagger``) if it is equal to its own conjugate transform.
+    A square matrix ``A`` composed of complex elements is said to be *Hermitian* (denoted by superscript ``\dagger``) if it is equal to its own conjugate transform :
     ```math
     A^\dagger = (A^T)^*
     ```
@@ -137,6 +137,6 @@ The Green's function ``\textbf{G}_0`` of the vacuum Maxwell operator is defined 
 ```
 
 !!! danger "What GilaElectromagnetics does"
-    The main purpose of GilaElectromagnetics is numerically solving for the Green's function of the vacuum Maxwell operator ``\textbf{G}_0`` in a given space.
+    The main purpose of GilaElectromagnetics is numerically solving for the Green's function of the vacuum Maxwell operator ``\textbf{G}_0`` in a given space and at a given frequency.
 
 Matter can be treated using other functionnalities of the package. See ["Usage"](usage.md) for more information.
