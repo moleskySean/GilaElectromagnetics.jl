@@ -34,14 +34,13 @@ edge-adjacent triangles, and vertex-adjacent triangles.
 The article cited above contains useful error comparison plots for the number 
 evaluation points considered. 
 =#
-const π = 3.1415926535897932384626433832795028841971693993751058209749445923
 #=
 Returns the scalar (Helmholtz) Green function. The separation dstMag is assumed 
 to be scaled by wavelength. 
 =#
 @inline function sclEgo(dstMag::AbstractFloat, frqPhz::T)::ComplexF64 where
 	T<:Union{ComplexF64,ComplexF32}
-	return exp(2im * π * dstMag * frqPhz) / (4 * π * dstMag * frqPhz^2)
+	return cis(2π * dstMag * frqPhz) / (4 * π * dstMag * frqPhz^2)
 end
 #=
 Returns the scalar (Helmholtz) Green function with the singularity removed. The 
@@ -52,7 +51,7 @@ all weakly singular integrals.
 @inline function sclEgoN(dstMag::AbstractFloat, frqPhz::T)::ComplexF64 where 
 	T<:Union{ComplexF64,ComplexF32}
     if dstMag > 1e-7
-        return (exp(2im * π * dstMag * frqPhz) - 1) / 
+        return (cis(2π * dstMag * frqPhz) - 1) / 
         (4 * π * dstMag * frqPhz^2)
     else
         return ((im / frqPhz) - π * dstMag) / 2
