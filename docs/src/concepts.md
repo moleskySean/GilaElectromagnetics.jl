@@ -56,7 +56,7 @@ J \\
 =
 \begin{pmatrix}
 i\epsilon \omega & \nabla \times \\
-\frac{i}{\mu \omega} \nabla \times & 1
+\frac{i}{\mu \omega} \nabla \times & \textbf{I}_{3 \times 3}
 \end{pmatrix}
 \begin{pmatrix}
 E \\
@@ -64,7 +64,7 @@ H
 \end{pmatrix}
 ```
 
-## Change of coordinates
+## Notation and change of coordinates
 
 The equation above must be tweaked to have a Hermitian matrix in Fourier space so that it has physical meaning.
 

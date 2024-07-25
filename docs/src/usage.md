@@ -49,11 +49,11 @@ The same optionnal parameters for CUDA and the complex type could be given.
 !!! note "Origin"
     The origin in this context refers to the cell `(1, 1, 1)`, located in the corner of the volume. 
 
-This operator uses the `GlaOpr` type, which in itself is an abstraction wrapper for the [`GlaOprMem`](library.md#GilaElectromagnetics.GlaOprMem).
+This operator uses the `GlaOpr` type, which in itself is an abstraction wrapper for the [`GlaOprMem`](library.md#GilaElectromagnetics.GlaOprMem). It is *not* a matrix.
 
 ## Scattering problem
 
-One of the most interesting problems that can be attacked by Gila is the *scattering problem*, which asks to find the total field ``\textbf{f}_t`` produced, given an incident field ``\textbf{f}_i`` and a dielectric profile. 
+One of the most interesting problems that can be attacked by Gila is the *scattering problem*, which asks to find the total field ``\textbf{f}_t`` produced, given an incident field ``\textbf{f}_i`` and a dielectric profile. This allows solving the Maxwell's equations in matter.
 
 ### Theoretical overview
 
@@ -63,19 +63,240 @@ Because of the linearity of the considered Maxwell's equations, it is possible t
 \textbf{f}_t = \textbf{f}_i + \textbf{f}_s
 ```
 
-Furthermore, we define the matrix ``\textbf{X}`` to represent permittivity and permeability in the following way :
+Furthermore, we define the matrix ``\textbf{X}`` to represent permittivity and permeability as such, while still using natural units :
 
+```math
+\textbf{X} =
+\begin{pmatrix}
+\textbf{X}_{je} & \textbf{0} \\
+\textbf{0} & \textbf{X}_{mh}
+\end{pmatrix}
+```
 
+Here, ``\textbf{X}_{je}`` and ``\textbf{X}_{mh}`` are diagonal matrices described by the electric and magnetic suceptability ``\chi_e`` and ``\chi_m`` respectively :
 
-W : scattering operator
+```math
+\textbf{X}_{je} = \frac{i}{k_0}\chi_e \textbf{I}_{3 \times 3}
+```
+```math
+\textbf{X}_{mh} = -\frac{i}{k_0}\chi_m \textbf{I}_{3 \times 3}
+```
+where :
+
+```math
+\textbf{P} = \epsilon_0 \chi_e \textbf{E}
+```
+```math
+\textbf{M} = \chi_m \textbf{M}
+```
+
+and where ``\textbf{P}`` represents the polarisation density, and ``\textbf{M}`` represents the magnetisation. 
+
+In the same way that the fields can be separated in incident, scattered and total parts, so can the density vector ``\textbf{p}``. This allows a rewriting of the constitutive relationships as such :
+
+```math
+\frac{i}{k_0}\textbf{p}_s = \textbf{X}\textbf{f}_t
+```
+
+Recall the relevant Maxwell's equations in vacuum. By their linearity, their scattered part can be written simply as :
+
+```math
+\textbf{M}_0 \textbf{f}_s = \frac{i}{k_0}\textbf{p}_s
+```
+Combining with the previous equation :
+
+```math
+\textbf{M}_0 \textbf{f}_s = \textbf{X}\textbf{f}_t
+```
+
+With the vacuum Green's function being the inverse of ``\textbf{M}_0`` :
+
+```math
+\textbf{f}_s = \textbf{G}_0 \textbf{X}\textbf{f}_t
+```
+
+With decomposition of the scattered field in it's total and initial parts, and with substitutions with previous equations, the following relation can be found :
+
+```math
+\textbf{f}_t - \frac{i}{k_0}\textbf{G}_0 \textbf{p}_s =\frac{i}{k_0}\textbf{G}_0 \textbf{p}_i
+```
+
+Finally, multiplying both sides by ``\textbf{X}``, using further substitutions and decomposing the density vector the same way the fields vector was, a crucial equation is reached :
+
+```math
+(\textbf{I}_{6 \times 6} - \textbf{X}\textbf{G}_0)\textbf{p}_t = \textbf{p}_i
+```
+
+This is known as the Lippmann-Schwinger equation. In order to obtain the *total polarization current density* from the material's properties and from an initial polarization current density, the followind needs to be solved :
+
+```math
+\textbf{p}_t = (\textbf{I}_{6 \times 6} - \textbf{X}\textbf{G}_0)^{-1}\textbf{p}_i
+```
+
+where ``\textbf{W} = (\textbf{I}_{6 \times 6} - \textbf{X}\textbf{G}_0)^{-1}`` is denoted as the *scattering operator*. With a way to define this operator, Gila effectively allows the Maxwell's equations to be solved in matter.
+
+!!! danger "Accessing specific matrices"
+    It is important to note that the mathematical solutions above would apply to a single cell of a system. For a whole system, they are still correct, but the matrices and vectors are expanded, and each cell adds six elements (on the diagonal for the matrix ``\textbf{X}``)
+    
+    This is explained further in the implementation examples. What is to keep in mind is that these matrices become enormous very quickly as the dimensions of a volume increases. Gila's trick is to actually *not compute* the Green's function, but to only compute it's application on a vector ``\textbf{v}``. The same would go for ``\textbf{W}``, since it's composed of the Green's operator. Thus, Gila can only give back to a user ``\textbf{G}_0 \textbf{v}``, ``\textbf{W}\textbf{p}_i`` (provided Lippmann-Schwinger is implemented) or anything similar.
 
 ### Implementation
 
-warning, prévoire 8*v (taille des vecteurs sources) comme rule of thumb
+This section will showcase an implementation of the scattering operator, to solve the Lippmann-Schwinger equation in this context. These can be implemented as a module in a file of a project. To begin, the following packages must be imported in order for the following code to function :
 
+```julia
+# At the beginning of an exported module
+using LinearAlgebra
+using JLD2
+using CUDA
+using GilaElectromagnetics
+```
+
+In a nutshell, the part that takes the longest to compute for Gila are *fast Fourier transforms (FFTs)*. However, the implementation of [JLD2](https://juliaio.github.io/JLD2.jl/dev/) gives the possibility of storing (serialising) these FFTs, drastically speeding things up for subsequent uses of Gila for systems of identical dimensions. The following function simply verifies the existence of a folder named `preload` where the fourier transforms will be stored :
+
+```julia
+function get_preload_dir()
+	found_dir = false
+	dir = "preload/"
+	for i in 1:10
+		if !isdir(dir)
+			dir = "../"^i * "preload/"
+		else
+			found_dir = true
+			break
+		end
+	end
+	if !found_dir
+		error("Could not find preload directory. Please create a directory named 'preload' in the current directory or parent directories.")
+	end
+	return dir
+end
+```
+
+The following function implements the [`GlaOpr`](library.md#GilaElectromagnetics.GlaOpr) with the possibility of obtaining it faster if it was serialized before :
+
+```julia
+function load_greens_operator(cells::NTuple{3, Int}, scale::NTuple{3, Rational{Int}};
+                              set_type=ComplexF64, use_gpu::Bool=false)
+
+    # Define the name of the FFT file
+	preload_dir = get_preload_dir()
+	type_str = set_type == ComplexF64 ? "c64" : (set_type == ComplexF32 ? "c32" : "c16")
+	fname = "$(type_str)_$(cells[1])x$(cells[2])x$(cells[3])_$(scale[1].num)ss$(scale[1].den)x$(scale[2].num)ss$(scale[2].den)x$(scale[3].num)ss$(scale[3].den).jld2"
+	fpath = joinpath(preload_dir, fname)
+
+    # If file exists, unserialise and return GlaOpr
+	if isfile(fpath)
+		file = jldopen(fpath)
+		fourier = file["fourier"]
+		if use_gpu
+			fourier = CuArray.(fourier)
+		end
+		options = GlaKerOpt(use_gpu)
+		volume = GlaVol(cells, scale, (0//1, 0//1, 0//1))
+		mem = GlaOprMem(options, volume; egoFur=fourier, setTyp=set_type)
+		return GlaOpr(mem)
+	end
+
+    # If file doesn't exist, generate GlaOpr, save it and return it
+	operator = GlaOpr(cells, scale; setTyp=set_type, useGpu=use_gpu)
+	fourier = operator.mem.egoFur
+	if use_gpu
+		fourier = Array.(fourier)
+	end
+	jldsave(fpath; fourier=fourier)
+	return operator
+end
+```
+
+With this function prepared, the memory structure of the Lippmann-Schwinger and it's constructors can be defined. The following simply creates the `struct` for it with some error checking and preparation for the use of CUDA if required :
+
+```julia
+struct LippmannSchwinger
+	greens_op::GlaOpr
+	medium::AbstractArray{<:Complex, 4}
+
+    # Simple constructor
+	function LippmannSchwinger(greens_op::GlaOpr, medium::AbstractArray{<:Complex})
+
+        # Verify if the dimensions and type of GlaOpr and the medium match.
+		if glaSze(greens_op, 1)[1:3] != size(medium)
+			println(glaSze(greens_op, 1)[1:3])
+			println("!=")
+			println(size(medium))
+			throw(DimensionMismatch("Green's operator and medium must have the same size."))
+		end
+		if eltype(greens_op) != eltype(medium)
+			throw(ArgumentError("Medium must have the same element type as the Green's operator."))
+		end
+
+        # Reshape to match the mathematical definitions of the medium
+		medium = reshape(medium, glaSze(greens_op, 1)[1:3]..., 1)
+
+        # Make the medium array compatible with CUDA if it's set up
+		if greens_op.mem.cmpInf.devMod
+			medium = CuArray(medium)
+		end
+
+		new(greens_op, medium)
+	end
+end
+```
+
+The definition of the medium as an order 4 tensor is more intuitive for the user. The first three dimensions simply describe the indices of a cell, and the element in the fourth dimension is the complex `\chi_e` value at the chosen cell. This tensor is then reshaped to correspond to how ``\textbf{X}`` was defined.
+
+!!! danger "Materials treated by Gila"
+    GilaElectromagnetics can only treat non-magnetic materials, as they are the most common in the field of nano-optics. This is why the medium only defines the electric suceptibility. For now, only values of suceptibility with ``\Re(\chi_e) > 0`` converge for the iterative methods used in the following sections. However, there is current development on a preconditionner which will allow negative real parts of the electric suceptibility to be used without convergence problems. This will make simulations of metals possible, and simplify the treatement of empty space.
+
+It can also be useful to have a constructor of `LippmannSchwinger` that treats directly the definition of the cells, the scale, the medium and other parameters :
+
+```julia
+function LippmannSchwinger(cells::NTuple{3, Int}, scale::NTuple{3, Rational{Int}},
+                           medium::AbstractArray{<:Complex};
+                           set_type=ComplexF64, use_gpu::Bool=false)
+
+	greens_op = load_greens_operator(cells, scale; set_type=set_type, use_gpu=use_gpu)
+	return LippmannSchwinger(greens_op, medium)
+end
+```
+
+With this operator not being a matrix but it's own memory type, some mathematical and typical Julia functions need to be specifically defined :
+
+```julia
+# Informations on Lippmann-Schwinger
+Base.size(op::LippmannSchwinger) = size(op.greens_op)
+Base.size(op::LippmannSchwinger, dim::Int) = size(op.greens_op, dim)
+glaSze(op::LippmannSchwinger) = glaSze(op.greens_op)
+glaSze(op::LippmannSchwinger, dim::Int) = glaSze(op.greens_op, dim)
+Base.eltype(op::LippmannSchwinger) = eltype(op.greens_op)
+
+# Redefinition of the multiplication
+function Base.:*(op::LippmannSchwinger, x::AbstractArray)
+	if op.greens_op.mem.cmpInf.devMod
+		x = CuArray(x)
+	end
+	gx = reshape(op.greens_op * x, glaSze(op, 1))
+	return x - reshape(op.medium .* gx, size(x))
+end
+LinearAlgebra.mul!(y::AbstractArray, op::LippmannSchwinger, x::AbstractArray) = y .= op * x
+```
+
+Similar techniques are implemented with Gila so that multiplying a Green's operator or attempting to get information on it is more seamless. The final step consists in using a solver to solve ``\textbf{p}_t = (\textbf{I}_{6 \times 6} - \textbf{X}\textbf{G}_0)^{-1}\textbf{p}_i``
+
+
+
+RENDU ICI
+
+
+!!! note "Redefinition of the multiplication"
+    The redefinition of the multiplication might seem odd, but it is essential to achieve the form ``\textbf{I}_{6 \times 6} - \textbf{X}\textbf{G}_0`` in the iterative solvers. It is what allows BiCGStab or other algorithms to output ``\textbf{W}\textbf{p}_i``, the different multiplication comes in handy in their underlying workings. 
+
+gpu no work
 ## Fields
 
 
 ## Technical details
 
-
+other api elements
+constructing glaopr with other memory elements
+warning, prévoire 8*v (taille des vecteurs sources) comme rule of thumb
