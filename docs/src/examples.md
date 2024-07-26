@@ -2,12 +2,18 @@
 
 The following section serves as a showcase of possible applications of GilaElectromagnetics.
 
-## Useful operators
+## Dipole in a cube
 
-(expand on GilaOperators)
 
-## Solving for dielectrics
+## Dipole in a wave guide
 
-### Current density
 
-### Electromagnetic field:
+## Incident wave on a thin film
+
+
+
+### A way to treat empty space
+
+
+
+### GPU example?

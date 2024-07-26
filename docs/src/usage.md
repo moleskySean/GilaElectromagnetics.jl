@@ -352,7 +352,20 @@ As mentionned previously, multiplication of a Green's operator with a vector is 
 
 ## Technical details
 
-other api elements
-constructing glaopr with other memory elements
-warning, prévoire 8*v (taille des vecteurs sources) comme rule of thumb
-boundaries of the volume
+### API
+
+The presentation above didn't present every single way to define the operators. For example, the simplest constructor of `GlaOpr` only takes in a `GlaOprMem` memory structure. It would be possible to directly define it using it's [structure definition](library.md#GilaElectromagnetics.GlaOprMem)
+
+Multiple other functions and memory structures are made available in the API. Some allow to obtain information ont the operators, such as their size or their nature (self or external operator). See the [library](library.md) for more details.
+
+### Boundaries of a volume
+
+The behavior of space outside of the defined volume is designed to be like empty space. It is referred to as *open boundary conditions*.
+
+### Memory
+
+The operators and the matrices for bigger volumes can take a lot of memory. The following is a good rule of thumb to make sure the host doesn't run out of memory.
+
+The size of a `ComplexF64` number is 128 bits. The vector ``\textbf{p}_i`` contains 3 complex numbers per component, and ``n_x \times n_y \times n_z`` vectors. Thus, the size of ``\textbf{p}_i`` is ``384 \times n_x \times n_y \times n_z``. 
+
+It is strongly advised to have at least 8 times that amount of storage in RAM or VRAM available. This amount has some buffer in it, but to use all the operations shown above and other scripts, it is the amount of memory with which no errors should arise.
