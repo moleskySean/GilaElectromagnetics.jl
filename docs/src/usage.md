@@ -243,7 +243,7 @@ struct LippmannSchwinger
 end
 ```
 
-The definition of the medium as an order 4 tensor is more intuitive for the user. The first three dimensions simply describe the indices of a cell, and the element in the fourth dimension is the complex `\chi_e` value at the chosen cell. This tensor is then reshaped to correspond to how ``\textbf{X}`` was defined.
+The definition of the medium as an order 4 tensor is more intuitive for the user. The first three dimensions simply describe the indices of a cell, and the element in the fourth dimension is the complex ``\chi_e`` value at the chosen cell. This tensor is then reshaped to correspond to how ``\textbf{X}`` was defined.
 
 !!! danger "Materials treated by Gila"
     GilaElectromagnetics can only treat non-magnetic materials, as they are the most common in the field of nano-optics. This is why the medium only defines the electric suceptibility. For now, only values of suceptibility with ``\Re(\chi_e) > 0`` converge for the iterative methods used in the following sections. However, there is current development on a preconditionner which will allow negative real parts of the electric suceptibility to be used without convergence problems. This will make simulations of metals possible, and simplify the treatement of empty space.
@@ -281,22 +281,78 @@ end
 LinearAlgebra.mul!(y::AbstractArray, op::LippmannSchwinger, x::AbstractArray) = y .= op * x
 ```
 
-Similar techniques are implemented with Gila so that multiplying a Green's operator or attempting to get information on it is more seamless. The final step consists in using a solver to solve ``\textbf{p}_t = (\textbf{I}_{6 \times 6} - \textbf{X}\textbf{G}_0)^{-1}\textbf{p}_i``
+Similar techniques are implemented with Gila so that multiplying a Green's operator or attempting to get information on it is more seamless. The final step consists in using a solver to solve ``\textbf{p}_t = (\textbf{I}_{6 \times 6} - \textbf{X}\textbf{G}_0)^{-1}\textbf{p}_i``. A simple implementation of one would go like this :
 
+```julia
+using IterativeSolvers
 
+function solve(ls::LippmannSchwinger, i::AbstractArray{<:Complex, 4};
+               solver=bicgstabl)
 
-RENDU ICI
+    # Inversion of Lippmann-Schwinger
+    out = solver(ls, reshape(deepcopy(i), prod(size(i))))
+    return reshape(out, size(i))
+end
+```
 
+Two main solvers from [IterativeSolvers.jl](https://iterativesolvers.julialinearalgebra.org/stable/) were tested and verified to work : BiCGStab and GMRES.
+
+!!! danger "Usage of GPU with solvers"
+    Currently, activating the use of CUDA and using a solver from `IterativeSolvers` results in an error. This is due to these solvers not working with the `CuArray` type of CUDA. Implementing a fix to this problem is feasable for a user, as very few changes to these packages are required. A working BiCGStab version for this usecase is currently in development.
+
+As presented here, the solving function returns an order 4 tensor or an array of size 4, where the three first indices choose a cell, and the fourth contains the ``\textbf{p}_t`` vector at that cell. Maxwell's equations in the medium are thus solved with this function.
 
 !!! note "Redefinition of the multiplication"
     The redefinition of the multiplication might seem odd, but it is essential to achieve the form ``\textbf{I}_{6 \times 6} - \textbf{X}\textbf{G}_0`` in the iterative solvers. It is what allows BiCGStab or other algorithms to output ``\textbf{W}\textbf{p}_i``, the different multiplication comes in handy in their underlying workings. 
 
-gpu no work
 ## Fields
 
+The demonstrated solver for the scattering problem gives the total polarization current density. If an electric field is desired, the following equation can be used :
+
+```math
+\textbf{e}_t = \textbf{G}_0 \textbf{p}_t
+```
+
+The only thing required is to define Green's operator for the volume. With the definition of the self Green's operator showed above and the solver, finding the total electric field for the scattering problem can be done as such :
+
+```julia
+# Define the volume
+cells = (n_x, n_y, n_z)
+scale = (scl_x, scl_y, scl_z)
+
+# Define the medium, this is just a simple example
+medium = fill(1.0 + 0.0im, n_x, n_y, n_z)
+
+# Define the operator
+G_0 = GlaOpr(cells, scale)
+LS = LippmanSchwinger(cells, scale, medium)
+
+# Define p_i. For this example, only one  at (i, j, k)
+p_i = zeros(eltype(LS), n_x, n_y, n_z, 3)
+p_i[i, j, k, :] = [1, 0, 0]
+
+# Solve for p_t
+p_t = solve(LS, p_i)
+
+# Obtain the electric field
+e_t = G_0 * p_t
+```
+
+As mentionned previously, multiplication of a Green's operator with a vector is already well defined by Gila.
+
+!!! note "Meaning of the polarisation current density"
+    In the context of defining an array for ``\textbf{p}_i``, a single vector of polarisation current density can be seen as an electric dipole at the point where the vector is located.
+    
+    For a linear, non-dispersive and isotropic dielectric, the following relationship can relate this polarisation density to the electric field :
+    
+    ```math
+    \textbf{p}_i = \chi \textbf{e}_i
+    ```
+    This would apply for each cell of the defined volume.
 
 ## Technical details
 
 other api elements
 constructing glaopr with other memory elements
 warning, prévoire 8*v (taille des vecteurs sources) comme rule of thumb
+boundaries of the volume
