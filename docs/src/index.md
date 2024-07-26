@@ -4,7 +4,17 @@ Documentation for GilaElectromagnetics.jl, a julia package implementing the thre
 
 ## Use cases
 
-TODO!!!
+general : solving maxwell eq
+
+obtaining vacuum green's function
+
+scattering problem
+
+materials non mag ...
+
+subwavelength simulations
+
+(soon) use gpu to solve
 
 ## Installation
 
