@@ -369,3 +369,24 @@ The operators and the matrices for bigger volumes can take a lot of memory. The 
 The size of a `ComplexF64` number is 128 bits. The vector ``\textbf{p}_i`` contains 3 complex numbers per component, and ``n_x \times n_y \times n_z`` vectors. Thus, the size of ``\textbf{p}_i`` is ``384 \times n_x \times n_y \times n_z``. 
 
 It is strongly advised to have at least 8 times that amount of storage in RAM or VRAM available. This amount has some buffer in it, but to use all the operations shown above and other scripts, it is the amount of memory with which no errors should arise.
+
+### Multi-threading
+
+When using Gila on a CPU, many functions can take advantage of multiple compute threads, which can bring massive speed gains. It is highly advised to use Gila within a Julia REPL that has access to as many threads as possible. For example, to launch a REPL with 8 threads, the following line needs to be entered in a terminal :
+
+```
+julia -t 8
+```
+
+Then, to make the most use of those threads, two packages that are used by Gila need to be set to use those threads. This can be done by setting the following before using any defined operators :
+
+```julia
+using Base.Threads # to access the number of threads given to the REPL
+
+using FFTW
+using LinearAlgebra.BLAS
+
+num_threads = nthreads()
+BLAS.set_num_threads(num_threads)
+FFTW.set_num_threads(num_threads)
+```
