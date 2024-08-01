@@ -366,9 +366,9 @@ The behavior of space outside of the defined volume is designed to be like empty
 
 The operators and the matrices for bigger volumes can take a lot of memory. The following is a good rule of thumb to make sure the host doesn't run out of memory.
 
-The size of a `ComplexF64` number is 128 bits. The vector ``\textbf{p}_i`` contains 3 complex numbers per component, and ``n_x \times n_y \times n_z`` vectors. Thus, the size of ``\textbf{p}_i`` is ``384 \times n_x \times n_y \times n_z``. 
+The size of a `ComplexF64` number is 128 bits. The vector ``\textbf{p}_i`` contains 3 complex numbers per component, and ``n_x \times n_y \times n_z`` vectors. Thus, the size of ``\textbf{p}_i`` is ``384 \times n_x \times n_y \times n_z`` bits. 
 
-It is strongly advised to have at least 8 times that amount of storage in RAM or VRAM available. This amount has some buffer in it, but to use all the operations shown above and other scripts, it is the amount of memory with which no errors should arise.
+It is strongly advised to have at least 8 times that amount of storage in RAM or VRAM available. This amount has some buffer in it, but to use all the operations shown above and other scripts, it is the amount of memory with which no errors caused by lack of memory should arise.
 
 ### Multi-threading
 
