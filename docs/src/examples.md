@@ -206,7 +206,7 @@ end
 
 Applying this function to the already defined medium will greatly help the simulations to have intended results everywhere except where the decay and loss happens. In these locations, the fields should simply vanish.
 
-!!! note "`function()` VS `function!()`"
+!!! note "function() VS function!()"
     A typical `function` returns something, while a `function!` modifies one or more of it's input variables. The `!` is Julia convention to indicate this fact.
 
     As an example, `medium_decay_tanh!` modifies the `χ` variable directly. Some functions in Gila use this convention, notably `egoOpr!` and other internal functions.
@@ -409,7 +409,7 @@ As intended, most of the field is contained in the `y` direction because of the 
 
 For the real parts :
 
-![film - 1, 0 , -2 - no decay - real](assets/film_4png)
+![film - 1, 0 , -2 - no decay - real](assets/film_4.png)
 
 This is less representative of how thin films would behave in real life, but it shows nicely how the loss "hides" parts of the field. A way to have realistic behavior without suppressing the field would be to simulate a *much* bigger film and to exclude the edges from the visualisation, but this is quite computationnaly expensive.
 
