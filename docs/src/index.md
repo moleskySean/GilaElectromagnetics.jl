@@ -4,17 +4,13 @@ Documentation for GilaElectromagnetics.jl, a julia package implementing the thre
 
 ## Use cases
 
-general : solving maxwell eq
+GilaElectromagnetics, or Gila for short, allows to perform fast subwavelength electromagnetic simulations with a high degree of precision. It allows to :
 
-obtaining vacuum green's function
+- Solve Maxwell's equations numerically in vacuum and in matter.
+- Obtain the Green's function of Maxwell's vacuum operator.
+- Solve the scattering problem in non-magnetic materials.
+- Use CUDA to accelerate computations.
 
-scattering problem
-
-materials non mag ...
-
-subwavelength simulations
-
-(soon) use gpu to solve
 
 ## Installation
 

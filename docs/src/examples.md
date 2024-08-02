@@ -249,19 +249,20 @@ e_t_vac = G_0_vac * p_t_vac
 
 We can now visualise the field in the guide with heatmaps, with the viewed plane slightly away from where the dipole is so that the gradient of color is less saturated :
 
-#############
+![dipole in guide - intensity - xz](assets/guide_1.png)
 
 For the real parts :
 
-#############
+![dipole in guide - real - xz](assets/guide_2.png)
 
 We can also analyse the field in the `yz` plane to see how it leaks out of the guide :
 
-#############
+![dipole in guide - intensity - yz](assets/guide_3.png)
 
 And finally, for the real parts :
 
-#############
+![dipole in guide - real - yz](assets/guide_4.png)
+
 
 ## Incident wave on a thin film
 
@@ -317,12 +318,127 @@ We need to create a function that generates a plane wave, and then use it to def
 
 where the amplitude of ``\textbf{E}_0`` describes the amplitude of the wave, it's direction dictates the direction of the electric field (the polarisation of the wave), ``\textbf{k}`` is the wave vector which dictates both wavelength and the direction of the wave front, ``\textbf{r}`` represents a point in space, and ``ωt`` represents a phase factor that will be set to 0 arbitrairly going forward.
 
-...
+We will do heatmaps in `xz`, and purposefully use a wavevector coplanar to this plane. This is only for the sake of representation, as any wave vector would work. We will also arbitrairly choose an *s-polarised wave*, where the direction of the electric field is perpendicular to the plane (field along `y`). This is all set up in the following function which gives the electric field at a point :
 
-### Solutions
+```julia
+function electric_field(x, y, z, dir_i, dir_j, dir_k, amp, ω=0, t=0)
+  k = normalize([dir_i, dir_j, dir_k])
+  
+  if abs(k[3]) != 1
+    v = [0, 0, 1]  # use z-axis if k is not aligned with z
+  else
+    v = [0, 1, 0]  # use y-axis if k is aligned with z (would not be s pol. anymore)
+  end
+
+  # Field perpendicular to the plane containing k and the z axix (s pol.)
+  E0 = amp * normalize(cross(k, v))
+
+  return E0 * exp(1im * (dot(2π*k, [x, y, z]) - ω * t))
+end
+```
+
+where the `amp` variable was introduced to control the amplitude of the electric field. This function is also intended to have the same wavelength as what's defined by `cells_per_wavelength`. We can now set up different memory elements as we did previously :
+
+```julia
+cells = (num_cellsx, num_cellsy, num_cellsz)
+scale = (1//cells_per_wavelength, 1//cells_per_wavelength, 1//cells_per_wavelength)
+coord = (0//1, 0//1, 0//1);
+
+χ = fill(χ_fill, num_cellsx, num_cellsy, num_cellsz)
+medium_decay_tanh!(cells, χ, χ_fill, decay_length * cells_per_wavelength);
+
+ls = LippmannSchwinger(cells, scale, χ; set_type=ComplexF32)
+```
+
+Recall the following equation for linear, non-dispersive and isotropic dielectric :
+
+```math
+\textbf{p}_i = \chi \textbf{e}_i
+```
+
+With `for` loops and this equation applied cell per cell, we can easily obtain the initial polarisation current density from the electric field :
+
+```julia
+# wave vector (is normalized later)
+k_i = 1.0
+k_j = 0.0
+k_k = -2.0 # negative value looks better, not mandatory
+amp = 3.0
+
+p_i = zeros(eltype(ls), num_cellsx, num_cellsy, num_cellsz, 3)
+
+# p_i = χ*e_i at every cell of the dielectric
+@time for x in 1:num_cellsx
+    for y in 1:num_cellsy
+        for z in 1:num_cellsz
+            p_i[x, y, z, :] = real(electric_field((x-1) + coord[1], (y-1) + coord[2], (z-1) + coord[3], k_i, k_j, k_k, amp)) * χ[x, y, z, 1]
+        end
+    end
+end
+```
+
+This allows to solve for the total field with the solver and Green's operator :
+
+```julia
+# solving
+p_t = solve(ls, p_i)
+
+# embedding
+cells_vac = (num_cellsx, num_cellsy, num_cellsz_vac)
+end_film = position_film + num_cellsz - 1
+p_t_vac = zeros(ComplexF32, num_cellsx, num_cellsy, num_cellsz_vac, 3)
+p_t_vac[:, :, position_film:end_film, :] .= p_t
+
+# obtaining fields
+G_0_vac = load_greens_operator(tuple(cells_vac...), scale; set_type=ComplexF32)
+e_t_vac = G_0_vac * p_t_vac
+```
+
+We are now ready to plot heatmaps of this wave. Starting with different information and the intensity :
+
+![film - 1, 0 , -2 - decay - intensity](assets/film_1.png)
+
+And then, the real parts of the field :
+
+![film - 1, 0 , -2 - decay - real](assets/film_2.png)
+
+As intended, most of the field is contained in the `y` direction because of the initial s-polarisation. However, a lot more confinement of the field in the field is observed, and the values aren't very high. This is a consequence of the decay and the loss introduced. If we reproduce the same system but without introducing them, we can observe the following. For the intensity :
 
 
-### Different angles
+![film - 1, 0 , -2 - no decay - intensity](assets/film_3.png)
 
+For the real parts :
+
+![film - 1, 0 , -2 - no decay - real](assets/film_4png)
+
+This is less representative of how thin films would behave in real life, but it shows nicely how the loss "hides" parts of the field. A way to have realistic behavior without suppressing the field would be to simulate a *much* bigger film and to exclude the edges from the visualisation, but this is quite computationnaly expensive.
+
+### Different angle
+
+We can try to simulate a wave that glances the film at a very low angle. Phemomena of total internal reflection should be recognisable. Changing the values of the wave vector, we obtain :
+
+![tir - intensity](assets/film_9.png)
+
+Finally, the real values of the electric field are :
+
+![tir - real](assets/film_10.png)
+
+We can indeed see a reflected wave. It's odd look on both sides is due to the small size of the simulated system and to the definition of the wave. The way it's formulated, the initial field exists on both sides of the film at the beginning, which makes it behave not exactly like a wave front at the contact of a dielectric film would. Still, expected behavior is there, and it is a good showcase of the abilities of Gila on solving different systems.
 
 ### GPU example
+
+Finally, even though the solver is not yet implemented with it, here is a short showcase on how such a simulation would be treated with computation on a CUDA enabled GPU. Most of the program stays the same, but the operators need to have their `use_gpu` parameter set to true :
+
+```julia
+ls = LippmannSchwinger(cells, scale, χ; set_type=ComplexF32, use_gpu=true)
+
+G_0_void = load_greens_operator(tuple(cells_void...), scale; set_type=ComplexF32, use_gpu=true)
+```
+
+In addition, the initial polarisation current density needs to be converted to a `CuArray` in order to be treated correctly by the solver :
+
+```julia
+p_t = Array(solve(ls, CuArray(p_i)))
+```
+
+This would result in the total electric field variable `e_t_vac` to be of type `CuArray` also. In order to do further data analysis with it, it could be necessary to convert it back to a regular array by simply using `Array(e_t_vac)`. Right now, using CUDA to load Green's operators is working and a good way to save compute time.
