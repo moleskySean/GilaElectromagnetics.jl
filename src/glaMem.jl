@@ -189,9 +189,9 @@ function GlaExtInf(trgVol::GlaVol, srcVol::GlaVol)::GlaExtInf
 		trgPar, srcPar)
 end
 """
-    GlaKerOpt(devStt::Bool)
+GlaKerOpt(devStt::Bool)
 
-Simplified GlaKerOpt constructor. Does it even work?
+Simplified GlaKerOpt constructor.
 """
 function GlaKerOpt(devStt::Bool)
 
