@@ -13,6 +13,11 @@ Modules = [GilaElectromagnetics]
 Order   = [:constant, :type, :function, :macro]
 ```
 
+TEST
+
+```@docs 
+GilaElectromagnetics.GlaKerOpt
+```
 questions pour Paul :
 
 pourquoi est-ce que des fonctions qui sont meme pas exportees par Gila, tel que `egoBrnDev!`, `genEgoExt!` et autres sont generes?

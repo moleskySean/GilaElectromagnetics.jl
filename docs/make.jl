@@ -16,6 +16,6 @@ makedocs(sitename="GilaElectromagnetics.jl Documentation",
 # See "Hosting Documentation" and deploydocs() in the Documenter manual
 # for more information.
 deploydocs(
-    repo = "github.com/moleskySean/GilaElectromagnetics.jl.git",
+    repo = "github.com/emilegp/GilaElectromagnetics.jl.git",
     devbranch = "main"
 )

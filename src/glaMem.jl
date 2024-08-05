@@ -52,11 +52,6 @@ Green function operator assembly and kernel operation options.
 .numTrd---number of threads to use when running GPU kernels
 .numBlk---number of threads to use when running GPU kernels 
 """
-#=
-If intConTest.jl was failed the default intOrd used in the simplified constructor
-may not be sufficient to insure that all integral values are properly converged.
-It may be prudent to create the associated GlaKerOpt with higher order. 
-=#
 struct GlaKerOpt
 
 	frqPhz::Number
@@ -66,6 +61,12 @@ struct GlaKerOpt
 	numTrd::Union{Tuple{},NTuple{3,Integer}}
 	numBlk::Union{Tuple{},NTuple{3,Integer}}
 end
+#=
+If intConTest.jl was failed the default intOrd used in the simplified constructor
+may not be sufficient to insure that all integral values are properly converged.
+It may be prudent to create the associated GlaKerOpt with higher order. 
+=#
+
 """
 GlaOprMem
 
@@ -188,9 +189,9 @@ function GlaExtInf(trgVol::GlaVol, srcVol::GlaVol)::GlaExtInf
 		trgPar, srcPar)
 end
 """
-GlaKerOpt(devStt::Bool)
+    GlaKerOpt(devStt::Bool)
 
-Simplified GlaKerOpt constructor.
+Simplified GlaKerOpt constructor. Does it even work?
 """
 function GlaKerOpt(devStt::Bool)
 
