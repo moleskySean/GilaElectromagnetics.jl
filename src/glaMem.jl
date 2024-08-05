@@ -1,16 +1,14 @@
 """
-GlaVol
+  GlaVol
 
-Basic spatial memory structure.
-.cel---tuple of cells in rectangular prism 
-.scl--relative side length of a cuboid voxel compared to the wavelength 
-.org---center position of the domain 
-.grd---spatial location of the center of each cell contained in the volume 
+Basic spatial memory structure for a volume.
+
+# Fields
+- `cel::NTuple{3,Integer}`: Tuple of cells in rectangular prism.
+- `scl::NTuple{3,Rational}`: Relative side length of a cuboid voxel (cell) compared to the wavelength.
+- `org::NTuple{3,Rational}`: Center position of the domain.
+- `grd::Array{<:StepRange,1}`: Spatial location of the center of each cell contained in the volume.
 """
-#=
-To simply code operation Gila internally enforces an even number of cells 
-during the memory preparation phase---see GlaOprMem in glaMemSup.jl.
-=#
 struct GlaVol
 
 	cel::NTuple{3,Integer}
@@ -20,17 +18,24 @@ struct GlaVol
 	# boundary conditions here?
 end
 #=
-GlaExtInf 
+To simply code operation Gila internally enforces an even number of cells 
+during the memory preparation phase---see GlaOprMem in glaMemSup.jl.
+=#
+
+"""
+    GlaExtInf 
 
 Information for mapping between general source and target volumes.
-.minScl---common minimum cell size
-.srcDiv---divisions in each Cartesian index of source volume 
-.trgDiv---divisions in each Cartesian index of target volume
-.trgCel---cells in a target partition  
-.srcCel---cells in a source partition
-.trgPar---identification of volume partition with grid offsets in target volume
-.srcPar---identification of volume partition with grid offsets in source volume
-=#
+
+# Fields
+- `minScl::NTuple{3,Rational}`: Common minimum cell size (in units of wavelength).
+- `trgDiv::NTuple{3,Integer}`: Divisions in each cartesian index of source volume.
+- `srcDiv::NTuple{3,Integer}`: Divisions in each cartesian index of target volume.
+- `trgCel::NTuple{3,Integer}`: Cells in a target partition.
+- `srcCel::NTuple{3,Integer}`: Cells in a source partition.
+- `trgPar::CartesianIndices`: Identification of volume partition with grid offsets in target volume.
+- `srcPar::CartesianIndices`: Identification of volume partition with grid offsets in source volume.
+"""
 struct GlaExtInf
 
 	minScl::NTuple{3,Rational}
@@ -42,15 +47,17 @@ struct GlaExtInf
 	srcPar::CartesianIndices
 end
 """
-GlaKerOpt
+  GlaKerOpt
 
 Green function operator assembly and kernel operation options.
-.frqPhz---multiplicative scaling factor allowing for complex frequencies
-.intOrd---Gauss-Legendre integration order for cells in contact
-.adjMod---flip between operator and operator adjoint
-.devMod---boolean vector representing activation of GPUs
-.numTrd---number of threads to use when running GPU kernels
-.numBlk---number of threads to use when running GPU kernels 
+
+# Fields
+- `frqPhz::Number`: Multiplicative scaling factor allowing for complex frequencies.
+- `intOrd::Integer`: Gauss-Legendre integration order for cells in contact.
+- `adjMod::Bool`: Flip between operator and operator adjoint.
+- `devMod::Union{Bool,Array{<:Bool,1}}`: Boolean vector representing activation of GPUs
+- `numTrd::Union{Tuple{},NTuple{3,Integer}}`: Number of threads to use when running GPU kernels.
+- `numBlk::Union{Tuple{},NTuple{3,Integer}}`: Number of threads to use when running GPU kernels.
 """
 struct GlaKerOpt
 
@@ -68,19 +75,20 @@ It may be prudent to create the associated GlaKerOpt with higher order.
 =#
 
 """
-GlaOprMem
+  GlaOprMem
 
-Storage structure for a Green function operator.
-.cmpInf---computation information see GlaKerOpt
-.trgVol---target volume of Green function
-.srcVol---source volume of Green function
-.mixInf---information for matching source and target grids, see GlaExtInf
-.dimInfC---dimension information for Green function volumes, host side
-.dimInfD---dimension information for Green function volumes, device side
-.egoFur---unique Fourier transform data for circulant Green function
-.fftPlnFwd---forward Fourier transform plans
-.fftPlnRev---reverse Fourier transform plans
-.phzInf---phase vector for splitting Fourier transforms
+Storage structure for a Green's function operator.
+
+# Fields
+- `cmpInf::GlaKerOpt`: Computation information, settings and kernel options, see `GlaKerOpt`.
+- `trgVol::GlaVol`: Target volume of Green function.
+- `srcVol::GlaVol`: Source volume of Green function.
+- `mixInf::GlaExtInf`: Information for matching source and target grids, see `GlaExtInf`.
+- `dimInf::NTuple{3,Integer}`: Dimension information for Green function volumes, host side.
+- `egoFur::AbstractArray{<:AbstractArray{T},1}`: Unique Fourier transform data for circulant Green function.
+- `fftPlnFwd::AbstractArray{<:AbstractFFTs.Plan,1}`: Forward Fourier transform plans.
+- `fftPlnRev::AbstractArray{<:AbstractFFTs.ScaledPlan,1}`: Reverse Fourier transform plans.
+- `phzInf::AbstractArray{<:AbstractArray{T},1}`: Phase vector for splitting Fourier transforms.
 """
 struct GlaOprMem
 	
@@ -96,26 +104,34 @@ struct GlaOprMem
 	phzInf::AbstractArray{<:AbstractArray{T},1} where 
 	T<:Union{ComplexF64,ComplexF32}
 end
+
 """
 	GlaOpr
 
 Abstraction wrapper for GlaOprMem. 
 
 # Fields
-- `mem::GlaOprMem`: Data to process the Green function.
+- `mem::GlaOprMem`: Data to process the Green function, see `GlaOprMem`.
 """
 struct GlaOpr
 
 	mem::GlaOprMem
 end
+
 #=
 Constructors
 =#
 """
-	GlaVol(cel::Array{<:Integer,1}, celScl::NTuple{3,Rational}, 
+	  GlaVol(cel::Array{<:Integer,1}, celScl::NTuple{3,Rational}, 
 	org::NTuple{3,Rational}, grdScl::NTuple{3,Rational}=celScl)::GlaVol
 
 Constructor for Gila Volumes.
+
+# Arguments
+- `cel::Array{<:Integer,1}`: Array of the number of cells in each dimension of the volume.
+- `celScl::NTuple{3,Rational}`: The size of each cell in each dimensions of the volume (in units of wavelength).
+- `org::NTuple{3,Rational}`: The origin of the volume in each dimension (in units of wavelength).
+- `grdScl::NTuple{3,Rational}=celScl`: Spatial location of the center of each cell contained in the volume.
 """
 function GlaVol(cel::Union{Array{<:Integer,1},NTuple{3,Integer}}, 
 	celScl::NTuple{3,Rational}, org::NTuple{3,Rational}, 
@@ -158,9 +174,19 @@ function glaVolEveGen(glaVol::GlaVol)::GlaVol
 		return glaVol
 	end
 end
+
 #=
 Internal constructor for external pair information, treating grid mismatch. 
 =#
+"""
+    GlaExtInf(trgVol::GlaVol, srcVol::GlaVol)::GlaExtInf
+
+Constructor for `GlaExtInf, a memory structure for translating between distinct grid layouts. Treats grid mismatch.
+
+# Arguments
+- `trgVol::GlaVol`: Target volume definition, see `GlaVol`.
+- `srcVol::GlaVol`: Source volume definition, see `GlaVol`.
+"""
 function GlaExtInf(trgVol::GlaVol, srcVol::GlaVol)::GlaExtInf
 	# test that cell scales are compatible 
 	if prod(isinteger.(srcVol.scl ./ trgVol.scl) .+ isinteger.(trgVol.scl ./ 
@@ -188,10 +214,14 @@ function GlaExtInf(trgVol::GlaVol, srcVol::GlaVol)::GlaExtInf
 	return GlaExtInf(minScl, trgDivGrd, srcDivGrd, trgDivCel, srcDivCel, 
 		trgPar, srcPar)
 end
-"""
-GlaKerOpt(devStt::Bool)
 
-Simplified GlaKerOpt constructor.
+"""
+    GlaKerOpt(devStt::Bool)
+
+Simplified GlaKerOpt constructor where default parameters are given depending on the GPU activation.
+
+# Arguments
+- `devStt::Bool`: Whether to activate the GPU (true) or CPU (false).
 """
 function GlaKerOpt(devStt::Bool)
 

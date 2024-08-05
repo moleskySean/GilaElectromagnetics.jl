@@ -71,7 +71,7 @@ end
 """
     isadjoint(opr::GlaOpr)
 
-Returns true if the operator is the adjoint of the Greens operator.
+Checks if the operator is the adjoint of the Green's operator.
 
 # Arguments
 - `opr::GlaOpr`: The operator to check.
@@ -84,26 +84,26 @@ isadjoint(opr::GlaOpr) = opr.mem.cmpInf.adjMod
 """
     isselfoperator(opr::GlaOpr)
 
-Returns true if the operator is a self Greens operator.
+Checks if the operator is a self Green's operator.
 
 # Arguments
 - `opr::GlaOpr`: The operator to check.
 
 # Returns
-- `true` if the operator is a self Greens operator, `false` otherwise.
+- `true` if the operator is a self Green's operator, `false` otherwise.
 """
 isselfoperator(opr::GlaOpr) = opr.mem.srcVol == opr.mem.trgVol
 
 """
-	isexternaloperator(opr::GlaOpr)
+	  isexternaloperator(opr::GlaOpr)
 
-Returns true if the operator is an external Greens operator.
+Checks if the operator is an external Green's operator.
 
 # Arguments
 - `opr::GlaOpr`: The operator to check.
 
 # Returns
-- `true` if the operator is an external Greens operator, `false` otherwise.
+- `true` if the operator is an external Green's operator, `false` otherwise.
 """
 isexternaloperator(opr::GlaOpr) = !isselfoperator(opr)
 
