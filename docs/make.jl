@@ -8,7 +8,7 @@ makedocs(sitename="GilaElectromagnetics.jl Documentation",
             "Concepts" => "concepts.md",
             "Usage" => "usage.md",
             "Examples" => "examples.md",
-            "Library" => "library.md",
+            "API Reference" => "library.md",
          ],
          format = Documenter.HTML(prettyurls = true),
            repo = Remotes.GitHub("emilegp", "GilaElectromagnetics.jl")
