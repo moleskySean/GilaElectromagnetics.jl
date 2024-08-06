@@ -21,7 +21,7 @@ Construct an external Green's operator.
 include("glaMemSup.jl")
 ###PROCEDURE
 """
-	egoOpr!(egoMem::GlaOprMem, 
+	  egoOpr!(egoMem::GlaOprMem, 
 	actVec::AbstractArray{T})::AbstractArray{T}
 
 Applies the electric Green function to `actVec` (polarisation current density), returning the output vector field. `actVec` is internally modified by egoOpr! to reduce needed allocation. 

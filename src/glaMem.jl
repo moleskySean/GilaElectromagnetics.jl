@@ -179,7 +179,7 @@ end
 Internal constructor for external pair information, treating grid mismatch. 
 =#
 """
-    GlaExtInf(trgVol::GlaVol, srcVol::GlaVol)::GlaExtInf
+  GlaExtInf(trgVol::GlaVol, srcVol::GlaVol)::GlaExtInf
 
 Constructor for `GlaExtInf, a memory structure for translating between distinct grid layouts. Treats grid mismatch.
 
@@ -216,7 +216,7 @@ function GlaExtInf(trgVol::GlaVol, srcVol::GlaVol)::GlaExtInf
 end
 
 """
-    GlaKerOpt(devStt::Bool)
+  GlaKerOpt(devStt::Bool)
 
 Simplified GlaKerOpt constructor where default parameters are given depending on the GPU activation.
 
