@@ -43,7 +43,7 @@ It is itself embedded in a vacuum of 256x256x128, making the total simulated dom
 
 The next one represents the total electric field in a vacuum of the same size, but
 where a plane wave hits a thin film of dielectric (thickness of 24 cells, or 3/4 of
-a wavelength) at a steep ``80.5\degree`` from the normal of the film :
+a wavelength) at a steep 80.5° from the normal of the film :
 
 ![film](examples/figures/rm_film_1.png)
 
