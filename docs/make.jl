@@ -13,10 +13,8 @@ makedocs(sitename="GilaElectromagnetics.jl Documentation",
          format = Documenter.HTML(prettyurls = true),
            repo = Remotes.GitHub("emilegp", "GilaElectromagnetics.jl")
          )
-# Documenter can also automatically deploy documentation to gh-pages.
-# See "Hosting Documentation" and deploydocs() in the Documenter manual
-# for more information.
-#deploydocs(
-#    repo = "github.com/emilegp/GilaElectromagnetics.jl.git",
-#    devbranch = "main"
-#)
+
+deploydocs(
+    repo = "github.com/moleskySean/GilaElectromagnetics.jl.git",
+    devbranch = "main"
+)
