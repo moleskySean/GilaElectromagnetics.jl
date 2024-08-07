@@ -11,7 +11,7 @@ makedocs(sitename="GilaElectromagnetics.jl Documentation",
             "API Reference" => "library.md",
          ],
          format = Documenter.HTML(prettyurls = true),
-           repo = Remotes.GitHub("emilegp", "GilaElectromagnetics.jl")
+           repo = Remotes.GitHub("moleskySean", "GilaElectromagnetics.jl")
          )
 
 deploydocs(
