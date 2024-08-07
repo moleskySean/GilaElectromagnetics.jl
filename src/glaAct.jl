@@ -21,16 +21,15 @@ Construct an external Green's operator.
 include("glaMemSup.jl")
 ###PROCEDURE
 """
-	egoOpr!(egoMem::GlaOprMem, 
-	actVec::AbstractArray{T})::AbstractArray{T} where 
-	T<:Union{ComplexF64,ComplexF32}
+	  egoOpr!(egoMem::GlaOprMem, 
+	actVec::AbstractArray{T})::AbstractArray{T}
 
-Applies the electric Green function to actVec (current), returning the output 
-field. actVec is internally modified by egoOpr! to reduce needed allocation. 
+Applies the electric Green function to `actVec` (polarisation current density), returning the output vector field. `actVec` is internally modified by egoOpr! to reduce needed allocation. 
+
+# Arguments
+- `egoMem::GlaOprMem` - The memory for Green's function operator.
+- `actVec::AbstractArray{T}` The tensor representing the polarisation current density, where the first three indices represent 3D coordinates, and the fourth the density at the given coordinate.
 """
-#=
-egoOpr! has no internal check for NaN entries---checks are done by GlaOprMem. 
-=#
 function egoOpr!(egoMem::GlaOprMem, 
 	actVec::AbstractArray{T})::AbstractArray{T} where 
 	T<:Union{ComplexF64,ComplexF32}
@@ -48,15 +47,19 @@ function egoOpr!(egoMem::GlaOprMem,
 		return actVec
 	end
 end
+#=
+egoOpr! has no internal check for NaN entries---checks are done by GlaOprMem. 
+=#
+
 # Support functions for operator action
 include("glaActSup.jl")
-"""
+#=
     egoBrnHst!(egoMem::GlaOprMem, lvl::Integer, bId::Integer, 
 	actVec::AbstractArray{T})::AbstractArray{T} where 
 	T<:Union{ComplexF64,ComplexF32}
 
 Head branching function implementing Green function action on host.
-"""
+=#
 function egoBrnHst!(egoMem::GlaOprMem, lvl::Integer, bId::Integer, 
 	actVec::AbstractArray{T})::AbstractArray{T} where 
 	T<:Union{ComplexF64,ComplexF32}
@@ -178,13 +181,13 @@ function egoBrnHst!(egoMem::GlaOprMem, lvl::Integer, bId::Integer,
 	end
 	return retVec
 end
-"""
+#=
     egoBrnDev!(egoMem::GlaOprMem, lvl::Integer, bId::Integer, 
 	actVec::AbstractArray{T})::AbstractArray{T} where 
 	T<:Union{ComplexF64,ComplexF32}
 
 Head branching function implementing Green function action on device.
-"""
+=#
 function egoBrnDev!(egoMem::GlaOprMem, lvl::Integer, bId::Integer, 
 	actVec::AbstractArray{T})::AbstractArray{T} where 
 	T<:Union{ComplexF64,ComplexF32}

@@ -5,13 +5,13 @@ Basic code to generate the (dense) matrix of a self Green function. For a
 standard desktop computer, memory issues will likely begin around a thousand 
 cells---16^3 is 4096.
 =#
-"""
+#=
 
 	function genEgoMat(celScl::{3,<:Rational}, 
 	celNum::Ntuple{3,<:Integer})::Array{ComplexF64,2}
 
 Generate dense matrix of a Green function. 
-"""
+=#
 function genEgoMat(celScl::NTuple{3,<:Rational}, 
 	celNum::NTuple{3,<:Integer})::Array{ComplexF64,2}
 	# copy tolerance---do not copy values if below threshold

@@ -4,14 +4,16 @@ using GilaElectromagnetics
 push!(LOAD_PATH,"../src/")
 makedocs(sitename="GilaElectromagnetics.jl Documentation",
          pages = [
-            "Index" => "index.md",
-            "An other page" => "docIndex.md",
+            "GilaElectromagnetics" => "index.md",
+            "Concepts" => "concepts.md",
+            "Usage" => "usage.md",
+            "Examples" => "examples.md",
+            "API Reference" => "library.md",
          ],
-         format = Documenter.HTML(prettyurls = false)
-)
-# Documenter can also automatically deploy documentation to gh-pages.
-# See "Hosting Documentation" and deploydocs() in the Documenter manual
-# for more information.
+         format = Documenter.HTML(prettyurls = true),
+           repo = Remotes.GitHub("moleskySean", "GilaElectromagnetics.jl")
+         )
+
 deploydocs(
     repo = "github.com/moleskySean/GilaElectromagnetics.jl.git",
     devbranch = "main"

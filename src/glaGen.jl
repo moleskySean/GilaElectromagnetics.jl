@@ -6,14 +6,14 @@ const cubAbsTol = 1e-9;
 # const cubAbsTol = 1e-3;
 # tolerance for cell contact
 const cntTol = 1e-8;
-"""
+#=
     genEgoExt!(egoCrcExt::AbstractArray{T,5}, trgVol::GlaVol, 
 	srcVol::GlaVol, cmpInf::GlaKerOpt)::Nothing where 
 	T<:Union{ComplexF64,ComplexF32}
 	
 Calculate circulant vector for the Green function between a target volume, 
 trgVol, and source volume, srcVol.
-"""
+=#
 function genEgoExt!(egoCrcExt::AbstractArray{T,5}, trgVol::GlaVol, 
 	srcVol::GlaVol, cmpInf::GlaKerOpt)::Nothing where 
 	T<:Union{ComplexF64,ComplexF32}
@@ -28,13 +28,13 @@ function genEgoExt!(egoCrcExt::AbstractArray{T,5}, trgVol::GlaVol,
 		srcFac, facLst, cmpInf)
 	return nothing
 end
-"""
+#=
 	
 	genEgoSlf!(egoCrc::Array{ComplexF64}, slfVol::GlaVol, 
 	cmpInf::GlaKerOpt)::Nothing
 
 Calculate circulant vector of the Green function on a single domain.
-"""
+=#
 function genEgoSlf!(egoCrcSlf::AbstractArray{T,5}, slfVol::GlaVol, 
 	cmpInf::GlaKerOpt)::Nothing where T<:Union{ComplexF64,ComplexF32}
 

@@ -1,12 +1,17 @@
 """
-
-	function GlaOprMem(cmpInf::GlaKerOpt, trgVol::GlaVol,
+	  GlaOprMem(cmpInf::GlaKerOpt, trgVol::GlaVol,
 	srcVol::Union{GlaVol,Nothing}=nothing, 
 	egoFur::Union{AbstractArray{<:AbstractArray{T}},
-	Nothing}=nothing)::GlaOprMem where T<:Union{ComplexF64,ComplexF32}
+	Nothing}=nothing)::GlaOprMem
 
-Prepare memory for green function operator---when called with a single GlaVol, 
+Prepare memory for Green's function operator. When called with a single GlaVol, 
 or identical source and target volumes, yields the self construction. 
+
+# Arguments
+- `cmpInf::GlaKerOpt`: Computation information, settings and kernel options, see `GlaKerOpt`.
+- `trgVol::GlaVol`: Target volume or self volume definition.
+- `srcVol::Union{GlaVol,Nothing}=nothing`: Source volume for external construction.
+- `egoFur::Union{AbstractArray{<:AbstractArray{T}},Nothing}=nothing)`: Unique Fourier transform data for Green's function.
 """
 function GlaOprMem(cmpInf::GlaKerOpt, trgVol::GlaVol,
 	srcVol::Union{GlaVol,Nothing}=nothing; 
@@ -284,23 +289,20 @@ Block index for a given Cartesian index.
 		return 0
 	end
 end
+
 """
-	
-	GlaOpr(cel::NTuple{3, Int}, scl::NTuple{3, Rational}, 
+    GlaOpr(cel::NTuple{3, Int}, scl::NTuple{3, Rational}, 
 	org::NTuple{3, Rational}=(0//1, 0//1, 0//1); 
-	useGpu::Bool=false, setTyp::DataType=ComplexF64)
+	useGpu::Bool=false, setTyp::DataType=ComplexF64)::GlaOpr
 
 Construct a self Green operator.
 
 # Arguments
 - `cel::NTuple{3, Int}`: The number of cells in each dimension.
-- `scl::NTuple{3, Rational}`: The size of each cell in each dimension 
-(in units of wavelength).
-- `org::NTuple{3, Rational}=(0//1, 0//1, 0//1)`: The origin of the volume in 
-each dimension (in units of wavelength).
+- `scl::NTuple{3, Rational}`: The size of each cell in each dimension (in units of wavelength).
+- `org::NTuple{3, Rational}=(0//1, 0//1, 0//1)`: The origin of the volume in each dimension (in units of wavelength).
 - `useGpu::Bool=false`: Whether to use the GPU (true) or CPU (false).
-- `setTyp::DataType=ComplexF64`: The element type of the operator. Must be a
-subtype of `Complex`.
+- `setTyp::DataType=ComplexF64`: The element type of the operator. Must be a subtype of `Complex`.
 """
 function GlaOpr(cel::NTuple{3, Int}, scl::NTuple{3, Rational}, 
 	org::NTuple{3, Rational}=(0//1, 0//1, 0//1); useGpu::Bool=false, 
@@ -313,30 +315,24 @@ function GlaOpr(cel::NTuple{3, Int}, scl::NTuple{3, Rational},
 	slfMem = GlaOprMem(options, slfVol, setTyp=setTyp)
 	return GlaOpr(slfMem)
 end
+
 """
     GlaOpr(celSrc::NTuple{3, Int}, sclSrc::NTuple{3, Rational}, 
 	orgSrc::NTuple{3, Rational}, celTrg::NTuple{3, Int}, 
 	sclTrg::NTuple{3, Rational}, orgTrg::NTuple{3, Rational}; 
-	useGpu::Bool=false, setTyp::DataType=ComplexF64)
+	useGpu::Bool=false, setTyp::DataType=ComplexF64)::GlaOpr
 
 Construct an external Green's operator.
 
 # Arguments
-- `celSrc::NTuple{3, Int}`: The number of cells in each dimension of the source
-volume.
-- `sclSrc::NTuple{3, Rational}`: The size of each cell in each dimension of the
-source volume (in units of wavelength).
-- `orgSrc::NTuple{3, Rational}`: The origin of the source volume in each
-dimension (in units of wavelength).
-- `celTrg::NTuple{3, Int}`: The number of cells in each dimension of the target
-volume.
-- `sclTrg::NTuple{3, Rational}`: The size of each cell in each dimension of the
-target volume (in units of wavelength).
-- `orgTrg::NTuple{3, Rational}`: The origin of the target volume in each
-dimension (in units of wavelength).
+- `celSrc::NTuple{3, Int}`: The number of cells in each dimension of the source volume.
+- `sclSrc::NTuple{3, Rational}`: The size of each cell in each dimension of the source volume (in units of wavelength).
+- `orgSrc::NTuple{3, Rational}`: The origin of the source volume in each dimension (in units of wavelength).
+- `celTrg::NTuple{3, Int}`: The number of cells in each dimension of the target volume.
+- `sclTrg::NTuple{3, Rational}`: The size of each cell in each dimension of the target volume (in units of wavelength).
+- `orgTrg::NTuple{3, Rational}`: The origin of the target volume in each dimension (in units of wavelength).
 - `useGpu::Bool=false`: Whether to use the GPU (true) or CPU (false).
-- `setTyp::DataType=ComplexF64`: The element type of the operator. Must be a
-subtype of `Complex`.
+- `setTyp::DataType=ComplexF64`: The element type of the operator. Must be a subtype of `Complex`.
 """
 function GlaOpr(celSrc::NTuple{3, Int}, sclSrc::NTuple{3, Rational}, 
 	orgSrc::NTuple{3, Rational}, celTrg::NTuple{3, Int}, 
@@ -355,26 +351,21 @@ end
 """
     glaSze(opr::GlaOpr)
 
-Returns the size of the input/output arrays for a GlaOpr in tensor form.
+Returns the size of the input/output arrays for a `GlaOpr` in tensor form.
 
 # Arguments
 - `op::GlaOpr`: The operator to check.
-
-# Returns
-- A tuple of the sizes of the input and output arrays in tensor form.
 """
 glaSze(opr::GlaOpr) = ((opr.mem.trgVol.cel..., 3), (opr.mem.srcVol.cel..., 3))
+
 """
 	glaSze(op::GlaOpr, dim::Int)
 
-Returns the size of the input/output arrays for a GlaOpr in tensor form.
+Returns the size of the input/output arrays for a `GlaOpr` in tensor form in a specified dimension.
 
 # Arguments
 - `op::GlaOpr`: The operator to check.
-- `dim::Int`: The length of the dimension to check.
-
-# Returns
-- The size of the input/output arrays for a GlaOpr in tensor form.
+- `dim::Int`: The index of the dimension to check.
 """
 glaSze(opr::GlaOpr, dim::Int) = ((opr.mem.trgVol.cel..., 3), 
 	(opr.mem.srcVol.cel..., 3))[dim]
