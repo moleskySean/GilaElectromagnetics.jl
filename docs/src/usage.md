@@ -319,8 +319,8 @@ defined.
 !!! danger "Materials treated by Gila"
     GilaElectromagnetics can only treat non-magnetic materials, as they are the
     most common in the field of nano-optics. This is why the medium only defines the
-    electric susceptibility. For now, only values of susceptibility with ``\Re(\chi_e)
-    > 0`` converge for the iterative methods used in the following sections.
+    electric susceptibility. For now, only values of susceptibility with ``\Re(\chi_e) > 0`` 
+    converge for the iterative methods used in the following sections.
     However, there is current development on a preconditioner which will allow
     negative real parts of the electric susceptibility to be used without convergence
     problems. This will make simulations of metals possible, and simplify the

@@ -4,7 +4,9 @@ The following section serves as a showcase of possible applications of
 GilaElectromagnetics. Every one after the [basic example](./examples.md#basic) assumes that the operators presented in
 the [usage](usage.md) section were defined beforehand. Only the most important
 parts of the source code that made the shown figures are presented here,
-otherwise this section would be unnecessarily long.
+otherwise this section would be unnecessarily long. However, complete scripts are
+available in the `examples/` folder of the package repository. They cover everything
+in this showcase, including the code to produce the figures.
 
 ## Basic Example
 
@@ -23,7 +25,7 @@ const T = ComplexF32 # Set to ComplexF64 for double precision
 
 G = GlaOpr(num_cells, cell_size; useGpu=has_gpu, setTyp=T)
 source_vec = rand(eltype(G), size(G, 2))
-field_vec = G * source vec # Apply the Greens operator to the source vector
+field_vec = G * source_vec # Apply the Greens operator to the source vector
 ```
 
 ## [Dipole in a cube](@id dipole)
@@ -167,7 +169,7 @@ field.
 
 ### Visualization
 
-The visualization source code for the figures on this page will be available,
+As specified, the visualization source code for the figures is available,
 but is not as relevant as the solving steps in the context of the
 GilaElectromagnetics package. Quick tips will be provided to guide towards a
 clear representation of the physics, but the presentation of the results will be
