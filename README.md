@@ -35,12 +35,15 @@ package manager, installing GilaElectromagnetics can be done as follows:
 The following figures demonstrate the capabilities of GilaElectromagnetics to
 solve the scattering problem very efficiently. The first one shows the resulting
 total electric field in a plane of a 3D system. An electric dipole is located 
-in a wave guide measuring 8 wavelengths in length, itself embedded in a vacuum of
-size 8x8x4 wavelengths:
+in a wave guide measuring 256x34x34 cells, each with a size of 1/32 of a wavelength. 
+It is itself embedded in a vacuum of 256x256x128, making the total simulated domain
+8x8x4 wavelengths:
 
 ![guide](examples/figures/rm_guide_1.png)
 
-The next one represents the total electric field in a vacuum of the same size, but where a plane wave hits a thin film of dielectric (thickness of 3/4 of a wavelength) at a steep angle :
+The next one represents the total electric field in a vacuum of the same size, but
+where a plane wave hits a thin film of dielectric (thickness of 24 cells, or 3/4 of
+a wavelength) at a steep ``80.5\degree`` from the normal of the film :
 
 ![film](examples/figures/rm_film_1.png)
 

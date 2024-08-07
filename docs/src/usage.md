@@ -26,7 +26,7 @@ The vacuum Green's function for a given volume is obtained using a
 [`GlaOpr`](library.md#GilaElectromagnetics.GlaOpr) constructor. There are two
 cases to consider. The first one is the simplest, where the source volume is
 the same as the target volume. The resulting operator is called the *self
-Green's operator*. The following example shows how to build it:
+Green's operator*. The following example shows how to build one:
 
 ```julia
 # Volume definition
@@ -77,7 +77,7 @@ by it.
 
 ## [Scattering problem](@id scattering)
 
-Gila is designed primarily to tackle is the *scattering problem*, which asks to
+Gila is designed primarily to tackle the *scattering problem*, which asks to
 find the total field ``\textbf{f}_t`` produced, given an incident field
 ``\textbf{f}_i`` and a dielectric profile. This allows us to solve Maxwell's
 equations in matter.
@@ -116,7 +116,7 @@ where:
 \textbf{P} = \epsilon_0 \chi_e \textbf{E}
 ```
 ```math
-\textbf{M} = \chi_m \textbf{M}
+\textbf{M} = \chi_m \textbf{H}
 ```
 
 with ``\textbf{P}``, the polarization density, and ``\textbf{M}``, the
@@ -324,7 +324,7 @@ defined.
     However, there is current development on a preconditioner which will allow
     negative real parts of the electric susceptibility to be used without convergence
     problems. This will make simulations of metals possible, and simplify the
-    treatement of empty space.
+    [treatement of empty space](examples.md#empty).
 
 It can also be useful to have a constructor of `LippmannSchwinger` that directly
 takes the definition of the cells, the scale, the medium and other parameters:

@@ -42,7 +42,7 @@ using IterativeSolvers
 using LinearAlgebra
 using LinearAlgebra.BLAS
 using Random
-using ..GilaOperators
+using ..GilaOperators # if the operators are in an included GilaOperators.jl file
 using CUDA
 
 # Plotting
@@ -121,7 +121,7 @@ p_i[pos_x, pos_y, pos_z, :] = [dip_x, dip_y, dip_z]
 p_t = solve(ls, p_i)
 ```
 
-### Embedding in empty space
+### [Embedding in empty space](@id empty)
 
 We now have `p_t`, which is only present in the dielectric cube. A trick to
 solve for the fields is to embed this array in a bigger one filled with zeros,
