@@ -17,7 +17,7 @@ function genEgoMat(celScl::NTuple{3,<:Rational},
 	# copy tolerance---do not copy values if below threshold
 	cpyTol = 1.0e-15
 	# boiler plate compute information, alter to tighten tolerances 
-	cmpInf = GlaKerOpt(false)
+	cmpInf = CPUKerOpt()
 	# create self volume at the origin
 	volOrg = (0//1, 0//1, 0//1)
 	slfVol = GlaVol(celNum, celScl, volOrg)

@@ -7,5 +7,5 @@ const T = ComplexF32 # Set to ComplexF64 for double precision
 
 G = GlaOpr(num_cells, cell_size; useGpu=has_gpu, setTyp=T)
 source_vec = rand(eltype(G), size(G, 2))
-field_vec = G * source_vec # Apply the Greens operator to the source vector
+field_vec = G * source_vec # Apply the Green operator to the source vector
 println("It works!")

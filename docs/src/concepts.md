@@ -133,7 +133,7 @@ This elegantly presents the Maxwell equations in a way that can be approached by
 Gila, knowing that the other two Maxwell equations that were not used in the
 development are satisfied. See [scattering](./usage.md#scattering).
 
-The Green's function ``\textbf{G}_0`` of the vacuum Maxwell operator is defined
+The Green function ``\textbf{G}_0`` of the vacuum Maxwell operator is defined
 as the inverse of ``\textbf{M}_0``:
 
 ```math
@@ -141,8 +141,8 @@ as the inverse of ``\textbf{M}_0``:
 ```
 
 !!! danger "What GilaElectromagnetics does"
-    The purpose of GilaElectromagnetics is to compute the action of this Green's
+    The purpose of GilaElectromagnetics is to compute the action of this Green
     function on a vector in vacuum.
 
-Solving for the Green's function in matter can be done indirectly with Gila. See
+Solving for the Green function in matter can be done indirectly with Gila. See
 the next section, [usage](usage.md), for more information.

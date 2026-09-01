@@ -1,6 +1,6 @@
 # GilaElectromagnetics.jl
 
-*Greens in linear algebra*
+*Green in linear algebra*
 
 [![Build status (Github Actions)](https://github.com/moleskySean/GilaElectromagnetics.jl/workflows/CI/badge.svg)](https://github.com/moleskySean/GilaElectromagnetics.jl/actions)
 [![codecov.io](http://codecov.io/github/moleskySean/GilaElectromagnetics.jl/coverage.svg?branch=main)](http://codecov.io/github/moleskySean/GilaElectromagnetics.jl?branch=main)

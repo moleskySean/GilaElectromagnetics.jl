@@ -16,7 +16,7 @@ GilaElectromagnetics, or Gila for short, enables fast and precise sub-wavelength
 electromagnetic simulations. Below are some features Gila provides:
 
 - Solving Maxwell's equations numerically in vacuum and in matter.
-- Application of the Green's function of the vacuum Maxwell vacuum operator.
+- Application of the Green function of the vacuum Maxwell vacuum operator.
 - Solving the scattering problem in non-magnetic materials.
 - GPU accelerated computations with [CUDA.jl](https://github.com/JuliaGPU/CUDA.jl).
 

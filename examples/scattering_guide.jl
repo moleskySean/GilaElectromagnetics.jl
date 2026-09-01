@@ -109,10 +109,10 @@ p_t_vac = zeros(ComplexF32, num_cellsx, num_cellsy_vac, num_cellsz_vac, 3)
 p_t_vac[:, position_guide_y:end_guide_y, position_guide_z:end_guide_z, :] .= p_t
 
 
-println("Loading Green's Operator, empty space included")
-G_0_vac = load_greens_operator(tuple(cells_vac...), scale; set_type=ComplexF32)
+println("Loading Green Operator, empty space included")
+G_0_vac = load_green_operator(tuple(cells_vac...), scale; set_type=ComplexF32)
 
-println("Loading done.\nMaking field from Green's operator EMPTY SPACE INCLUDED.")
+println("Loading done.\nMaking field from Green operator EMPTY SPACE INCLUDED.")
 @time e_t_vac = G_0_vac * p_t_vac
 
 #######################################################################

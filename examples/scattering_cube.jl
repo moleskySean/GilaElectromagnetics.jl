@@ -83,10 +83,10 @@ pos_cube_end = Int((num_cells_side_vac / 2) + (num_cells_side / 2) - 1)
 
 p_t_vac[pos_cube_begin:pos_cube_end, pos_cube_begin:pos_cube_end, pos_cube_begin:pos_cube_end, :] .= p_t
 
-println("Loading Green's Operator, empty space included")
-G_0_vac = load_greens_operator(tuple(cells_vac...), scale; set_type=ComplexF32)
+println("Loading Green Operator, empty space included")
+G_0_vac = load_green_operator(tuple(cells_vac...), scale; set_type=ComplexF32)
 
-println("Loading done.\nMaking field from Green's operator EMPTY SPACE INCLUDED.")
+println("Loading done.\nMaking field from Green operator EMPTY SPACE INCLUDED.")
 @time e_t_vac = G_0_vac * p_t_vac
 
 #######################################################################

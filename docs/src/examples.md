@@ -10,8 +10,8 @@ in this showcase, including the code to produce the figures.
 
 ## Basic Example
 
-The following creates a self Green's function that acts on a vector of random
-sources. The Green's function acts in a domain that is 8x8x8 cells, each with a
+The following creates a self Green function that acts on a vector of random
+sources. The Green function acts in a domain that is 8x8x8 cells, each with a
 size that is 1/32 of a wavelength. The domain is thus 1/4 of a wavelength in
 each direction.
 
@@ -25,7 +25,7 @@ const T = ComplexF32 # Set to ComplexF64 for double precision
 
 G = GlaOpr(num_cells, cell_size; useGpu=has_gpu, setTyp=T)
 source_vec = rand(eltype(G), size(G, 2))
-field_vec = G * source_vec # Apply the Greens operator to the source vector
+field_vec = G * source_vec # Apply the Green operator to the source vector
 ```
 
 ## [Dipole in a cube](@id dipole)
@@ -144,11 +144,11 @@ p_t_vac[pos_cube_begin:pos_cube_end, pos_cube_begin:pos_cube_end, pos_cube_begin
 ```
 
 With the sources embedded in empty space, nothing prevents the generation of a
-Green's operator. Thus, the field can be obtained like this:
+Green operator. Thus, the field can be obtained like this:
 
 ```julia
-# memory for Green's function
-G_0_vac = load_greens_operator(tuple(cells_vac...), scale; set_type=ComplexF32)
+# memory for Green function
+G_0_vac = load_green_operator(tuple(cells_vac...), scale; set_type=ComplexF32)
 
 # obtaining the electric field
 e_t_vac = G_0_vac * p_t_vac
@@ -347,7 +347,7 @@ p_t_vac = zeros(ComplexF32, num_cellsx, num_cellsy_vac, num_cellsz_vac, 3)
 
 p_t_vac[:, position_guide_y:end_guide_y, position_guide_z:end_guide_z, :] .= p_t
 
-G_0_vac = load_greens_operator(tuple(cells_vac...), scale; set_type=ComplexF32)
+G_0_vac = load_green_operator(tuple(cells_vac...), scale; set_type=ComplexF32)
 
 e_t_vac = G_0_vac * p_t_vac
 ```
@@ -505,7 +505,7 @@ p_i = zeros(eltype(ls), num_cellsx, num_cellsy, num_cellsz, 3)
 end
 ```
 
-This allows to solve for the total field with the solver and Green's operator:
+This allows to solve for the total field with the solver and Green operator:
 
 ```julia
 # solving
@@ -518,7 +518,7 @@ p_t_vac = zeros(ComplexF32, num_cellsx, num_cellsy, num_cellsz_vac, 3)
 p_t_vac[:, :, position_film:end_film, :] .= p_t
 
 # obtaining fields
-G_0_vac = load_greens_operator(tuple(cells_vac...), scale; set_type=ComplexF32)
+G_0_vac = load_green_operator(tuple(cells_vac...), scale; set_type=ComplexF32)
 e_t_vac = G_0_vac * p_t_vac
 ```
 
@@ -578,7 +578,7 @@ their `use_gpu` parameter set to true:
 ```julia
 ls = LippmannSchwinger(cells, scale, χ; set_type=ComplexF32, use_gpu=true)
 
-G_0_void = load_greens_operator(tuple(cells_void...), scale; set_type=ComplexF32, use_gpu=true)
+G_0_void = load_green_operator(tuple(cells_void...), scale; set_type=ComplexF32, use_gpu=true)
 ```
 
 In addition, the initial polarization current density needs to be converted to a
@@ -591,5 +591,5 @@ p_t = Array(solve(ls, CuArray(p_i)))
 This would result in the total electric field variable `e_t_vac` to be of type
 `CuArray` also. In order to do further data analysis with it, it could be
 necessary to convert it back to a regular array by simply using
-`Array(e_t_vac)`. Right now, using CUDA to load Green's operators is working and
+`Array(e_t_vac)`. Right now, using CUDA to load Green operators is working and
 a good way to save compute time.

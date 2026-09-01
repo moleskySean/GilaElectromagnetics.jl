@@ -128,10 +128,10 @@ end_film = position_film + num_cellsz - 1
 p_t_vac = zeros(ComplexF32, num_cellsx, num_cellsy, num_cellsz_vac, 3)
 p_t_vac[:, :, position_film:end_film, :] .= p_t
 
-println("Loading Green's Operator, empty space included")
-G_0_vac = load_greens_operator(tuple(cells_vac...), scale; set_type=ComplexF32)
+println("Loading Green Operator, empty space included")
+G_0_vac = load_green_operator(tuple(cells_vac...), scale; set_type=ComplexF32)
 
-println("Loading done.\nMaking field from Green's operator EMPTY SPACE INCLUDED.")
+println("Loading done.\nMaking field from Green operator EMPTY SPACE INCLUDED.")
 @time e_t_vac = G_0_vac * p_t_vac
 
 #######################################################################

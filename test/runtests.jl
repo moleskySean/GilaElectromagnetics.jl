@@ -1,123 +1,25 @@
-###UTILITY LOADING
-using CUDA, AbstractFFTs, FFTW, Base.Threads, LinearAlgebra, LinearAlgebra.BLAS, 
-Random, GilaElectromagnetics, Test, Serialization, Scratch
-include("preamble.jl")
-###SETTINGS
-# type for tests
-useTyp = ComplexF32
-# number of cells in each volume 
-# to run external operator test, celU should be the union of celA and celB
-celB = (16, 16, 16)
-celA = (16, 16, 16)
-celU = (16, 32, 16)
-# size of cells relative to wavelength
-# to run external operator test, the scales of the three volumes should match
-sclB = (1//50, 1//50, 1//50)
-sclA = (1//50, 1//50, 1//50)
-sclU = (1//50, 1//50, 1//50)
-# center position of volumes
-# to run external operator test, volA should touch (but not overlap!) volB
-orgB = (0//1, 16//50, 0//1)
-orgA = (0//1, 0//1, 0//1)
-orgU = (0//1, 0//1, 0//1)
-## compute settings
-# use for host execution
-cmpInfHst = GlaKerOpt(false)
-# use for device execution
-if CUDA.functional()
-	cmpInfDev = GlaKerOpt(true)
-end
-###PREP 
-# build Gila volumes
-volB = GlaVol(celB, sclB, orgB)
-volA = GlaVol(celA, sclA, orgA)
-volU = GlaVol(celU, sclU, orgU)
-###OPERATOR MEMORY
-println("Green function construction started.")
+using Test, Random, GilaElectromagnetics, LinearAlgebra
+using LinearMaps, LinearOperators, SciMLOperators, Serialization, CUDA
+import GilaElectromagnetics.GilaVolumes: uniVol
 
-function getFur(fname)
-	preload_dir = @get_scratch!("preload")
-	if isfile(joinpath(preload_dir, fname))
-		return deserialize(joinpath(preload_dir, fname))
-	end
-	return nothing
-end
+Random.seed!(0x67696c61)
+include("tstHlp.jl")
 
-function writeFur(fur, fname)
-	preload_dir = @get_scratch!("preload")
-	serialize(joinpath(preload_dir, fname), fur)
+@testset "GilaElectromagnetics" begin
+    include("volTest.jl")
+    include("cmpVolTest.jl")
+    include("fldTest.jl")
+    include("cmpOprTest.jl")
+    include("cmpSctTest.jl")
+    include("vacTest.jl")
+    include("slvTest.jl")
+    include("oprTest.jl")
+    include("serTest.jl")
+    include("linAlgTest.jl")
+    include("mulTest.jl")
+    include("extOpsTest.jl")
+    include("crsSclTest.jl")
+    include("cntTest.jl")
+    include("prxTest.jl")
+    include("physTest.jl")
 end
-
-# generate from scratch---new circulant matrices
-furSlfHst = getFur("slfHst.fur")
-if isnothing(furSlfHst)
-	oprSlfHst = GlaOprMem(cmpInfHst, volA, setTyp = useTyp)
-	writeFur(oprSlfHst.egoFur, "slfHst.fur")
-	furSlfHst = oprSlfHst.egoFur
-else
-	oprSlfHst = GlaOprMem(cmpInfHst, volA, egoFur = furSlfHst, setTyp = useTyp)
-end
-furExtHst = getFur("extHst.fur")
-if isnothing(furExtHst)
-	oprExtHst = GlaOprMem(cmpInfHst, volB, volA, setTyp = useTyp)
-	furExtHst = oprExtHst.egoFur
-	writeFur(furExtHst, "extHst.fur")
-else
-	oprExtHst = GlaOprMem(cmpInfHst, volB, volA, egoFur = furExtHst, 
-		setTyp = useTyp)
-end
-# merged domains to check validity of external operator construction
-furMrgHst = getFur("mrgHst.fur")
-if isnothing(furMrgHst)
-	oprMrgHst = GlaOprMem(cmpInfHst, volU, setTyp = useTyp)
-	writeFur(oprMrgHst.egoFur, "mrgHst.fur")
-	furMrgHst = oprMrgHst.egoFur
-else
-	oprMrgHst = GlaOprMem(cmpInfHst, volU, egoFur = furMrgHst, setTyp = useTyp)
-end
-# run same test on device
-if CUDA.functional()
-	furExtDev = getFur("extDev.fur")
-	if isnothing(furExtDev)
-		oprExtDev = GlaOprMem(cmpInfDev, volB, volA, setTyp = useTyp)
-		writeFur(oprExtDev.egoFur, "extDev.fur")
-		furExtDev = oprExtDev.egoFur
-	else
-		oprExtDev = GlaOprMem(cmpInfDev, volB, volA, egoFur = furExtDev, 
-			setTyp = useTyp)
-	end
-	furMrgDev = getFur("mrgDev.fur")
-	if isnothing(furMrgDev)
-		oprMrgDev = GlaOprMem(cmpInfDev, volU, setTyp = useTyp)
-		writeFur(oprMrgDev.egoFur, "mrgDev.fur")
-		furMrgDev = oprMrgDev.egoFur
-	else
-		oprMrgDev = GlaOprMem(cmpInfDev, volU, egoFur = furMrgDev, 
-			setTyp = useTyp)
-	end
-end
-# serialize / deserialize to reuse Fourier information
-println("Green function construction completed.")
-###TESTS
-## integral convergence 
-# println("Integral convergence test started.")
-# include("intConTest.jl")
-# println("Integral convergence test completed.")
-# ## analytic agreement test on self operator
-# println("Analytic test started.")
-# include("anaTest.jl")
-# println("Analytic test completed.")
-# ## positive semi-definite test on self operator
-# # test becomes very slow for domains larger than [16,16,16]
-# println("Semi-definiteness test started.")
-# include("posDefTest.jl")
-# println("Semi-definiteness test completed.")
-## test external Green function using self Green function
-println("External operator test started.")
-include("extSlfTest.jl")
-println("External operator test completed.")
-#test the GreensOperator structs
-println("GlaOpr test started.")
-include("oprTest.jl")
-println("GlaOpr test completed.")
-println("Testing complete.")

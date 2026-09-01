@@ -2,10 +2,10 @@
 
 The following presents typical uses of GilaElectromagnetics.
 
-## Vacuum Green's function
+## Vacuum Green function
 
 Gila solves Maxwell's equations in a vacuum by employing finite element methods
-on a given volume. What Gila computes is the action of the vacuum Green's
+on a given volume. What Gila computes is the action of the vacuum Green
 function ``\textbf{G}_0`` on a vector. The operator ``\textbf{G}_0`` is
 represented in memory by the structure
 [`GlaOprMem`](library.md#GilaElectromagnetics.GlaOprMem). A simpler object to
@@ -22,11 +22,11 @@ wavelength.
 
 ### Self and external operators
 
-The vacuum Green's function for a given volume is obtained using a
+The vacuum Green function for a given volume is obtained using a
 [`GlaOpr`](library.md#GilaElectromagnetics.GlaOpr) constructor. There are two
 cases to consider. The first one is the simplest, where the source volume is
 the same as the target volume. The resulting operator is called the *self
-Green's operator*. The following example shows how to build one:
+Green operator*. The following example shows how to build one:
 
 ```julia
 # Volume definition
@@ -34,7 +34,7 @@ cells = (8, 8, 8) # Defines a volume with 8 cells in each direction
 scale = (1//32, 1//32, 1//32) # Each cell is 1/32 of a wavelength in each direction
 origin = (0//1, 0//1, 0//1) # OPTIONAL: The volume is located at the origin
 
-# Self Greens operator
+# Self Green operator
 G_0 = GlaOpr(cells, scale, origin)
 ```
 
@@ -49,7 +49,7 @@ precision). The syntax to use these parameters is shown here:
 G_0 = GlaOpr(cells, scale, origin; useGpu=true, setTyp=ComplexF64)
 ```
 
-The second case to consider is where there are two separate volumes, or when the defined volume (source) is different from the one where a solution is desired (target). This can be useful if a medium and current sources are defined in a region, but the space to be simulated is either partially or fully contained by the source volume, or if both are completely separated. The Green's function is then called the *external Green's operator*, and it can be constructed just like the self operator, only with two volumes required :
+The second case to consider is where there are two separate volumes, or when the defined volume (source) is different from the one where a solution is desired (target). This can be useful if a medium and current sources are defined in a region, but the space to be simulated is either partially or fully contained by the source volume, or if both are completely separated. The Green function is then called the *external Green operator*, and it can be constructed just like the self operator, only with two volumes required :
 
 ```julia
 # Source volume definition
@@ -62,7 +62,7 @@ trg_cells = (trg_nx, trg_ny, trg_nz) # tuple of Integers
 trg_scale = (trg_sclx, trg_scly, trg_sclz) # tuple of Rationals
 trg_origin = (trg_orgx, trg_orgy, trg_orgz) # tuple of Rationals, REQUIRED
 
-# External Green's operator
+# External Green operator
 G_0 = GlaOpr(src_cells, src_scale, src_origin, trg_cells, trg_scale, trg_origin)
 ```
 The same optionnal parameters for CUDA and the complex type could be given.
@@ -143,7 +143,7 @@ Combining with the previous equation:
 \textbf{M}_0 \textbf{f}_s = \textbf{X}\textbf{f}_t
 ```
 
-With the vacuum Green's function being the inverse of ``\textbf{M}_0``:
+With the vacuum Green function being the inverse of ``\textbf{M}_0``:
 
 ```math
 \textbf{f}_s = \textbf{G}_0 \textbf{X}\textbf{f}_t
@@ -188,9 +188,9 @@ Gila effectively allows the Maxwell's equations to be solved in matter.
     
     It is important to to keep in mind is that these matrices become enormous
     very quickly as the dimensions of a volume increases. Gila's trick is to
-    actually *not compute* the Green's function, but to only compute it's
+    actually *not compute* the Green function, but to only compute it's
     application on a vector ``\textbf{v}``. The same would go for
-    ``\textbf{W}``, since it's composed of the Green's operator. Thus, Gila
+    ``\textbf{W}``, since it's composed of the Green operator. Thus, Gila
     outputs ``\textbf{G}_0 \textbf{v}``, ``\textbf{W}\textbf{p}_i`` (provided
     Lippmann-Schwinger is implemented) or anything similar.
 
@@ -241,7 +241,7 @@ The following function implements the
 obtaining it faster if it was serialized before:
 
 ```julia
-function load_greens_operator(cells::NTuple{3, Int}, scale::NTuple{3, Rational{Int}};
+function load_green_operator(cells::NTuple{3, Int}, scale::NTuple{3, Rational{Int}};
                               set_type=ComplexF64, use_gpu::Bool=false)
 
     # Define the name of the FFT file
@@ -280,32 +280,32 @@ it with some error checking and preparation for the use of CUDA if required:
 
 ```julia
 struct LippmannSchwinger
-	greens_op::GlaOpr
+	green_op::GlaOpr
 	medium::AbstractArray{<:Complex, 4}
 
     # Simple constructor
-	function LippmannSchwinger(greens_op::GlaOpr, medium::AbstractArray{<:Complex})
+	function LippmannSchwinger(green_op::GlaOpr, medium::AbstractArray{<:Complex})
 
         # Verify if the dimensions and type of GlaOpr and the medium match.
-		if glaSze(greens_op, 1)[1:3] != size(medium)
-			println(glaSze(greens_op, 1)[1:3])
+		if glaSze(green_op, 1)[1:3] != size(medium)
+			println(glaSze(green_op, 1)[1:3])
 			println("!=")
 			println(size(medium))
-			throw(DimensionMismatch("Green's operator and medium must have the same size."))
+			throw(DimensionMismatch("Green operator and medium must have the same size."))
 		end
-		if eltype(greens_op) != eltype(medium)
-			throw(ArgumentError("Medium must have the same element type as the Green's operator."))
+		if eltype(green_op) != eltype(medium)
+			throw(ArgumentError("Medium must have the same element type as the Green operator."))
 		end
 
         # Reshape to match the mathematical definitions of the medium
-		medium = reshape(medium, glaSze(greens_op, 1)[1:3]..., 1)
+		medium = reshape(medium, glaSze(green_op, 1)[1:3]..., 1)
 
         # Make the medium array compatible with CUDA if it's set up
-		if greens_op.mem.cmpInf.devMod
+		if green_op.mem.cmpInf.devMod
 			medium = CuArray(medium)
 		end
 
-		new(greens_op, medium)
+		new(green_op, medium)
 	end
 end
 ```
@@ -334,8 +334,8 @@ function LippmannSchwinger(cells::NTuple{3, Int}, scale::NTuple{3, Rational{Int}
                            medium::AbstractArray{<:Complex};
                            set_type=ComplexF64, use_gpu::Bool=false)
 
-	greens_op = load_greens_operator(cells, scale; set_type=set_type, use_gpu=use_gpu)
-	return LippmannSchwinger(greens_op, medium)
+	green_op = load_green_operator(cells, scale; set_type=set_type, use_gpu=use_gpu)
+	return LippmannSchwinger(green_op, medium)
 end
 ```
 
@@ -344,24 +344,24 @@ mathematical and typical Julia functions ought to be defined:
 
 ```julia
 # Informations on Lippmann-Schwinger
-Base.size(op::LippmannSchwinger) = size(op.greens_op)
-Base.size(op::LippmannSchwinger, dim::Int) = size(op.greens_op, dim)
-glaSze(op::LippmannSchwinger) = glaSze(op.greens_op)
-glaSze(op::LippmannSchwinger, dim::Int) = glaSze(op.greens_op, dim)
-Base.eltype(op::LippmannSchwinger) = eltype(op.greens_op)
+Base.size(op::LippmannSchwinger) = size(op.green_op)
+Base.size(op::LippmannSchwinger, dim::Int) = size(op.green_op, dim)
+glaSze(op::LippmannSchwinger) = glaSze(op.green_op)
+glaSze(op::LippmannSchwinger, dim::Int) = glaSze(op.green_op, dim)
+Base.eltype(op::LippmannSchwinger) = eltype(op.green_op)
 
 # Redefinition of the multiplication
 function Base.:*(op::LippmannSchwinger, x::AbstractArray)
-	if op.greens_op.mem.cmpInf.devMod
+	if op.green_op.mem.cmpInf.devMod
 		x = CuArray(x)
 	end
-	gx = reshape(op.greens_op * x, glaSze(op, 1))
+	gx = reshape(op.green_op * x, glaSze(op, 1))
 	return x - reshape(op.medium .* gx, size(x))
 end
 LinearAlgebra.mul!(y::AbstractArray, op::LippmannSchwinger, x::AbstractArray) = y .= op * x
 ```
 
-Similar techniques are implemented with Gila so that multiplying a Green's
+Similar techniques are implemented with Gila so that multiplying a Green
 operator or attempting to get information on it is more seamless. The final step
 consists in using a solver to solve ``\textbf{p}_t = (\textbf{I}_{6 \times 6} -
 \textbf{X}\textbf{G}_0)^{-1}\textbf{p}_i``. A simple implementation of one would
@@ -412,8 +412,8 @@ used:
 \textbf{e}_t = \textbf{G}_0 \textbf{p}_t
 ```
 
-The only thing required is to define Green's operator for the volume. With the
-definition of the self Green's operator showed above and the solver, finding the
+The only thing required is to define Green operator for the volume. With the
+definition of the self Green operator showed above and the solver, finding the
 total electric field for the scattering problem can be done as such:
 
 ```julia
@@ -439,7 +439,7 @@ p_t = solve(LS, p_i)
 e_t = G_0 * p_t
 ```
 
-As mentioned previously, multiplication of a Green's operator with a vector is
+As mentioned previously, multiplication of a Green operator with a vector is
 already well-defined by Gila.
 
 !!! note "Meaning of the polarization current density"
