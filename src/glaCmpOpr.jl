@@ -1,29 +1,14 @@
 """
     GlaSndOprVac{T}
 
-One block of a composite operator, computed on the finer of the two meshes it
-connects.
+A cross-scale block of a composite operator, computed as a same-scale `GlaOprVac`
+on the finer of the two meshes. Each coarse source value is repeated over its
+`srcRat` block of fine cells (a unit-density pulse), and the fine field is summed
+over each `trgRat` block of target cells.
 
-The block wraps a same-scale `GlaOprVac` between the target and source regions
-represented at a common fine cell size. A coarse side carries an integer cell
-ratio: on the target side the fine fields are summed over each `trgRat` block of
-cells, and on the source side each coarse coefficient is repeated over its
-`srcRat` block of fine cells at weight one, which is what a pulse basis function
-of unit density looks like on the fine mesh. A ratio of `(1, 1, 1)` leaves that
-side alone.
-
-`wgt` holds every scalar of the block at once: the `1 / prod(trgRat)` that turns
-the sum over the target block into a mean, and the `sqrt(ΔV_trg / ΔV_src)` of the
-normalized basis. Written this way the block matrix is `wgt` times a product of
-two zero-one matrices with the inner operator between them, so the adjoint is the
-same shape with the two ratios exchanged and `wgt` conjugated.
-
-# Fields
-- `opr::GlaOprVac`: The same-scale operator between the two regions on the fine
-  mesh
-- `trgRat::NTuple{3,Int}`: Fine cells per target cell in each dimension
-- `srcRat::NTuple{3,Int}`: Fine cells per source cell in each dimension
-- `wgt::Complex{T}`: The scalar multiplying the block
+`wgt` is `sqrt(ΔV_trg / ΔV_src) / prod(trgRat)`, the basis normalization times
+the mean over a target block. The block is `wgt` times two zero-one matrices
+around the inner operator, so its adjoint swaps the ratios and conjugates `wgt`.
 """
 struct GlaSndOprVac{T<:AbstractFloat} <: AbstractGlaVacOpr{T}
     opr::GlaOprVac{T}
@@ -47,25 +32,16 @@ GlaSndOprVac{T}(opr::GlaSndOprVac) where T<:AbstractFloat =
 """
     GlaCmpOprVac{T}
 
-The vacuum Green function operator between two composite volumes.
-
-The operator is the block matrix of pairwise vacuum operators over the regions of
-the two tilings. Pulse basis functions of disjoint regions do not overlap, so the
-block matrix is the Galerkin discretization of the Green operator on the
+The vacuum Green operator between two composite volumes, as the block matrix of
+pairwise vacuum operators over their regions: the Galerkin discretization on the
 non-uniform mesh, with no stitching at region boundaries.
 
-Blocks work in the √ΔV normalized basis of `GlaFld`, so block `(i, j)` carries
-a factor `sqrt(ΔV_i / ΔV_j)`. A region has one cell size, so that factor is one
-scalar per block. In this basis the Euclidean inner product is the physical L²
-pairing and the self operator is complex-symmetric.
+Blocks work in the √ΔV normalized basis of `GlaFld`, so block `(i, j)` carries the
+scalar `sqrt(ΔV_i / ΔV_j)`. In this basis the Euclidean inner product is the
+physical L² pairing and the self operator is complex-symmetric.
 
-# Fields
-- `trgCvl::GlaCmpVol`: The composite volume the fields land on
-- `srcCvl::GlaCmpVol`: The composite volume the currents live on
-- `blkMat::Matrix{AbstractGlaOpr{T}}`: The block matrix. Same-scale pairs and
-  separated cross-scale pairs are a `GlaOprVac`, cross-scale pairs in contact
-  (all of them under a Bloch lattice) are a `GlaSndOprVac`, and same-scale pairs whose kind of contact the external
-  construction does not cover are a `GlaOprVac` on the union of the two regions
+Cross-scale pairs in contact, and every cross-scale pair under a Bloch lattice,
+are a `GlaSndOprVac`; every other block is a `GlaOprVac`.
 """
 struct GlaCmpOprVac{T<:AbstractFloat} <: AbstractGlaVacOpr{T}
     trgCvl::GlaCmpVol
@@ -100,19 +76,9 @@ const CompositeVacuumGreenOperator = GlaCmpOprVac
 The anti-Hermitian part `Asym(G₀) = (G₀ - G₀†) / 2i` of the vacuum Green function
 operator over a composite volume, built from the self composite operator `opr`.
 
-A self composite operator is complex-symmetric in the √ΔV basis, so its
-anti-Hermitian part is its entry by entry imaginary part, which is again a block
-matrix over the same tiling. Every block carries the Fourier coefficients of the
-imaginary part of its own kernel, so a matvec costs one application of `G₀`
-rather than the two of the difference. `opr` itself is left untouched.
-
-# Fields
-- `opr::GlaCmpOprVac`: The block matrix, every block replaced by its entry by
-  entry imaginary part
-
-# Throws
-- `ArgumentError`: If the operator maps between two different tilings, or is in
-  adjoint mode
+The self operator is complex-symmetric in the √ΔV basis, so this is its entry
+by entry imaginary part: a block matrix of the same shape, applied at the cost of
+one `G₀`. `opr` must be a self operator not in adjoint mode, and is left untouched.
 """
 struct AsyGlaCmpOprVac{T<:AbstractFloat} <: AbstractGlaVacOpr{T}
     opr::GlaCmpOprVac{T}
@@ -141,14 +107,6 @@ AsyGlaCmpOprVac{T}(opr::AsyGlaCmpOprVac) where T<:AbstractFloat =
 The Hermitian part `Sym(G₀) = (G₀ + G₀†) / 2` of the vacuum Green function
 operator over a composite volume, built the same way as `AsyGlaCmpOprVac` from
 the entry by entry real part of the blocks.
-
-# Fields
-- `opr::GlaCmpOprVac`: The block matrix, every block replaced by its entry by
-  entry real part
-
-# Throws
-- `ArgumentError`: If the operator maps between two different tilings, or is in
-  adjoint mode
 """
 struct SymGlaCmpOprVac{T<:AbstractFloat} <: AbstractGlaVacOpr{T}
     opr::GlaCmpOprVac{T}
@@ -235,39 +193,16 @@ end
 _blcCmp(regs, frq, blc) = first(GilaVacuum.Bloch.blcCmp(regs, frq, blc.ax, blc.L, blc.θ))
 
 """
-    GlaCmpOprVac{T}(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false, shpCch::Bool=false)
-    GlaCmpOprVac(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false, shpCch::Bool=false)
+    GlaCmpOprVac{T}(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol; kwargs...)
+    GlaCmpOprVac{T}(cvol::GlaCmpVol; kwargs...)
 
-Construct the vacuum Green function operator between two composite volumes.
+The vacuum Green operator between two composite volumes, or of one on itself.
+Two different volumes are two bodies and must not overlap.
 
-Each pair of regions gets the block that its geometry allows. Two regions of the
-same cell size use the ordinary external path, in contact or not, unless they
-touch in a way the contact correction does not cover, in which case the block is
-built on the union of the two. Two regions of different cell size use the
-partitioned cross-scale path when they are far enough apart, and the fine mesh
-construction of `GlaSndOprVac` when they are close enough that the cross-scale
-contact quadrature would run. A pair of identical regions, which only happens on
-the diagonal of a self operator, uses the self path.
-
-Passing the same composite volume twice gives the self operator of one body.
-Passing two different ones gives the operator between two bodies, which have to
-be disjoint.
-
-# Arguments
-- `trgCvl::GlaCmpVol`: The composite volume the fields land on
-- `srcCvl::GlaCmpVol`: The composite volume the currents live on
-- `dev::Backend=CPU()`: The KernelAbstractions backend to build the blocks on
-- `frqPhz=1.0+0.0im`: Complex frequency phase factor, see `frqPhz(opt::GlaKerOpt)`
-- `genPrc=Float64`: Generation precision, see `genPrc(opt::GlaKerOpt)`
-- `qssApx::Bool=false`: Quasistatic approximation flag, see `qssApx(opt::GlaKerOpt)`
-- `shpCch::Bool=false`: Cache the far-field geometry table of each cell shape, see `GlaVacOprMem`
-- `blc=nothing`: Bloch lattice `(ax, P, θ)` of a periodic composite unit cell, as for `GlaOprVac(vol; blc)`, the periods `P` in cells of the finest region; self operators only, every cross-scale pair a `GlaSndOprVac`
-
-# Returns
-- `GlaCmpOprVac`: The composite operator
-
-# Throws
-- `ArgumentError`: If a region of one volume overlaps a region of the other
+Same-scale pairs and separated cross-scale pairs use the external path; a
+cross-scale pair in contact is built on the finer mesh, see `GlaSndOprVac`.
+Keywords as for `GlaOprVac`, without `prxWrn`; the Bloch periods `P` of `blc`
+count cells of the finest region.
 """
 function GlaCmpOprVac{T}(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol;
     dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false,
@@ -292,24 +227,6 @@ GlaCmpOprVac(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.
     genPrc=Float64, qssApx::Bool=false, shpCch::Bool=false, hrmPrt::Union{Nothing,Symbol}=nothing, blc=nothing) =
     GlaCmpOprVac{dflPrc}(trgCvl, srcCvl; dev, frqPhz, genPrc, qssApx, shpCch, hrmPrt, blc)
 
-"""
-    GlaCmpOprVac{T}(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false, shpCch::Bool=false)
-    GlaCmpOprVac(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false, shpCch::Bool=false)
-
-Construct the self vacuum Green function operator of a composite volume.
-
-# Arguments
-- `cvol::GlaCmpVol`: The composite volume
-- `dev::Backend=CPU()`: The KernelAbstractions backend to build the blocks on
-- `frqPhz=1.0+0.0im`: Complex frequency phase factor, see `frqPhz(opt::GlaKerOpt)`
-- `genPrc=Float64`: Generation precision, see `genPrc(opt::GlaKerOpt)`
-- `qssApx::Bool=false`: Quasistatic approximation flag, see `qssApx(opt::GlaKerOpt)`
-- `shpCch::Bool=false`: Cache the far-field geometry table of each cell shape, see `GlaVacOprMem`
-- `blc=nothing`: Bloch lattice of a periodic composite unit cell, see `GlaCmpOprVac(trgCvl, srcCvl)`
-
-# Returns
-- `GlaCmpOprVac`: The composite operator
-"""
 GlaCmpOprVac{T}(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64,
     qssApx::Bool=false, shpCch::Bool=false, hrmPrt::Union{Nothing,Symbol}=nothing, blc=nothing) where T<:AbstractFloat =
     GlaCmpOprVac{T}(cvol, cvol; dev, frqPhz, genPrc, qssApx, shpCch, hrmPrt, blc)
@@ -318,21 +235,11 @@ GlaCmpOprVac(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float
     GlaCmpOprVac{dflPrc}(cvol, cvol; dev, frqPhz, genPrc, qssApx, shpCch, hrmPrt, blc)
 
 """
-    GlaOprVac{T}(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false, shpCch::Bool=false)
-    GlaOprVac(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false, shpCch::Bool=false)
+    GlaOprVac{T}(cvol::GlaCmpVol; kwargs...)
+    GlaOprVac{T}(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol; kwargs...)
 
-Construct the self vacuum Green function operator of a composite volume.
-
-A composite volume needs a block matrix rather than one circulant, so the result
-is a `GlaCmpOprVac` and not a `GlaOprVac`. Both are `AbstractGlaVacOpr`.
-
-# Arguments
-- `cvol::GlaCmpVol`: The composite volume
-- `dev::Backend=CPU()`: The KernelAbstractions backend to build the blocks on
-- `frqPhz`, `genPrc`, `qssApx`, `shpCch`, `blc`: See `GlaCmpOprVac`
-
-# Returns
-- `GlaCmpOprVac`: The composite operator
+Same as `GlaCmpOprVac`: a composite volume needs a block matrix rather than one
+circulant, so the result is a `GlaCmpOprVac`.
 """
 GlaOprVac{T}(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false,
     shpCch::Bool=false, blc=nothing) where T<:AbstractFloat =
@@ -340,23 +247,6 @@ GlaOprVac{T}(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float
 GlaOprVac(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false,
     shpCch::Bool=false, blc=nothing) = GlaCmpOprVac{dflPrc}(cvol; dev, frqPhz, genPrc, qssApx, shpCch, blc)
 
-"""
-    GlaOprVac{T}(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false, shpCch::Bool=false)
-    GlaOprVac(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false, shpCch::Bool=false)
-
-Construct the vacuum Green function operator between two composite volumes.
-
-The result is a `GlaCmpOprVac`, for the reason given in the single volume method.
-
-# Arguments
-- `trgCvl::GlaCmpVol`: The composite volume the fields land on
-- `srcCvl::GlaCmpVol`: The composite volume the currents live on
-- `dev::Backend=CPU()`: The KernelAbstractions backend to build the blocks on
-- `frqPhz`, `genPrc`, `qssApx`, `shpCch`: See `GlaCmpOprVac`
-
-# Returns
-- `GlaCmpOprVac`: The composite operator
-"""
 GlaOprVac{T}(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol;
     dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false,
     shpCch::Bool=false) where T<:AbstractFloat =
@@ -434,19 +324,10 @@ function _hrmOpr(opr::GlaCmpOprVac{T}, isAsy::Bool) where T<:AbstractFloat
 end
 
 """
-    AsyGlaCmpOprVac{T}(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, blc=nothing)
-    AsyGlaCmpOprVac(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, blc=nothing)
+    AsyGlaCmpOprVac{T}(cvol::GlaCmpVol; dev=CPU(), frqPhz=1.0+0.0im, blc=nothing)
 
-Construct the anti-Hermitian part of the self vacuum Green function operator of a
-composite volume.
-
-# Arguments
-- `cvol::GlaCmpVol`: The composite volume
-- `dev::Backend=CPU()`: The KernelAbstractions backend to build the blocks on
-- `frqPhz`, `blc`: See `GlaCmpOprVac`
-
-# Returns
-- `AsyGlaCmpOprVac`: The anti-Hermitian part of the composite operator
+The anti-Hermitian part of the self vacuum operator of `cvol`, built from the
+volume rather than from a full operator.
 """
 # Val(:raw) because every block already holds the part, taken before its transform
 AsyGlaCmpOprVac{T}(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, blc=nothing) where T<:AbstractFloat =
@@ -455,19 +336,9 @@ AsyGlaCmpOprVac(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, blc=nothi
     AsyGlaCmpOprVac{dflPrc}(cvol; dev, frqPhz, blc)
 
 """
-    SymGlaCmpOprVac{T}(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, blc=nothing)
-    SymGlaCmpOprVac(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, blc=nothing)
+    SymGlaCmpOprVac{T}(cvol::GlaCmpVol; dev=CPU(), frqPhz=1.0+0.0im, blc=nothing)
 
-Construct the Hermitian part of the self vacuum Green function operator of a
-composite volume.
-
-# Arguments
-- `cvol::GlaCmpVol`: The composite volume
-- `dev::Backend=CPU()`: The KernelAbstractions backend to build the blocks on
-- `frqPhz`, `blc`: See `GlaCmpOprVac`
-
-# Returns
-- `SymGlaCmpOprVac`: The Hermitian part of the composite operator
+The Hermitian part of the self vacuum operator of `cvol`, built from the volume.
 """
 SymGlaCmpOprVac{T}(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, blc=nothing) where T<:AbstractFloat =
     SymGlaCmpOprVac{T}(GlaCmpOprVac{T}(cvol; dev, frqPhz, blc, hrmPrt=:sym), Val(:raw))
@@ -477,27 +348,14 @@ SymGlaCmpOprVac(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, blc=nothi
 """
     asym(opr::GlaCmpOprVac)
 
-Construct the anti-Hermitian part of a self composite vacuum Green function
-operator.
-
-# Arguments
-- `opr::GlaCmpOprVac`: The composite operator, which has to be a self operator
-
-# Returns
-- `AsyGlaCmpOprVac`: The anti-Hermitian part of the composite operator
+The anti-Hermitian part of a self composite operator, see `AsyGlaCmpOprVac`.
 """
 asym(opr::GlaCmpOprVac) = AsyGlaCmpOprVac(opr)
 
 """
     sym(opr::GlaCmpOprVac)
 
-Construct the Hermitian part of a self composite vacuum Green function operator.
-
-# Arguments
-- `opr::GlaCmpOprVac`: The composite operator, which has to be a self operator
-
-# Returns
-- `SymGlaCmpOprVac`: The Hermitian part of the composite operator
+The Hermitian part of a self composite operator, see `SymGlaCmpOprVac`.
 """
 sym(opr::GlaCmpOprVac) = SymGlaCmpOprVac(opr)
 
@@ -561,18 +419,8 @@ mulAct!(opr::Union{AsyGlaCmpOprVac{T}, SymGlaCmpOprVac{T}},
 """
     *(opr::GlaCmpOprVac, fld::GlaFld)
 
-Apply a composite operator to a composite field.
-
-# Arguments
-- `opr::GlaCmpOprVac`: The operator
-- `fld::GlaFld`: The field, which must live on the source volume of `opr`
-
-# Returns
-- `GlaFld`: The result, on the target volume of `opr`
-
-# Throws
-- `ArgumentError`: If the field lives on a different tiling than the source
-  volume of the operator
+Apply a composite operator to a field on its source tiling, giving a field on
+its target tiling.
 """
 function Base.:*(opr::GlaCmpOprVac{T}, fld::GlaFld{T}) where T<:AbstractFloat
     if !(fld.cvol === opr.srcCvl || fld.cvol == opr.srcCvl)
@@ -582,20 +430,9 @@ function Base.:*(opr::GlaCmpOprVac{T}, fld::GlaFld{T}) where T<:AbstractFloat
 end
 
 """
-    *(opr::AsyGlaCmpOprVac, fld::GlaFld)
+    *(opr::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}, fld::GlaFld)
 
-Apply a Hermitian or anti-Hermitian part of a composite operator to a composite
-field.
-
-# Arguments
-- `opr::AsyGlaCmpOprVac`: The operator, either part
-- `fld::GlaFld`: The field, which must live on the volume of `opr`
-
-# Returns
-- `GlaFld`: The result, on the same tiling
-
-# Throws
-- `ArgumentError`: If the field lives on a different tiling than the operator
+Apply a Hermitian or anti-Hermitian part to a field on its tiling.
 """
 Base.:*(opr::Union{AsyGlaCmpOprVac{T}, SymGlaCmpOprVac{T}}, fld::GlaFld{T}) where T<:AbstractFloat = opr.opr * fld
 
@@ -702,32 +539,11 @@ Base.show(io::IO, ::MIME"text/plain", opr::GlaSndOprVac) = show(io, opr)
 _srcCvl(opr::GlaCmpOprVac) = opr.srcCvl
 
 """
-    InvSctOpr{T}(cvol::GlaCmpVol, sus; dev::Backend)
-    InvSctOpr(cvol::GlaCmpVol, sus; dev::Backend)
+    InvSctOpr{T}(cvol::GlaCmpVol, sus; dev, kwargs...)
 
-Construct the inverse scattering operator `(I - XG₀)` over a composite volume.
-
-The vacuum operator is built for the tiling, and the susceptibility is stored in
-the flat degree of freedom layout of `GlaFld`. Since the susceptibility and the
-√ΔV normalization are both diagonal, they commute, and the operator in the
-normalized basis is the same expression as on a uniform mesh.
-
-The susceptibility can be given in any of the forms `SusOpr` takes, from a number
-for a uniform medium to one 3×3 tensor per cell for an anisotropic one. Every
-other composite scattering constructor takes the same forms.
-
-Also takes the `frqPhz`, `genPrc`, `qssApx` and `shpCch` keywords of `GlaCmpOprVac`, forwarded blindly.
-
-# Arguments
-- `cvol::GlaCmpVol`: The composite volume
-- `sus`: The susceptibility, in any of the forms above
-- `dev::Backend`: The KernelAbstractions backend (default: that of `sus` when it is an array, else `CPU()`) to build the operator on
-
-# Returns
-- `InvSctOpr`: The inverse scattering operator
-
-# Throws
-- `ArgumentError`: If the shape of `sus` does not fit the tiling
+The inverse scattering operator (I - XG₀) over a composite volume, with `sus` in
+any form `SusOpr` takes and `dev` defaulting as there. X and the √ΔV normalization
+are both diagonal, so they commute. Other keywords go to `GlaCmpOprVac`.
 """
 InvSctOpr{T}(cvol::GlaCmpVol, sus; dev::Backend=susDev(sus), kwargs...) where T<:AbstractFloat =
     InvSctOpr{T}(GlaCmpOprVac{T}(cvol; dev, kwargs...), sus)
@@ -735,21 +551,10 @@ InvSctOpr(cvol::GlaCmpVol, sus; dev::Backend=susDev(sus), kwargs...) =
     InvSctOpr{dflPrc}(cvol, sus; dev, kwargs...)
 
 """
-    SctOpr{T}(cvol::GlaCmpVol, sus; dev::Backend, slv::GlaSlv=GCRODRSolver())
-    SctOpr(cvol::GlaCmpVol, sus; dev::Backend, slv::GlaSlv=GCRODRSolver())
+    SctOpr{T}(cvol::GlaCmpVol, sus; dev, slv=GCRODRSolver(), kwargs...)
 
-Construct the scattering operator `(I - XG₀)⁻¹` over a composite volume.
-
-Also takes the `frqPhz`, `genPrc`, `qssApx` and `shpCch` keywords of `GlaCmpOprVac`, forwarded blindly.
-
-# Arguments
-- `cvol::GlaCmpVol`: The composite volume
-- `sus`: The susceptibility, in any of the forms `InvSctOpr(::GlaCmpVol, sus)` takes
-- `dev::Backend`: The KernelAbstractions backend (default: that of `sus` when it is an array, else `CPU()`) to build the operator on
-- `slv::GlaSlv=GCRODRSolver()`: The solver used for the inverse
-
-# Returns
-- `SctOpr`: The scattering operator
+The scattering operator (I - XG₀)⁻¹ over a composite volume. Arguments as for
+`InvSctOpr(cvol, sus)`.
 """
 SctOpr{T}(cvol::GlaCmpVol, sus; dev::Backend=susDev(sus), slv::GlaSlv=GCRODRSolver(), kwargs...) where T<:AbstractFloat =
     SctOpr{T}(InvSctOpr{T}(cvol, sus; dev, kwargs...), slv)
@@ -759,35 +564,16 @@ SctOpr(cvol::GlaCmpVol, sus; dev::Backend=susDev(sus), slv::GlaSlv=GCRODRSolver(
 """
     SctOpr(opr::GlaCmpOprVac, sus; slv::GlaSlv=GCRODRSolver())
 
-Construct the scattering operator from a composite vacuum operator.
-
-# Arguments
-- `opr::GlaCmpOprVac`: The composite vacuum operator, which has to be a self operator
-- `sus`: The susceptibility, in any of the forms `InvSctOpr(::GlaCmpVol, sus)` takes
-- `slv::GlaSlv=GCRODRSolver()`: The solver used for the inverse
-
-# Returns
-- `SctOpr`: The scattering operator
+The scattering operator over an existing self composite operator, which it shares.
 """
 SctOpr(opr::GlaCmpOprVac{T}, sus; slv::GlaSlv=GCRODRSolver()) where T<:AbstractFloat =
     SctOpr{T}(InvSctOpr{T}(opr, sus), slv)
 
 """
-    GlaOpr{T}(cvol::GlaCmpVol, sus; dev::Backend, slv::GlaSlv=GCRODRSolver())
-    GlaOpr(cvol::GlaCmpVol, sus; dev::Backend, slv::GlaSlv=GCRODRSolver())
+    GlaOpr{T}(cvol::GlaCmpVol, sus; dev, slv=GCRODRSolver(), kwargs...)
 
-Construct the full Green function operator `G₀(I - XG₀)⁻¹` over a composite volume.
-
-Also takes the `frqPhz`, `genPrc`, `qssApx` and `shpCch` keywords of `GlaCmpOprVac`, forwarded blindly.
-
-# Arguments
-- `cvol::GlaCmpVol`: The composite volume
-- `sus`: The susceptibility, in any of the forms `InvSctOpr(::GlaCmpVol, sus)` takes
-- `dev::Backend`: The KernelAbstractions backend (default: that of `sus` when it is an array, else `CPU()`) to build the operator on
-- `slv::GlaSlv=GCRODRSolver()`: The solver used for the inverse
-
-# Returns
-- `GlaOpr`: The full Green function operator
+The full Green operator G₀(I - XG₀)⁻¹ over a composite volume. Arguments as for
+`SctOpr(cvol, sus)`.
 """
 GlaOpr{T}(cvol::GlaCmpVol, sus; dev::Backend=susDev(sus), slv::GlaSlv=GCRODRSolver(), kwargs...) where T<:AbstractFloat =
     GlaOpr{T}(SctOpr{T}(cvol, sus; dev, slv, kwargs...))
@@ -797,15 +583,7 @@ GlaOpr(cvol::GlaCmpVol, sus; dev::Backend=susDev(sus), slv::GlaSlv=GCRODRSolver(
 """
     GlaOpr(opr::GlaCmpOprVac, sus; slv::GlaSlv=GCRODRSolver())
 
-Construct the full Green function operator from a composite vacuum operator.
-
-# Arguments
-- `opr::GlaCmpOprVac`: The composite vacuum operator, which has to be a self operator
-- `sus`: The susceptibility, in any of the forms `InvSctOpr(::GlaCmpVol, sus)` takes
-- `slv::GlaSlv=GCRODRSolver()`: The solver used for the inverse
-
-# Returns
-- `GlaOpr`: The full Green function operator
+The full Green operator over an existing self composite operator, which it shares.
 """
 GlaOpr(opr::GlaCmpOprVac{T}, sus; slv::GlaSlv=GCRODRSolver()) where T<:AbstractFloat =
     GlaOpr{T}(SctOpr(opr, sus; slv=slv))
@@ -846,19 +624,8 @@ end
 """
     *(opr::InvSctOpr, fld::GlaFld)
 
-Apply an inverse scattering operator to a field.
-
-# Arguments
-- `opr::InvSctOpr`: The operator, which has to be built on a composite volume
-- `fld::GlaFld`: The field, which has to live on the tiling of `opr`
-
-# Returns
-- `GlaFld`: The result, on the same tiling
-
-# Throws
-- `ArgumentError`: If the field lives on a different tiling
+Apply an inverse scattering operator to a field on its tiling.
 """
-
 function Base.:*(opr::InvSctOpr{T}, fld::GlaFld{T}) where T<:AbstractFloat
     cvol = _chkSctFld(opr.oprVac, fld)
     return GlaFld(opr * fld.dat, cvol)
@@ -867,17 +634,7 @@ end
 """
     *(opr::SctOpr, fld::GlaFld)
 
-Apply a scattering operator to a field, which runs the iterative solve.
-
-# Arguments
-- `opr::SctOpr`: The operator, which has to be built on a composite volume
-- `fld::GlaFld`: The field, which has to live on the tiling of `opr`
-
-# Returns
-- `GlaFld`: The result, on the same tiling
-
-# Throws
-- `ArgumentError`: If the field lives on a different tiling
+Apply a scattering operator to a field on its tiling, by an iterative solve.
 """
 function Base.:*(opr::SctOpr{T}, fld::GlaFld{T}) where T<:AbstractFloat
     cvol = _chkSctFld(opr.invSctOpr.oprVac, fld)
@@ -897,16 +654,8 @@ Base.:*(opr::GlaOpr{T}, fld::GlaFld{T}) where T<:AbstractFloat = isadjoint(opr) 
 
 Solve `opr * out = fld` on the tiling the field lives on.
 
-As for a vector, the solve is iterative and uses the operator's own solver
-(`slv(opr)`). It runs on the flat buffer and rewraps: a solver allocates its
-Krylov basis with a matrix shaped `similar`, which a `GlaFld` cannot answer with
-a field, so the tiling has to ride along outside the solve.
-
-# Returns
-- `GlaFld`: The solution, on the tiling of `fld`
-
-# Throws
-- `ArgumentError`: If the field lives on a different tiling than the operator
+An iterative solve with `slv(opr)`, as for a vector. The solve runs on the flat
+data, since a solver's matrix-shaped `similar` has no `GlaFld` answer.
 """
 function Base.:\(opr::AbstractGlaOpr{T}, fld::GlaFld{T}) where T<:AbstractFloat
     cvol = _chkSctFld(GlaOprVac(opr), fld)

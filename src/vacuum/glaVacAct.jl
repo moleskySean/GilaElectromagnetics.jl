@@ -3,16 +3,8 @@ using KernelAbstractions
 """
     egoOpr!(egoMem::GlaVacOprMem, actVec::AbstractArray{<:Complex})::AbstractArray{<:Complex}
 
-Applies the electric Green function operator to a polarization current density vector, returning the resulting electric field. The input vector is modified in-place to reduce memory allocation.
-
-`egoOpr!` uses a fast Fourier transform (FFT) based approach for efficient evaluation. For GPU computation, the function automatically handles device synchronization. The function supports both CPU and GPU backends through the `GlaKerOpt` type.
-
-# Arguments
-- `egoMem::GlaVacOprMem`: Memory structure containing the Green function operator data and computational options
-- `actVec::AbstractArray{<:Complex}`: Input polarization current density vector, of the memory's storage eltype `Complex{T}`. Must be a 4D array with shape (srcCelX, srcCelY, srcCelZ, 3) where the first three dimensions match the source volume dimensions and the last dimension represents the vector components
-
-# Returns
-- `AbstractArray{<:Complex}`: The resulting electric field vector with shape (trgCelX, trgCelY, trgCelZ, 3)
+Apply the Green operator to a `(srcCel..., 3)` current density of eltype
+`Complex{T}`, returning the `(trgCel..., 3)` field. Overwrites `actVec`.
 """
 function egoOpr!(egoMem::GlaVacOprMem, actVec::AbstractArray{<:Complex})
     # srcCel counts the cells of one source partition, so the full input size is

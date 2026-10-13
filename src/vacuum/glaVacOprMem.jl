@@ -11,26 +11,11 @@ using ..GilaVolumes
 """
     GlaVacOprMem{T<:AbstractFloat}
 
-Memory structure for the vacuum Green function operator. `T` is the real storage precision of the operator data (`Complex{T}`); generation runs at `genPrc(cmpInf)` (default `Float64`) and is rounded once into `egoFur`. This structure holds all the memory needed for computing the vacuum Green function operator. The structure is designed to minimize memory allocation during computation. The Fourier transform plans are used to efficiently compute the Green function integrals. The phase information is used to handle the splitting of Fourier transforms.
-
-# Fields
-- `cmpInf::GlaKerOpt{T}`: Computation information, settings and kernel options, see `GlaKerOpt`
-- `trgVol::GlaVol`: Target volume of Green function
-- `srcVol::GlaVol`: Source volume of Green function
-- `mixInf::GlaExtInf`: Information for matching source and target grids, see `GlaExtInf`
-- `dimInf::NTuple{3,Integer}`: Dimension information for Green function volumes, host side
-- `egoFur::AbstractVector{<:AbstractArray{Complex{T}}}`: Unique Fourier transform data for circulant Green function
-- `fftPlnFwd::AbstractVector{<:AbstractFFTs.Plan}`: Forward Fourier transform plans
-- `fftPlnRev::AbstractVector{<:AbstractFFTs.Plan}`: Reverse Fourier transform plans
-- `adjFftPlnFwd::AbstractVector{<:AbstractFFTs.Plan}`: Forward Fourier transform plans for adjoint
-- `adjFftPlnRev::AbstractVector{<:AbstractFFTs.Plan}`: Reverse Fourier transform plans for adjoint
-- `phzInf::AbstractVector{<:AbstractArray{Complex{T}}}`: Phase vector for splitting Fourier transforms
-
-# Notes
-- This structure holds all the memory needed for computing the vacuum Green function operator
-- The structure is designed to minimize memory allocation during computation
-- The Fourier transform plans are used to efficiently compute the Green function integrals
-- The phase information is used to handle the splitting of Fourier transforms
+Everything a vacuum operator needs to act: the options `cmpInf`, the two volumes,
+the grid matching `mixInf`, the Fourier coefficients `egoFur` of the circulant
+kernel (generated at `genPrc(cmpInf)`, rounded once to `Complex{T}`), the FFT
+plans of the operator and its adjoint, and the phases `phzInf` of the even/odd
+branch split at each level.
 """
 mutable struct GlaVacOprMem{T<:AbstractFloat}
     cmpInf::GlaKerOpt{T}
@@ -48,17 +33,8 @@ end
 """
     GlaVacOprMem(cmpInf::GlaKerOpt{T}, egoFur::AbstractVector{<:AbstractArray{Complex{T}}}, trgVol::GlaVol, srcVol::GlaVol=trgVol)
 
-Prepare memory for Green function operator. When called with a single GlaVol, 
-or identical source and target volumes, yields the self construction. 
-
-# Arguments
-- `cmpInf::GlaKerOpt{T}`: Computation information, settings and kernel options, see `GlaKerOpt`.
-- `egoFur::AbstractVector{<:AbstractArray{Complex{T}}}`: Unique Fourier transform data for Green function.
-- `trgVol::GlaVol`: Target volume or self volume definition.
-- `srcVol::Union{Nothing,GlaVol}=nothing`: Source volume for external construction. Nothing will generate the self construction.
-
-# Returns
-- `GlaVacOprMem{T}`: The memory structure for the Green function operator.
+Operator memory around precomputed Fourier coefficients `egoFur`, which must be
+finite. One volume gives the self construction.
 """
 function GlaVacOprMem(cmpInf::GlaKerOpt{T}, egoFur::AbstractVector{<:AbstractArray{Complex{T}}}, trgVol::GlaVol, srcVol::GlaVol=trgVol) where T<:AbstractFloat
     mixInf = genEveExtInf(trgVol, srcVol)
@@ -80,17 +56,15 @@ include("glaVacOprMemGen.jl") # For genEgoCrc!
 """
     GlaVacOprMem(cmpInf::GlaKerOpt{T}, trgVol::GlaVol, srcVol::GlaVol=trgVol)
 
-Prepare memory for Green function operator. Automatically computes the Fourier transform data.
+Generate the Fourier coefficients and the operator memory. One volume gives the
+self construction.
 
-# Arguments
-- `cmpInf::GlaKerOpt{T}`: Computation information, settings and kernel options, see `GlaKerOpt`.
-- `trgVol::GlaVol`: Target volume or self volume definition.
-- `srcVol::Union{Nothing,GlaVol}=nothing`: Source volume for external construction. Nothing will generate the self construction.
-- `shpCch::Bool=false`: Cache the far-field geometry table of each cell shape in a scratch space. A table is 16-19 MB and 12-16 s to build against 0.6-0.7 s to read, so this trades disk for the first build of a shape in a session.
-- `hrmPrt::Union{Nothing,Symbol}=nothing`: Keep only the entry by entry real (`:sym`) or imaginary (`:asy`) part of the kernel. This is how `SymGlaOprVac` and `AsyGlaOprVac` are built.
-
-# Returns
-- `GlaVacOprMem{T}`: The memory structure for the Green function operator.
+# Keywords
+- `shpCch::Bool=false`: cache the far-field geometry table of each cell shape in a
+  scratch space; a table is 16-19 MB and takes 12-16 s to build against 0.6-0.7 s to read
+- `prxWrn::Bool=true`: warn when separated volumes are closer than a third of a wavelength
+- `hrmPrt=nothing`: keep only the entry by entry real (`:sym`) or imaginary (`:asy`)
+  part of the kernel, as `SymGlaOprVac` and `AsyGlaOprVac` do
 """
 #= Closer than a third of a wavelength a separated pair's discretisation error
 is several times its wide separation value. The bound is a distance, not a cell

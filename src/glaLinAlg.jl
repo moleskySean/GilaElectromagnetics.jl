@@ -2,11 +2,10 @@ using LinearAlgebra
 
 """
     glaSze(opr::AbstractGlaOpr)
+    glaSze(opr::AbstractGlaOpr, dim::Int)
 
-Returns the size of the input/output arrays for an `AbstractGlaOpr` in tensor form.
-
-# Arguments
-- `opr::AbstractGlaOpr`: The operator to check.
+The `(cel..., 3)` tensor shapes of the output and input of `opr`, like `size` for
+the tensor form. Over several regions, one shape per region.
 """
 function glaSze(opr::GlaOprVac)
     if isoverlappingoperator(opr)
@@ -25,15 +24,6 @@ glaSze(opr::InvSctOpr) = glaSze(opr.oprVac)
 glaSze(opr::SctOpr) = glaSze(opr.invSctOpr)
 glaSze(opr::GlaOpr) = glaSze(opr.sctOpr)
 
-"""
-    glaSze(opr::AbstractGlaOpr, dim::Int)
-
-Returns the size of the input/output arrays for an `AbstractGlaOpr` in tensor form in a specified dimension.
-
-# Arguments
-- `opr::AbstractGlaOpr`: The operator to check.
-- `dim::Int`: The index of the dimension to check.
-"""
 glaSze(opr::AbstractGlaOpr, dim::Int) = glaSze(opr)[dim]
 glaSze(opr::InvSctOpr, dim::Int) = glaSze(opr.oprVac, dim)
 glaSze(opr::SctOpr, dim::Int) = glaSze(opr.invSctOpr, dim)
@@ -119,16 +109,8 @@ Base.setindex!(::AbstractGlaOpr, _, __...) = throw(ArgumentError("setindex! is n
 """
     mulAct!(opr::AbstractGlaOpr{T}, act::AbstractVector{Complex{T}})
 
-Internal. Not exported: `*` and `mul!` cover the same ground for a caller, and
-`mulAct!` consumes its argument.
-
-Apply an operator to a vector. May (will) mutate `act`.
-
-`act` holds source as a flat vector on the same device (CPU/GPU) the operator
-computes with. 
-
-# Returns
-- `AbstractVector{Complex{T}}`: The result in the flat layout, freshly allocated
+Apply `opr` to the flat vector `act`, on the operator's device, consuming `act`.
+Returns a new flat vector. Internal; callers use `*` or `mul!`.
 """
 function mulAct! end
 
@@ -198,16 +180,9 @@ end
 
 Write `α * (opr * inp) + β * out` into `out`, leaving `inp` untouched.
 
-Both arrays are either flat vectors of degrees of freedom or, over a single
-volume, `(cel..., 3)` tensors. `out` is never read when `β` is zero, and the
-operator is never applied when `α` is zero.
-
-# Returns
-- `out`, holding the result
-
-# Throws
-- `ArgumentError`: If either array does not fit the operator, or if its eltype is
-  not the `Complex{T}` of the operator: mixed precision is never converted silently
+Both arrays are flat vectors or, over a single volume, `(cel..., 3)` tensors, of
+eltype `Complex{T}`: mixed precision throws rather than converting. `out` is not
+read when `β` is zero, and the operator is not applied when `α` is zero.
 """
 function LinearAlgebra.mul!(out::AbstractVector{Complex{T}}, opr::AbstractGlaOpr{T}, inp::AbstractVector{Complex{T}}, α::Number, β::Number) where T<:AbstractFloat
     if length(inp) != size(opr, 2) || length(out) != size(opr, 1)
@@ -252,16 +227,8 @@ Base.:*(opr::AbstractGlaOpr, inp::AbstractMatrix) = _prcErr(opr, inp)
 
 Apply an operator to a vector, a `(cel..., 3)` tensor, or a matrix of columns.
 
-The result takes the form of the input, and the input is left untouched. The
-product costs one copy of the input, which is the floor for an operator whose
-kernel consumes what it is handed.
-
-# Returns
-- The result, on the target volume of `opr`
-
-# Throws
-- `ArgumentError`: If the input does not fit the operator, or if its eltype is not
-  the `Complex{T}` of the operator
+The result takes the form of the input, which is left untouched at the cost of
+one copy. The eltype must be the `Complex{T}` of `opr`.
 """
 function Base.:*(opr::AbstractGlaOpr{T}, inp::AbstractVector{Complex{T}}) where T<:AbstractFloat
     if length(inp) != size(opr, 2)
@@ -296,27 +263,9 @@ end
 """
     *(opr::GlaOprVac, fld::GlaFld)
 
-Apply a vacuum operator to a field over a single region.
-
-The field has to be a field over the source volume of the operator, which for a
-`GlaFld` means a tiling of exactly one region equal to that volume. The result is
-a field over the target volume, again as a tiling of one region.
-
-A single region has a single cell volume, so the √ΔV normalization of `GlaFld` is
-a scalar on each side rather than a diagonal, and it comes out of the operator as
-the ratio of the two. That ratio is one whenever the two volumes share a cell
-size, which covers every self operator.
-
-# Arguments
-- `opr::GlaOprVac`: The operator
-- `fld::GlaFld`: The field, which must live on the source volume of `opr`
-
-# Returns
-- `GlaFld`: The result, on the target volume of `opr`
-
-# Throws
-- `ArgumentError`: If the field is not a field over the source volume of the
-  operator, or if the operator takes the masked route
+Apply a vacuum operator to a field whose tiling is the single region `srcVol`,
+giving a field on `trgVol`. The √ΔV normalization contributes the scalar
+`sqrt(ΔV_trg / ΔV_src)`. Overlapping (masked) operators take arrays, not fields.
 """
 function Base.:*(opr::GlaOprVac{T}, fld::GlaFld{T}) where T<:AbstractFloat
     srcVol = opr.mem.srcVol
@@ -335,22 +284,9 @@ end
 """
     adjoint!(opr::AbstractGlaOpr)
 
-Return the adjoint of an operator, reusing its memory.
-
-The call may mutate whatever the argument holds, so the argument must not be used
-again: the returned operator is the only valid handle on that memory. A second
-call restores the memory, which is what makes `adjoint!(adjoint!(opr))` a valid
-operator equal to the original. Code that needs the argument to survive should
-call `adjoint` instead, which works on a copy.
-
-Some types rearrange in place and hand the same object back, others return a new
-wrapper around the same memory, so the return value always has to be used.
-
-# Arguments
-- `opr::AbstractGlaOpr`: The operator to adjoint
-
-# Returns
-- The adjoint operator
+The adjoint of `opr`, reusing its memory. Use only the return value afterwards:
+the argument may have been mutated or replaced. `adjoint!(adjoint!(opr))` restores
+the original; `adjoint` works on a copy instead.
 """
 function adjoint!(opr::GlaOprVac)
     # Mark the adjoint
@@ -463,14 +399,9 @@ end
     \\(opr::AbstractGlaOpr, inp::AbstractVector)
     ldiv!(out, opr::AbstractGlaOpr, inp)
 
-Solve `opr * out = inp` iteratively, with the operator's own solver (`slv(opr)`).
-
-This is an iterative solve and not the cheap inverse it looks like: `oprVac \\ inp`
-on a vacuum operator solves G₀ itself, which is indefinite and slow to converge.
-A `SusOpr` is the one exception: being diagonal, it divides pointwise instead.
-
-# Returns
-- The solution, in the form of `inp`
+Solve `opr * out = inp` iteratively with `slv(opr)`. On a vacuum operator this
+solves G₀ itself, which is indefinite and slow to converge. A `SusOpr` divides
+pointwise instead.
 """
 LinearAlgebra.ldiv!(out, opr::AbstractGlaOpr, inp) = invMul!(out, opr, inp, one(eltype(opr)), zero(eltype(opr)))
 Base.:\(opr::AbstractGlaOpr, inp::AbstractVector) = ldiv!(similar(inp, size(opr, 2)), opr, inp)

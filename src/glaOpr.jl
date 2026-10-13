@@ -1,21 +1,8 @@
 """
     GilaOperators
 
-This module provides the core operator types for the Gila package, including the vacuum Green function operator,
-scattering operators, and their compositions.
-
-# Types
-- `AbstractGlaOpr`: Abstract base type for all operators
-- `GlaOprVac`: Vacuum Green function operator G₀
-- `InvSctOpr`: Inverse scattering operator (I - XG₀)⁻¹
-- `SctOpr`: Scattering operator with solver
-- `GlaOpr`: Full Green function operator G₀(I - XG₀)⁻¹
-
-# Type Aliases
-- `VacuumGreenOperator`: Alias for `GlaOprVac`
-- `InverseScatteringOperator`: Alias for `InvSctOpr`
-- `ScatteringOperator`: Alias for `SctOpr`
-- `GreenOperator`: Alias for `GlaOpr`
+The operators: vacuum `GlaOprVac` (G₀), susceptibility `SusOpr` (X), `InvSctOpr`
+(I - XG₀), `SctOpr` ((I - XG₀)⁻¹, through a solver) and `GlaOpr` (G₀(I - XG₀)⁻¹).
 """
 module GilaOperators
 
@@ -44,17 +31,8 @@ export isadjoint, isselfoperator, isexternaloperator, isoverlappingoperator, isq
 """
     GlaOprVac{T}
 
-Represents the vacuum Green function operator G₀, which describes electromagnetic
-interactions in free space. `T` is the real storage precision, so the operator
-acts on `Complex{T}` data.
-
-# Fields
-- `mem::GlaVacOprMem{T}`: Memory structure containing the operator's data, including
-  volume information and Fourier coefficients
-- `srcMsk::NTuple{3, StepRange{Int64, Int64}}`: Tuple of ranges defining the mask for
-  the input volume (for overlapping operators only)
-- `trgMsk::NTuple{3, StepRange{Int64, Int64}}`: Tuple of ranges defining the mask for
-  the output volume (for overlapping operators only)
+The vacuum Green operator G₀, acting on `Complex{T}` data. `srcMsk` and `trgMsk`
+pick the two volumes out of their union when they overlap, and are `0:0` otherwise.
 """
 struct GlaOprVac{T<:AbstractFloat} <: AbstractGlaVacOpr{T}
     mem::GlaVacOprMem{T}
@@ -67,11 +45,7 @@ GlaOprVac(mem::GlaVacOprMem{T}, srcMsk, trgMsk) where T<:AbstractFloat = GlaOprV
 """
     AsyGlaOprVac{T}
 
-Represents the anti-Hermitian part of the vacuum Green function operator.
-
-# Fields
-- `mem::GlaVacOprMem{T}`: Memory structure containing the operator's data, including
-  volume information and Fourier coefficients
+The anti-Hermitian part `(G₀ - G₀†) / 2i` of a self vacuum operator.
 """
 struct AsyGlaOprVac{T<:AbstractFloat} <: AbstractGlaVacOpr{T}
     mem::GlaVacOprMem{T}
@@ -80,42 +54,23 @@ end
 """
     SymGlaOprVac{T}
 
-Represents the Hermitian part of the vacuum Green function operator.
-
-# Fields
-- `mem::GlaVacOprMem{T}`: Memory structure containing the operator's data, including
-  volume information and Fourier coefficients
+The Hermitian part `(G₀ + G₀†) / 2` of a self vacuum operator.
 """
 struct SymGlaOprVac{T<:AbstractFloat} <: AbstractGlaVacOpr{T}
     mem::GlaVacOprMem{T}
 end
 
 """
-    SusOpr{T, A} ඞ
+    SusOpr{T, A}
 
-Represents the susceptibility operator X, the map taking a field to the
-polarization current it drives. `T` is the real storage precision, so the
-operator acts on `Complex{T}` data.
+The susceptibility operator X, taking a field to the polarization current it
+drives, over the tiling `cvol`.
 
-The two storage shapes are told apart by the type of `sus`. A vector with one
-entry per degree of freedom covers a uniform, a per cell isotropic and a per
-component diagonal susceptibility, and applies entrywise. A `(celTot, 3, 3)`
-array holds the full tensor of every cell and applies it as a matrix in each
-cell, which is the shape gyrotropy and rotated crystals need.
-
-χ is dimensionless and diagonal in position, so it commutes with the √ΔV
-normalization of `GlaFld` and carries no normalization factor of its own. It is
-also the one operator whose inverse is not an iterative solve: `X \\ f` divides
-pointwise, and throws where χ vanishes rather than returning infinities.
-
-# Fields
-- `sus::A`: The susceptibility, either a vector of `size(opr, 2)` entries in the
-  flat degree of freedom layout or a `(celTot, 3, 3)` array of cell tensors, with
-  the cells in `coordinates(cvol)` order, on the device the operator computes with
-- `cvol::GlaCmpVol`: The tiling the susceptibility lives on, a plain volume being
-  a tiling of one region
-- `adjMod::Bool`: Whether the operator is the adjoint of the susceptibility it
-  was built from
+`sus` is either a vector in the flat degree of freedom layout, applied entrywise,
+or a `(celTot, 3, 3)` array of cell tensors in `coordinates(cvol)` order, applied
+as a matrix in each cell (gyrotropy, rotated crystals). χ is dimensionless and
+diagonal in position, so it commutes with the √ΔV normalization of `GlaFld`.
+`X \\ f` divides pointwise and throws where χ vanishes.
 """
 mutable struct SusOpr{T<:AbstractFloat, A<:AbstractArray{Complex{T}}} <: AbstractGlaOpr{T}
     sus::A
@@ -220,25 +175,14 @@ end
     SusOpr{T}(vol::GlaVol, sus; dev::Backend)
     SusOpr(vol, sus; dev::Backend)
 
-Construct the susceptibility operator of a volume, plain or composite.
+The susceptibility operator of a volume, plain or composite. `dev` defaults to
+the backend of `sus` when it is an array, else `CPU()`.
 
-The susceptibility can be given as a number, a 3×3 matrix, an array of one value
-per cell, an array of one 3×3 tensor per cell (`(cel..., 3, 3)`), a function of
-the cell center returning either a number or a 3×3 matrix, a vector holding any
-of those per region, a vector of one value per cell in layout order, or a vector
-already in the degree of freedom layout. The shapes that name a cell grid only
-fit a tiling of one region; pass one per region otherwise.
-
-# Arguments
-- `cvol::GlaCmpVol`: The tiling, a plain `GlaVol` being read as a tiling of one region
-- `sus`: The susceptibility, in any of the forms above
-- `dev::Backend`: The KernelAbstractions backend (default: that of `sus` when it is an array, else `CPU()`) holding the susceptibility
-
-# Returns
-- `SusOpr{T}`: The susceptibility operator, of storage precision `T` (`dflPrc` when unrequested)
-
-# Throws
-- `ArgumentError`: If the shape of `sus` does not fit the tiling
+`sus` is a number, a 3×3 matrix, an array of one value per cell, an array of one
+3×3 tensor per cell (`(cel..., 3, 3)`), a function of the cell center returning
+either, a vector holding any of those per region, a vector of one value per cell
+in layout order, or a vector already in the degree of freedom layout. The shapes
+that name a cell grid only fit a tiling of one region.
 """
 SusOpr{T}(cvol::GlaCmpVol, sus; dev::Backend=susDev(sus)) where T<:AbstractFloat =
     SusOpr(_susDat(T, cvol, sus, dev), cvol, false)
@@ -259,14 +203,7 @@ SusOpr{T}(opr::SusOpr) where T<:AbstractFloat =
 """
     InvSctOpr{T, O}
 
-Represents the inverse scattering operator (I - XG₀), where X is the susceptibility
-tensor. This operator describes how electromagnetic fields interact with a material
-medium.
-
-# Fields
-- `oprVac::O`: The vacuum Green function operator
-- `sus::SusOpr{T}`: The susceptibility operator X, over the source tiling of the
-  vacuum operator
+The inverse scattering operator (I - XG₀), with X over the source tiling of G₀.
 """
 mutable struct InvSctOpr{T<:AbstractFloat, O<:AbstractGlaVacOpr{T}} <: AbstractGlaOpr{T}
     oprVac::O
@@ -292,12 +229,7 @@ InvSctOpr(oprVac::AbstractGlaVacOpr{T}, sus) where T<:AbstractFloat = InvSctOpr{
 """
     SctOpr{T, I, S}
 
-Represents the scattering operator (I - XG₀)⁻¹, which includes a solver for
-computing the action of the inverse scattering operator.
-
-# Fields
-- `invSctOpr::I`: The inverse scattering operator
-- `slv::S`: The solver to use for solving the linear system
+The scattering operator (I - XG₀)⁻¹, applied by solving with `slv`.
 """
 mutable struct SctOpr{T<:AbstractFloat, I<:InvSctOpr{T}, S<:GlaSlv} <: AbstractGlaOpr{T}
     invSctOpr::I
@@ -308,12 +240,7 @@ SctOpr{T}(invSctOpr::InvSctOpr{T}, slv::GlaSlv) where T<:AbstractFloat = SctOpr(
 """
     GlaOpr{T, S}
 
-Represents the full Green function operator G₀(I - XG₀)⁻¹, which combines the
-vacuum Green function with the scattering operator to describe electromagnetic
-interactions in a material medium.
-
-# Fields
-- `sctOpr::S`: The scattering operator
+The full Green operator G₀(I - XG₀)⁻¹.
 """
 mutable struct GlaOpr{T<:AbstractFloat, S<:SctOpr{T}} <: AbstractGlaOpr{T}
     sctOpr::S
@@ -361,28 +288,24 @@ function mskRng(subVol::GlaVol, vol::GlaVol)
 end
 
 """
-    GlaOprVac{T}(trgVol::GlaVol, srcVol::GlaVol; dev::Backend=CPU(), prxWrn::Bool=true, frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false, shpCch::Bool=false)
-    GlaOprVac(trgVol::GlaVol, srcVol::GlaVol; dev::Backend=CPU(), prxWrn::Bool=true, frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false, shpCch::Bool=false)
+    GlaOprVac{T}(trgVol::GlaVol, srcVol::GlaVol; kwargs...)
+    GlaOprVac{T}(vol::GlaVol; kwargs...)
 
-Construct a vacuum Green function operator for external interactions between different volumes.
+The vacuum Green operator from `srcVol` to `trgVol`, or of `vol` on itself, stored
+in `Complex{T}` (`T` defaults to `dflPrc`). Volumes that share interior are built
+on their union and masked, so they must sit on a common grid.
 
-The storage precision `T` defaults to `dflPrc`; generation is done at `genPrc` and rounded once.
-
-This constructor creates an external Green function operator that describes electromagnetic interactions between distinct regions in free space. The operator maps sources in the source volume to fields in the target volume, enabling the modeling of coupling effects between different parts of an electromagnetic system. For the computation to work correctly, the source and target volumes must share a common scale grid.
-
-# Arguments
-- `trgVol::GlaVol`: The target volume where the field will be computed
-- `srcVol::GlaVol`: The source volume containing the sources
-- `dev::Backend=CPU()`: The KernelAbstractions backend to compute on
-- `prxWrn::Bool=true`: Whether to warn when the volumes are closer than a third of a wavelength
-- `frqPhz=1.0+0.0im`: Complex frequency phase factor, see `frqPhz(opt::GlaKerOpt)`
-- `genPrc=Float64`: Generation precision, see `genPrc(opt::GlaKerOpt)`
-- `qssApx::Bool=false`: Quasistatic approximation flag, see `qssApx(opt::GlaKerOpt)`
-- `shpCch::Bool=false`: Cache the far-field geometry table of each cell shape, see `GlaVacOprMem`
-
-# Returns
-- `GlaOprVac`: The vacuum Green function operator
-
+# Keywords
+- `dev::Backend=CPU()`: backend to compute on
+- `frqPhz=1.0+0.0im`: complex frequency phase factor
+- `genPrc=Float64`: precision the coefficients are generated in, then rounded once to `T`
+- `qssApx::Bool=false`: use the quasistatic kernel
+- `shpCch::Bool=false`: cache the far-field geometry table of each cell shape, see `GlaVacOprMem`
+- `prxWrn::Bool=true`: warn when two separated volumes are closer than a third of a wavelength
+- `blc=nothing`: Bloch lattice `(ax = (1, 2), P = (32, 32), θ = (0.7, 1//2))`, self
+  operator only: `vol` is the unit cell, periodic along the axes `ax` with periods
+  `P` cells and Bloch phases `θ` (radians, or exact twists θ/2π as `Rational`s),
+  G(R + Pᵢ eᵢ) = e^{-iθᵢ} G(R); see `setBlc!`
 """
 function GlaOprVac{T}(trgVol::GlaVol, srcVol::GlaVol;
     dev::Backend=CPU(), prxWrn::Bool=true, frqPhz=1.0+0.0im, genPrc=Float64,
@@ -410,13 +333,7 @@ GlaOprVac(trgVol::GlaVol, srcVol::GlaVol; dev::Backend=CPU(), prxWrn::Bool=true,
 """
     GlaOprVac(mem::GlaVacOprMem)
 
-Construct a vacuum Green function operator from a memory structure.
-
-# Arguments
-- `mem::GlaVacOprMem`: The memory structure containing the operator's data
-
-# Returns
-- `GlaOprVac`: The vacuum Green function operator
+Wrap prepared operator memory, masking the two volumes when they overlap.
 """
 function GlaOprVac(mem::GlaVacOprMem{T}) where T<:AbstractFloat
     innMsk = ntuple(_ -> 0:0, 3)
@@ -432,27 +349,6 @@ function GlaOprVac(mem::GlaVacOprMem{T}) where T<:AbstractFloat
     return GlaOprVac{T}(mem, innMsk, outMsk)
 end
 
-"""
-    GlaOprVac{T}(vol::GlaVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false, shpCch::Bool=false)
-    GlaOprVac(vol::GlaVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false, shpCch::Bool=false)
-
-Construct a vacuum Green function operator for self-interactions on a single volume.
-
-This constructor creates a self-interaction Green function operator where the source and target volumes are identical. The operator describes electromagnetic interactions within a single volume in free space, making it suitable for modeling self-coupling effects in electromagnetic systems.
-
-# Arguments
-- `vol::GlaVol`: The volume to compute the self Green function for
-- `dev::Backend=CPU()`: The KernelAbstractions backend to compute on
-- `frqPhz=1.0+0.0im`: Complex frequency phase factor, see `frqPhz(opt::GlaKerOpt)`
-- `genPrc=Float64`: Generation precision, see `genPrc(opt::GlaKerOpt)`
-- `qssApx::Bool=false`: Quasistatic approximation flag, see `qssApx(opt::GlaKerOpt)`
-- `shpCch::Bool=false`: Cache the far-field geometry table of each cell shape, see `GlaVacOprMem`
-- `blc=nothing`: Bloch lattice `(ax = (1, 2), P = (32, 32), θ = (0.7, 1//2))`: `vol` is the unit cell, periodic along the axes `ax` with periods `P` cells and Bloch phases `θ` (radians, or exact twists θ/2π as `Rational`s: `0//1`, `1//2`), G(R + Pᵢ eᵢ) = e^{-iθᵢ} G(R); see `setBlc!`
-
-# Returns
-- `GlaOprVac`: The vacuum Green function operator
-
-"""
 GlaOprVac{T}(vol::GlaVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false,
     shpCch::Bool=false, hrmPrt::Union{Nothing,Symbol}=nothing, blc=nothing) where T<:AbstractFloat =
     GlaOprVac{T}(vol, vol; dev, frqPhz, genPrc, qssApx, shpCch, hrmPrt, blc)
@@ -470,66 +366,22 @@ GlaOprVac{T}(opr::GlaOprVac) where T<:AbstractFloat =
     GlaOprVac{T}(GlaVacOprMem{T}(opr.mem), opr.srcMsk, opr.trgMsk)
 
 """
-    GlaOprVac(opr::InvSctOpr)
+    GlaOprVac(opr::Union{InvSctOpr, SctOpr, GlaOpr})
 
-Construct a vacuum Green function operator from an inverse scattering operator.
-
-# Arguments
-- `opr::InvSctOpr`: The inverse scattering operator to convert into a vacuum Green function operator
-
-# Returns
-- `GlaOprVac`: The vacuum Green function operator
+The vacuum operator inside a scattering operator, shared rather than copied.
 """
 GlaOprVac(opr::InvSctOpr) = opr.oprVac
-
-"""
-    GlaOprVac(opr::SctOpr)
-
-Construct a vacuum Green function operator from a scattering operator.
-
-# Arguments
-- `opr::SctOpr`: The scattering operator to convert into a vacuum Green function operator
-
-# Returns
-- `GlaOprVac`: The vacuum Green function operator
-"""
 GlaOprVac(opr::SctOpr) = GlaOprVac(opr.invSctOpr)
-
-"""
-    GlaOprVac(opr::GlaOpr)
-
-Construct a vacuum Green function operator from a full Green function operator.
-
-# Arguments
-- `opr::GlaOpr`: The full Green function operator to convert into a vacuum Green function operator
-
-# Returns
-- `GlaOprVac`: The vacuum Green function operator
-"""
 GlaOprVac(opr::GlaOpr) = GlaOprVac(opr.sctOpr)
 
 # A vacuum operator is already the vacuum operator the unwrapping looks for
 GlaOprVac(opr::AbstractGlaVacOpr) = opr
 
 """
-    AsyGlaOprVac{T}(vol::GlaVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false, shpCch::Bool=false)
-    AsyGlaOprVac(vol::GlaVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false, shpCch::Bool=false)
+    AsyGlaOprVac{T}(vol::GlaVol; dev, frqPhz, genPrc, qssApx, shpCch, blc)
 
-Construct the anti-Hermitian part of the vacuum Green function operator for self-interactions on a single volume.
-
-This constructor creates the anti-Hermitian part of the vacuum Green function operator, which describes the radiated components of electromagnetic interactions within a single volume in free space. This operator shows up in the fluctuation-dissipation theorem and is thus related to certain losses in the system.
-
-# Arguments
-- `vol::GlaVol`: The volume to compute the anti-Hermitian part of the vacuum Green function for
-- `dev::Backend=CPU()`: The KernelAbstractions backend to compute on
-- `frqPhz=1.0+0.0im`: Complex frequency phase factor, see `frqPhz(opt::GlaKerOpt)`
-- `genPrc=Float64`: Generation precision, see `genPrc(opt::GlaKerOpt)`
-- `qssApx::Bool=false`: Quasistatic approximation flag, see `qssApx(opt::GlaKerOpt)`
-- `shpCch::Bool=false`: Cache the far-field geometry table of each cell shape, see `GlaVacOprMem`
-- `blc=nothing`: Bloch lattice of a periodic unit cell, see `GlaOprVac`
-
-# Returns
-- `AsyGlaOprVac`: The anti-Hermitian part of the vacuum Green function operator
+The anti-Hermitian part of the self vacuum operator of `vol`, the radiative part
+that enters the fluctuation-dissipation theorem. Keywords as for `GlaOprVac`.
 """
 function AsyGlaOprVac{T}(vol::GlaVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64,
     qssApx::Bool=false, shpCch::Bool=false, blc=nothing) where T<:AbstractFloat
@@ -550,17 +402,9 @@ AsyGlaOprVac{T}(opr::AsyGlaOprVac) where T<:AbstractFloat = AsyGlaOprVac{T}(GlaV
 """
     AsyGlaOprVac(opr::GlaOprVac)
 
-Construct the anti-Hermitian part of the vacuum Green function operator from a vacuum Green function operator.
-
-This reuses the coefficients of `opr` rather than integrating again, so it
-recovers the imaginary part from a symbol the size of the real one and costs
-`eps * ‖real g‖ / ‖imag g‖`. Build from the volume when that matters.
-
-# Arguments
-- `opr::GlaOprVac`: The vacuum Green function operator to convert into its anti-Hermitian part
-
-# Returns
-- `AsyGlaOprVac`: The anti-Hermitian part of the vacuum Green function operator
+The anti-Hermitian part of a self operator, from its coefficients. Recovering the
+imaginary part from a symbol the size of the real one costs
+`eps * ‖real g‖ / ‖imag g‖` in accuracy; build from the volume when that matters.
 """
 function AsyGlaOprVac(opr::GlaOprVac{T}) where T<:AbstractFloat
     srcVol, trgVol = opr.mem.srcVol, opr.mem.trgVol
@@ -574,24 +418,9 @@ function AsyGlaOprVac(opr::GlaOprVac{T}) where T<:AbstractFloat
 end
 
 """
-    SymGlaOprVac{T}(vol::GlaVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false, shpCch::Bool=false)
-    SymGlaOprVac(vol::GlaVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false, shpCch::Bool=false)
+    SymGlaOprVac{T}(vol::GlaVol; dev, frqPhz, genPrc, qssApx, shpCch, blc)
 
-Construct the Hermitian part of the vacuum Green function operator for self-interactions on a single volume.
-
-This constructor creates the Hermitian part of the vacuum Green function operator
-
-# Arguments
-- `vol::GlaVol`: The volume to compute the anti-Hermitian part of the vacuum Green function for
-- `dev::Backend=CPU()`: The KernelAbstractions backend to compute on
-- `frqPhz=1.0+0.0im`: Complex frequency phase factor, see `frqPhz(opt::GlaKerOpt)`
-- `genPrc=Float64`: Generation precision, see `genPrc(opt::GlaKerOpt)`
-- `qssApx::Bool=false`: Quasistatic approximation flag, see `qssApx(opt::GlaKerOpt)`
-- `shpCch::Bool=false`: Cache the far-field geometry table of each cell shape, see `GlaVacOprMem`
-- `blc=nothing`: Bloch lattice of a periodic unit cell, see `GlaOprVac`
-
-# Returns
-- `SymGlaOprVac`: The Hermitian part of the vacuum Green function operator
+The Hermitian part of the self vacuum operator of `vol`. Keywords as for `GlaOprVac`.
 """
 function SymGlaOprVac{T}(vol::GlaVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64,
     qssApx::Bool=false, shpCch::Bool=false, blc=nothing) where T<:AbstractFloat
@@ -612,13 +441,7 @@ SymGlaOprVac{T}(opr::SymGlaOprVac) where T<:AbstractFloat = SymGlaOprVac{T}(GlaV
 """
     SymGlaOprVac(opr::GlaOprVac)
 
-Construct the Hermitian part of the vacuum Green function operator from a vacuum Green function operator.
-
-# Arguments
-- `opr::GlaOprVac`: The vacuum Green function operator to convert into its Hermitian part
-
-# Returns
-- `SymGlaOprVac`: The Hermitian part of the vacuum Green function operator
+The Hermitian part of a self operator, from its coefficients.
 """
 function SymGlaOprVac(opr::GlaOprVac{T}) where T<:AbstractFloat
     srcVol, trgVol = opr.mem.srcVol, opr.mem.trgVol
@@ -633,46 +456,17 @@ function SymGlaOprVac(opr::GlaOprVac{T}) where T<:AbstractFloat
 end
 
 """
-    InvSctOpr{T}(trgVol::GlaVol, srcVol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus))
-    InvSctOpr(trgVol::GlaVol, srcVol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus))
+    InvSctOpr{T}(trgVol::GlaVol, srcVol::GlaVol, sus::AbstractArray; dev=get_backend(sus), kwargs...)
+    InvSctOpr{T}(vol::GlaVol, sus::AbstractArray; dev=get_backend(sus), kwargs...)
 
-Construct an inverse scattering operator for external interactions between different volumes.
-
-# Arguments
-- `trgVol::GlaVol`: The target volume where the field will be computed
-- `srcVol::GlaVol`: The source volume containing the sources
-- `sus::AbstractArray{<:Number}`: The susceptibility, in any of the forms `SusOpr` takes, converted to `Complex{T}` on construction
-- `dev::Backend=get_backend(sus)`: The KernelAbstractions backend to compute on
-
-# Returns
-- `InvSctOpr{T}`: The inverse scattering operator, of storage precision `T` (`dflPrc` when unrequested)
-
-This constructor creates an external inverse scattering operator that describes how electromagnetic fields interact with a material medium between distinct regions. The susceptibility lives on the source volume.
-This constructor also takes the `frqPhz`, `genPrc`, `qssApx` and `shpCch` keywords of `GlaOprVac`, forwarded blindly.
+The inverse scattering operator (I - XG₀), with `sus` in any array form `SusOpr`
+takes, on the source volume. Other keywords go to `GlaOprVac`.
 """
 InvSctOpr{T}(trgVol::GlaVol, srcVol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), kwargs...) where T<:AbstractFloat =
     InvSctOpr{T}(GlaOprVac{T}(trgVol, srcVol; dev, kwargs...), sus)
 InvSctOpr(trgVol::GlaVol, srcVol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), kwargs...) =
     InvSctOpr{dflPrc}(trgVol, srcVol, sus; dev, kwargs...)
 
-"""
-    InvSctOpr{T}(vol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus))
-    InvSctOpr(vol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus))
-
-Construct an inverse scattering operator for self-interactions on a single volume.
-
-# Arguments
-- `vol::GlaVol`: The volume to compute the self-interaction for
-- `sus::AbstractArray{<:Number}`: The susceptibility tensor, either as a flat vector or a 3-tensor, converted to `Complex{T}` on construction
-- `dev::Backend=get_backend(sus)`: The KernelAbstractions backend to compute on
-
-# Returns
-- `InvSctOpr{T}`: The inverse scattering operator, of storage precision `T` (`dflPrc` when unrequested)
-
-This constructor creates a self-interaction inverse scattering operator that describes how electromagnetic fields interact with a material medium within a single volume. The susceptibility tensor can be provided either as a flat vector (which will be reshaped to match the volume dimensions) or as a 3-tensor directly. The tensor must match the dimensions of the volume.
-
-This constructor also takes the `frqPhz`, `genPrc`, `qssApx` and `shpCch` keywords of `GlaOprVac`, forwarded blindly.
-"""
 InvSctOpr{T}(vol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), kwargs...) where T<:AbstractFloat =
     InvSctOpr{T}(vol, vol, sus; dev, kwargs...)
 InvSctOpr(vol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), kwargs...) =
@@ -688,76 +482,25 @@ InvSctOpr{T}(opr::InvSctOpr) where T<:AbstractFloat =
     InvSctOpr{T}(Base.typename(typeof(opr.oprVac)).wrapper{T}(opr.oprVac), SusOpr{T}(opr.sus))
 
 """
+    InvSctOpr(opr::Union{SctOpr, GlaOpr})
 
-    InvSctOpr(sctOpr::SctOpr)
-
-Construct an inverse scattering operator from a scattering operator.
-
-# Arguments
-- `sctOpr::SctOpr`: The scattering operator to convert into an inverse scattering operator
-
-# Returns
-- `InvSctOpr`: The inverse scattering operator
+The inverse scattering operator inside `opr`, shared rather than copied.
 """
 InvSctOpr(opr::SctOpr) = opr.invSctOpr
-
-"""
-    InvSctOpr(opr::GlaOpr)
-
-Construct an inverse scattering operator from a full Green function operator.
-
-# Arguments
-- `opr::GlaOpr`: The full Green function operator to convert into an inverse scattering operator
-
-# Returns
-- `InvSctOpr`: The inverse scattering operator
-"""
 InvSctOpr(opr::GlaOpr) = InvSctOpr(opr.sctOpr)
 
 """
-    SctOpr{T}(vol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), slv::GlaSlv=GCRODRSolver())
-    SctOpr(vol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), slv::GlaSlv=GCRODRSolver())
+    SctOpr{T}(vol::GlaVol, sus::AbstractArray; dev=get_backend(sus), slv=GCRODRSolver(), kwargs...)
+    SctOpr{T}(trgVol::GlaVol, srcVol::GlaVol, sus::AbstractArray; dev=get_backend(sus), slv=GCRODRSolver(), kwargs...)
 
-Construct a scattering operator for self-interactions on a single volume.
-
-This constructor creates a self-interaction scattering operator that describes how electromagnetic fields interact with a material medium within a single volume. The susceptibility tensor can be provided either as a flat vector (which will be reshaped to match the volume dimensions) or as a 3-tensor directly. The tensor must match the dimensions of the volume.
-
-Also takes the `frqPhz`, `genPrc`, `qssApx` and `shpCch` keywords of `GlaOprVac`, forwarded blindly.
-
-# Arguments
-- `vol::GlaVol`: The volume to compute the self-interaction for
-- `sus::AbstractArray{<:Number}`: The susceptibility tensor, either as a flat vector or a 3-tensor, converted to `Complex{T}` on construction
-- `dev::Backend=get_backend(sus)`: The KernelAbstractions backend to compute on
-- `slv::GlaSlv=GCRODRSolver()`: The solver to use for solving the linear system
-
-# Returns
-- `SctOpr`: The scattering operator
+The scattering operator (I - XG₀)⁻¹, applied by solving with `slv`. `sus` as for
+`InvSctOpr`; other keywords go to `GlaOprVac`.
 """
 SctOpr{T}(vol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), slv::GlaSlv=GCRODRSolver(), kwargs...) where T<:AbstractFloat =
     SctOpr{T}(vol, vol, sus; dev, slv, kwargs...)
 SctOpr(vol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), slv::GlaSlv=GCRODRSolver(), kwargs...) =
     SctOpr{dflPrc}(vol, vol, sus; dev, slv, kwargs...)
 
-"""
-    SctOpr{T}(trgVol::GlaVol, srcVol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), slv::GlaSlv=GCRODRSolver())
-    SctOpr(trgVol::GlaVol, srcVol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), slv::GlaSlv=GCRODRSolver())
-
-Construct a scattering operator for external interactions between different volumes.
-
-This constructor creates an external scattering operator that describes how electromagnetic fields interact with a material medium between distinct regions. The susceptibility tensor can be provided either as a flat vector (which will be reshaped to match the source volume dimensions) or as a 3-tensor directly. The tensor must match the dimensions of the source volume.
-
-Also takes the `frqPhz`, `genPrc`, `qssApx` and `shpCch` keywords of `GlaOprVac`, forwarded blindly.
-
-# Arguments
-- `trgVol::GlaVol`: The target volume where the field will be computed
-- `srcVol::GlaVol`: The source volume containing the sources
-- `sus::AbstractArray{<:Number}`: The susceptibility tensor, either as a flat vector or a 3-tensor, converted to `Complex{T}` on construction
-- `dev::Backend=get_backend(sus)`: The KernelAbstractions backend to compute on
-- `slv::GlaSlv=GCRODRSolver()`: The solver to use for solving the linear system
-
-# Returns
-- `SctOpr`: The scattering operator
-"""
 function SctOpr{T}(trgVol::GlaVol, srcVol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), slv::GlaSlv=GCRODRSolver(), kwargs...) where T<:AbstractFloat
     invSctOpr = InvSctOpr{T}(trgVol, srcVol, sus; dev, kwargs...)
     return SctOpr{T}(invSctOpr, slv)
@@ -768,17 +511,7 @@ SctOpr(trgVol::GlaVol, srcVol::GlaVol, sus::AbstractArray{<:Number}; dev::Backen
 """
     SctOpr(opr::GlaOprVac, sus::AbstractArray{<:Number}; slv::GlaSlv=GCRODRSolver())
 
-Construct a scattering operator from a vacuum Green function operator.
-
-This constructor creates a scattering operator that describes how electromagnetic fields interact with a material medium based on a given vacuum Green function operator. The susceptibility tensor can be provided either as a flat vector (which will be reshaped to match the source volume dimensions) or as a 3-tensor directly. The tensor must match the dimensions of the source volume.
-
-# Arguments
-- `opr::GlaOprVac`: The vacuum Green function operator to convert into a scattering operator
-- `sus::AbstractArray{<:Number}`: The susceptibility tensor, either as a flat vector or a 3-tensor, converted to `Complex{T}` on construction
-- `slv::GlaSlv=GCRODRSolver()`: The solver to use for solving the linear system
-
-# Returns
-- `SctOpr`: The scattering operator
+The scattering operator over an existing vacuum operator, which it shares.
 """
 function SctOpr(opr::GlaOprVac{T}, sus::AbstractArray{<:Number}; slv::GlaSlv=GCRODRSolver()) where T<:AbstractFloat
     invSctOpr = InvSctOpr{T}(opr, sus)
@@ -796,60 +529,21 @@ SctOpr{T}(opr::SctOpr) where T<:AbstractFloat = SctOpr{T}(InvSctOpr{T}(opr.invSc
 """
     SctOpr(opr::GlaOpr)
 
-Construct a scattering operator from a full Green function operator.
-
-# Arguments
-- `opr::GlaOpr`: The full Green function operator to convert into a scattering operator
-
-# Returns
-- `SctOpr`: The scattering operator
+The scattering operator inside `opr`, shared rather than copied.
 """
 SctOpr(opr::GlaOpr) = opr.sctOpr
 
 """
-    GlaOpr{T}(vol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), slv::GlaSlv=GCRODRSolver())
-    GlaOpr(vol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), slv::GlaSlv=GCRODRSolver())
+    GlaOpr{T}(vol::GlaVol, sus::AbstractArray; dev=get_backend(sus), slv=GCRODRSolver(), kwargs...)
+    GlaOpr{T}(trgVol::GlaVol, srcVol::GlaVol, sus::AbstractArray; dev=get_backend(sus), slv=GCRODRSolver(), kwargs...)
 
-Construct a full Green function operator for self-interactions on a single volume.
-
-This constructor creates a self-interaction full Green function operator that combines the vacuum Green function with the scattering operator to describe electromagnetic interactions in a material medium within a single volume. The susceptibility tensor can be provided either as a flat vector (which will be reshaped to match the volume dimensions) or as a 3-tensor directly. The tensor must match the dimensions of the volume.
-
-Also takes the `frqPhz`, `genPrc`, `qssApx` and `shpCch` keywords of `GlaOprVac`, forwarded blindly.
-
-# Arguments
-- `vol::GlaVol`: The volume to compute the self-interaction for
-- `sus::AbstractArray{<:Number}`: The susceptibility tensor, either as a flat vector or a 3-tensor, converted to `Complex{T}` on construction
-- `dev::Backend=get_backend(sus)`: The KernelAbstractions backend to compute on
-- `slv::GlaSlv=GCRODRSolver()`: The solver to use for solving the linear system
-
-# Returns
-- `GlaOpr`: The full Green function operator
+The full Green operator G₀(I - XG₀)⁻¹. Arguments as for `SctOpr`.
 """
 GlaOpr{T}(vol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), slv::GlaSlv=GCRODRSolver(), kwargs...) where T<:AbstractFloat =
     GlaOpr{T}(vol, vol, sus; dev, slv, kwargs...)
 GlaOpr(vol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), slv::GlaSlv=GCRODRSolver(), kwargs...) =
     GlaOpr{dflPrc}(vol, vol, sus; dev, slv, kwargs...)
 
-"""
-    GlaOpr{T}(trgVol::GlaVol, srcVol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), slv::GlaSlv=GCRODRSolver())
-    GlaOpr(trgVol::GlaVol, srcVol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), slv::GlaSlv=GCRODRSolver())
-
-Construct a full Green function operator for external interactions between different volumes.
-
-This constructor creates an external full Green function operator that combines the vacuum Green function with the scattering operator to describe electromagnetic interactions in a material medium between distinct regions. The susceptibility tensor can be provided either as a flat vector (which will be reshaped to match the source volume dimensions) or as a 3-tensor directly. The tensor must match the dimensions of the source volume.
-
-Also takes the `frqPhz`, `genPrc`, `qssApx` and `shpCch` keywords of `GlaOprVac`, forwarded blindly.
-
-# Arguments
-- `trgVol::GlaVol`: The target volume where the field will be computed
-- `srcVol::GlaVol`: The source volume containing the sources
-- `sus::AbstractArray{<:Number}`: The susceptibility tensor, either as a flat vector or a 3-tensor, converted to `Complex{T}` on construction
-- `dev::Backend=get_backend(sus)`: The KernelAbstractions backend to compute on
-- `slv::GlaSlv=GCRODRSolver()`: The solver to use for solving the linear system
-
-# Returns
-- `GlaOpr`: The full Green function operator
-"""
 function GlaOpr{T}(trgVol::GlaVol, srcVol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), slv::GlaSlv=GCRODRSolver(), kwargs...) where T<:AbstractFloat
     sctOpr = SctOpr{T}(trgVol, srcVol, sus; dev, slv, kwargs...)
     return GlaOpr{T}(sctOpr)
@@ -860,17 +554,7 @@ GlaOpr(trgVol::GlaVol, srcVol::GlaVol, sus::AbstractArray{<:Number}; dev::Backen
 """
     GlaOpr(opr::GlaOprVac, sus::AbstractArray{<:Number}; slv::GlaSlv=GCRODRSolver())
 
-Construct a full Green function operator from a vacuum Green function operator.
-
-This constructor creates a full Green function operator that combines the vacuum Green function with the scattering operator to describe electromagnetic interactions in a material medium based on a given vacuum Green function operator. The susceptibility tensor can be provided either as a flat vector (which will be reshaped to match the source volume dimensions) or as a 3-tensor directly. The tensor must match the dimensions of the source volume.
-
-# Arguments
-- `opr::GlaOprVac`: The vacuum Green function operator to convert into a full Green function operator
-- `sus::AbstractArray{<:Number}`: The susceptibility tensor, either as a flat vector or a 3-tensor, converted to `Complex{T}` on construction
-- `slv::GlaSlv=GCRODRSolver()`: The solver to use for solving the linear system
-
-# Returns
-- `GlaOpr`: The full Green function operator
+The full Green operator over an existing vacuum operator, which it shares.
 """
 GlaOpr(opr::GlaOprVac, sus::AbstractArray{<:Number}; slv::GlaSlv=GCRODRSolver()) = GlaOpr(SctOpr(opr, sus; slv=slv))
 
@@ -882,17 +566,6 @@ Convert the storage precision of the operator, and of its susceptibility, to `T`
 GlaOpr{T}(opr::GlaOpr{T}) where T<:AbstractFloat = opr
 GlaOpr{T}(opr::GlaOpr) where T<:AbstractFloat = GlaOpr{T}(SctOpr{T}(opr.sctOpr))
 
-"""
-    GlaOpr(opr::InvSctOpr)
-
-Construct a full Green function operator from an inverse scattering operator.
-
-# Arguments
-- `opr::InvSctOpr`: The inverse scattering operator to convert into a full Green function operator
-
-# Returns
-- `GlaOpr`: The full Green function operator
-"""
 GlaOpr(opr::InvSctOpr) = GlaOpr(SctOpr(opr))
 
 Adapt.@adapt_structure GlaOprVac
@@ -906,39 +579,21 @@ Adapt.@adapt_structure GlaOpr
 """
     asym(opr::GlaOprVac)
 
-Construct the anti-Hermitian part of a vacuum Green function operator.
-
-# Arguments
-- `opr::GlaOprVac`: The vacuum Green function operator to convert into its anti-Hermitian part
-
-# Returns
-- `AsyGlaOprVac`: The anti-Hermitian part of the vacuum Green function operator
+The anti-Hermitian part of a self vacuum operator, see `AsyGlaOprVac`.
 """
 asym(opr::GlaOprVac) = AsyGlaOprVac(opr)
 
 """
     sym(opr::GlaOprVac)
 
-Construct the -ermitian part of a vacuum Green function operator.
-
-# Arguments
-- `opr::GlaOprVac`: The vacuum Green function operator to convert into its Hermitian part
-
-# Returns
-- `SymGlaOprVac`: The Hermitian part of the vacuum Green function operator
+The Hermitian part of a self vacuum operator, see `SymGlaOprVac`.
 """
 sym(opr::GlaOprVac) = SymGlaOprVac(opr)
 
 """
     isadjoint(opr::AbstractGlaOpr)
 
-Checks if the operator is the adjoint of the Green operator.
-
-# Arguments
-- `opr::AbstractGlaOpr`: The operator to check.
-
-# Returns
-- `true` if the operator is the adjoint, `false` otherwise.
+Whether `opr` is in adjoint mode, see `adjoint!`.
 """
 isadjoint(opr::GlaOprVac) = opr.mem.cmpInf.adjMod
 isadjoint(opr::SusOpr) = opr.adjMod
@@ -950,13 +605,7 @@ isadjoint(opr::GlaOpr) = isadjoint(opr.sctOpr)
 """
     isquasistatic(opr::AbstractGlaOpr)
 
-Checks if the operator was built from the quasistatic Green function rather than the full one.
-
-# Arguments
-- `opr::AbstractGlaOpr`: The operator to check.
-
-# Returns
-- `true` if the operator is quasistatic, `false` otherwise.
+Whether `opr` was built from the quasistatic Green function rather than the full one.
 """
 isquasistatic(opr::Union{GlaOprVac, AsyGlaOprVac, SymGlaOprVac}) = opr.mem.cmpInf.qssApx
 isquasistatic(::SusOpr) = false
@@ -967,13 +616,7 @@ isquasistatic(opr::GlaOpr) = isquasistatic(opr.sctOpr)
 """
     isselfoperator(opr::AbstractGlaOpr)
 
-Checks if the operator is a self Green operator.
-
-# Arguments
-- `opr::AbstractGlaOpr`: The operator to check.
-
-# Returns
-- `true` if the operator is a self Green operator, `false` otherwise.
+Whether `opr` maps a volume to itself.
 """
 isselfoperator(opr::GlaOprVac) = (opr.mem.srcVol == opr.mem.trgVol) && all(==(0:0), opr.srcMsk) && all(==(0:0), opr.trgMsk)
 isselfoperator(::Union{AsyGlaOprVac, SymGlaOprVac}) = true # Both are always self operators
@@ -983,15 +626,9 @@ isselfoperator(opr::SctOpr) = isselfoperator(opr.invSctOpr)
 isselfoperator(opr::GlaOpr) = isselfoperator(opr.sctOpr)
 
 """
-    isexternaloperator(opr::GlaOprVac)
+    isexternaloperator(opr::AbstractGlaOpr)
 
-Checks if the operator is an external Green operator.
-
-# Arguments
-- `opr::GlaOprVac`: The operator to check.
-
-# Returns
-- `true` if the operator is an external Green operator, `false` otherwise.
+Whether `opr` maps between two volumes that share no interior.
 """
 isexternaloperator(opr::GlaOprVac) = opr.mem.srcVol != opr.mem.trgVol && all(==(0:0), opr.srcMsk) && all(==(0:0), opr.trgMsk)
 isexternaloperator(::Union{AsyGlaOprVac, SymGlaOprVac}) = false # Both are always self operators
@@ -1001,15 +638,9 @@ isexternaloperator(opr::SctOpr) = isexternaloperator(opr.invSctOpr)
 isexternaloperator(opr::GlaOpr) = isexternaloperator(opr.sctOpr)
 
 """
-    isoverlappingoperator(opr::GlaOprVac)
+    isoverlappingoperator(opr::AbstractGlaOpr)
 
-Checks if the operator is an overlapping Green operator.
-
-# Arguments
-- `opr::GlaOprVac`: The operator to check.
-
-# Returns
-- `true` if the operator is an overlapping Green operator, `false` otherwise.
+Whether `opr` maps between two distinct volumes that share interior, built on their union and masked.
 """
 isoverlappingoperator(::AbstractGlaVacOpr) = false # Only the masked routes overlap
 isoverlappingoperator(opr::GlaOprVac) = !(isselfoperator(opr) || isexternaloperator(opr))
@@ -1030,16 +661,10 @@ KernelAbstractions.get_backend(opr::SctOpr) = get_backend(opr.invSctOpr)
 KernelAbstractions.get_backend(opr::GlaOpr) = get_backend(opr.sctOpr)
 
 """
-    setSus!(opr::InvSctOpr, sus::AbstractArray{<:Number})
+    setSus!(opr::Union{InvSctOpr, SctOpr, GlaOpr}, sus)
 
-Sets the susceptibility tensor for the inverse scattering operator.
-
-# Arguments
-- `opr::InvSctOpr`: The inverse scattering operator to modify.
-- `sus`: The new susceptibility, in any of the forms `SusOpr` takes, converted to the precision of the operator.
-
-# Returns
-- The modified operator with the new susceptibility tensor set.
+Replace the susceptibility of `opr`, given as a `SusOpr` or in any form `SusOpr`
+takes, converted to the precision of `opr`. Returns `opr`.
 """
 function setSus!(opr::InvSctOpr{T}, sus) where T<:AbstractFloat
     opr.sus = sus isa SusOpr ? sus :
@@ -1047,35 +672,11 @@ function setSus!(opr::InvSctOpr{T}, sus) where T<:AbstractFloat
     return opr
 end
 
-"""
-    setSus!(opr::SctOpr, sus::AbstractArray{<:Number})
-
-Sets the susceptibility tensor for the scattering operator.
-
-# Arguments
-- `opr::SctOpr`: The scattering operator to modify.
-- `sus::AbstractArray{<:Number}`: The new susceptibility tensor, either as a flat vector or a 3-tensor, converted to the precision of the operator.
-
-# Returns
-- The modified operator with the new susceptibility tensor set.
-"""
 function setSus!(opr::SctOpr, sus)
     setSus!(opr.invSctOpr, sus)
     return opr
 end
 
-"""
-    setSus!(opr::GlaOpr, sus::AbstractArray{<:Number})
-
-Sets the susceptibility tensor for the full Green function operator.
-
-# Arguments
-- `opr::GlaOpr`: The full Green function operator to modify.
-- `sus::AbstractArray{<:Number}`: The new susceptibility tensor, either as a flat vector or a 3-tensor, converted to the precision of the operator.
-
-# Returns
-- The modified operator with the new susceptibility tensor set.
-"""
 function setSus!(opr::GlaOpr, sus)
     setSus!(opr.sctOpr, sus)
     return opr
@@ -1092,13 +693,8 @@ setBlc!(opr::AbstractGlaVacOpr, θ::Tuple) = (setBlc!(opr.mem, θ); opr)
 """
     slv(opr::AbstractGlaOpr)
 
-Returns the solver associated with the operator.
-
-# Arguments
-- `opr::AbstractGlaOpr`: The operator for which to get the solver.
-
-# Returns
-- The solver used by the operator, which is always a `GlaSlv` instance.
+The solver `opr` uses for `\\` and for applying (I - XG₀)⁻¹; a default
+`GCRODRSolver()` for vacuum operators.
 """
 slv(::AbstractGlaVacOpr) = GilaSolvers.GCRODRSolver() # Default solver
 slv(opr::InvSctOpr) = slv(opr.oprVac)
@@ -1108,17 +704,9 @@ slv(opr::GlaOpr) = opr.sctOpr.slv
 """
     sus(opr::AbstractGlaOpr)
 
-Returns the susceptibility operator of a scattering operator.
-
-The operator returned is the one the scattering operator applies rather than a
-copy, so an `adjoint!` on either is seen by both. `setSus!` replaces it, which
-leaves an earlier handle on the susceptibility it replaced.
-
-# Arguments
-- `opr::AbstractGlaOpr`: The operator for which to get the susceptibility.
-
-# Returns
-- `SusOpr`: The susceptibility operator X of `opr`.
+The susceptibility operator X of a scattering operator, shared rather than
+copied, so an `adjoint!` on either is seen by both. `setSus!` replaces it, and an
+earlier handle keeps the old one.
 """
 sus(opr::InvSctOpr) = opr.sus
 sus(opr::SctOpr) = sus(opr.invSctOpr)
