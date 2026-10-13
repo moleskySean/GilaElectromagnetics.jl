@@ -51,7 +51,8 @@ The buffer holds √ΔV times the current density coefficient of each degree of
 freedom, with ΔV the cell volume of the region the degree of freedom belongs to.
 In this basis the Euclidean inner product of two fields is their physical L²
 pairing, so `dot` and `norm` can be used as-is. `discretize!` and `regrid` convert
-between densities and stored coefficients. On a uniform mesh the √ΔV factor is
+between densities and stored coefficients; from a flat density vector `c`, the
+buffer is `sqrt.(cellvolumes(cvol)) .* c`. On a uniform mesh the √ΔV factor is
 only one global scalar and the basis is the usual one (up to that scalar).
 
 The layout inside the buffer is the flat degree of freedom layout of

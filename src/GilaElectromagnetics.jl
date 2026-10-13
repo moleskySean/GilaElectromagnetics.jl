@@ -25,6 +25,7 @@ include("glaFld.jl")
 using .GilaFields
 export GlaFld, MultiScaleField, zerofield, discretize!, regionview, eachregion, regrid
 
+# The G₀ kernel: memory, generation, FFT action
 include("vacuum/glaVac.jl")
 using .GilaVacuum
 export GlaKerOpt, GlaVacOprMem
@@ -34,7 +35,8 @@ using .GilaSolvers
 export GMRESSolver, GCRODRSolver, RcySpc, BiCGStabSolver, MixPrcRfn, SlvLog, solve, isvarying
 export MixedPrecisionRefinement
 
-include("glaOpr.jl")
+# The linear operators built on the kernel
+include("operators/glaOpr.jl")
 using .GilaOperators
 export GlaOprVac, AsyGlaOprVac, SymGlaOprVac, GlaCmpOprVac, AsyGlaCmpOprVac, SymGlaCmpOprVac, InvSctOpr, SctOpr, GlaOpr, SusOpr
 export VacuumGreenOperator, AsymVacuumGreenOperator, SymVacuumGreenOperator, CompositeVacuumGreenOperator, AsymCompositeVacuumGreenOperator, SymCompositeVacuumGreenOperator, InverseScatteringOperator, ScatteringOperator, GreenOperator, SusceptibilityOperator
