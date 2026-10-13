@@ -53,7 +53,7 @@ const sctOne = GlaCmpVol(GlaVol((2, 2, 2), scl16, stdOrg))
     @test isselfoperator(sctInv)
     @test !isexternaloperator(sctInv)
     @test !isadjoint(sctInv)
-    @test !isgpu(sctInv)
+    @test get_backend(sctInv) isa CPU
     @test !isoverlappingoperator(sctInv)
     @test glaSze(sctInv) == glaSze(sctVac)
     @test slv(sctInv) isa GlaSlv
@@ -220,18 +220,18 @@ end
 end
 
 @testset "Composite scattering GPU" begin
-    if CUDA.functional()
-        oprGpu = InvSctOpr{Float64}(sctCvl, sctChi; useGpu=true)
-        @test isgpu(oprGpu)
-        @test sus(oprGpu).sus isa CuVector{ComplexF64}
-        fldGpu = discretize!(zerofield(Float64, sctCvl; useGpu=true), sctCur)
+    @testset "$(nameof(typeof(dev))) $T" for dev in gpuBackends, T in gpuPrcs(dev)
+        oprGpu = InvSctOpr{T}(sctCvl, sctChi; dev)
+        @test get_backend(oprGpu) isa typeof(dev)
+        @test get_backend(sus(oprGpu).sus) isa typeof(dev)
+        fldGpu = discretize!(zerofield(T, sctCvl; dev), sctCur)
         outGpu = oprGpu * fldGpu
         @test outGpu isa GlaFld
-        @test parent(outGpu) isa CuVector{ComplexF64}
-        fldCpu = discretize!(zerofield(Float64, sctCvl), sctCur)
-        outCpu = sctInv * fldCpu
-        @test norm(Array(outGpu.dat) - outCpu.dat) < 1e-10 * norm(outCpu.dat)
+        @test get_backend(outGpu) isa typeof(dev)
+        fldCpu = discretize!(zerofield(T, sctCvl), sctCur)
+        outCpu = InvSctOpr{T}(sctCvl, sctChi) * fldCpu
+        @test norm(Array(outGpu.dat) - outCpu.dat) < gpuTol(T) * norm(outCpu.dat)
         sctGpu = SctOpr(oprGpu.oprVac, sctChi)
-        @test norm((oprGpu * (sctGpu * fldGpu)).dat - fldGpu.dat) < 1e-6 * norm(fldGpu.dat)
+        @test norm((oprGpu * (sctGpu * fldGpu)).dat - fldGpu.dat) < 1e-4 * norm(fldGpu.dat)
     end
 end

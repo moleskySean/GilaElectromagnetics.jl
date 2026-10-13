@@ -1,5 +1,4 @@
 using LinearAlgebra
-using CUDA
 
 """
     glaSze(opr::AbstractGlaOpr)
@@ -56,10 +55,7 @@ Base.size(opr::GlaOpr) = size(opr.sctOpr)
 Base.size(opr::Union{InvSctOpr, SctOpr, GlaOpr}, i::Int) = size(opr)[i]
 
 # A work array of the requested shape on the device the operator computes with
-function Base.similar(opr::AbstractGlaOpr, ::Type{T}, dims::Tuple{Vararg{Int}}) where T
-    arrTyp(opr) <: CuArray && return CuArray{T}(undef, dims...)
-    return Array{T}(undef, dims...)
-end
+Base.similar(opr::AbstractGlaOpr, ::Type{T}, dims::Tuple{Vararg{Int}}) where T = allocate(get_backend(opr), T, dims)
 Base.similar(opr::AbstractGlaOpr, dims::Tuple{Vararg{Int}}) = similar(opr, eltype(opr), dims)
 
 #= The shape methods an AbstractArray would have supplied. Densification is asked
@@ -84,9 +80,9 @@ function Base.getindex(opr::AbstractGlaOpr, row::GlaIdx, col::GlaIdx)
         indexing of an AbstractGlaOpr. This is typically caused by calling an iterating
         implementation of a method. Single element access ($row, $col) does a costly full
         matrix-vector product."""
-        e = fill!(arrTyp(opr)(undef, size(opr, 2)), zero(eltype(opr)))
-        CUDA.@allowscalar e[col] = one(eltype(opr))
-        return CUDA.@allowscalar (opr * e)[row]
+        e = zeros(T, size(opr, 2))
+        e[col] = one(T)
+        return Array(opr * adapt(get_backend(opr), e))[row]
     end
 
     rowInd = row isa Integer ? [row] : collect(row)
@@ -96,21 +92,21 @@ function Base.getindex(opr::AbstractGlaOpr, row::GlaIdx, col::GlaIdx)
     if length(rowInd) <= length(colInd)
         # Forward batched mat–vec
         # build a mini‐identity with 1‑hots in the input slots
-        idt = fill!(arrTyp(opr)(undef, numCol, length(colInd)), zero(T))
+        idt = zeros(T, numCol, length(colInd))
         for (j, idx) in enumerate(colInd)
-            CUDA.@allowscalar idt[idx, j] = one(T)
+            idt[idx, j] = one(T)
         end
-        out = opr * idt
+        out = opr * adapt(get_backend(opr), idt)
         res = out[rowInd, :]
     else
         # Adjoint batched vec–mat
         # mini‑identity in the output slots
-        idt = fill!(arrTyp(opr)(undef, numRow, length(rowInd)), zero(T))
+        idt = zeros(T, numRow, length(rowInd))
         for (i, idx) in enumerate(rowInd)
-            CUDA.@allowscalar idt[idx, i] = one(T)
+            idt[idx, i] = one(T)
         end
         adjOpr = adjoint!(opr) # Compute with the adjoint operator
-        outDag = adjOpr * idt
+        outDag = adjOpr * adapt(get_backend(adjOpr), idt)
         adjoint!(adjOpr) # Restore the memory the caller's operator still points at
         res = copy(outDag[colInd, :]')
     end
@@ -189,9 +185,10 @@ end
 
 # The buffer the primitive consumes, on the device the operator computes with
 function _devCpy(opr::AbstractGlaOpr, inp::AbstractVector{<:Complex})
-    if isgpu(opr) && !(inp isa CuArray)
-        @warn "Input array is not a CuArray. Copying data to GPU."
-        return CuArray(inp) # The conversion is itself the defensive copy
+    dev = get_backend(opr)
+    if !(get_backend(inp) isa typeof(dev))
+        @warn "Input array is not on the operator's $(nameof(typeof(dev))) backend. Copying data there."
+        return adapt(dev, Array(inp)) # The conversion is itself the defensive copy
     end
     return copy(inp)
 end
@@ -216,6 +213,7 @@ function LinearAlgebra.mul!(out::AbstractVector{Complex{T}}, opr::AbstractGlaOpr
     if length(inp) != size(opr, 2) || length(out) != size(opr, 1)
         throw(ArgumentError("An input of length $(length(inp)) and an output of length $(length(out)) do not fit this operator, which maps $(size(opr, 2)) degrees of freedom to $(size(opr, 1))."))
     end
+    α, β = Complex{T}(α), Complex{T}(β)
     if iszero(α)
         iszero(β) ? fill!(out, zero(eltype(out))) : rmul!(out, β)
         return out
@@ -285,6 +283,7 @@ apply the normalization, and only the combine happens here. As in the vector
 method, out is never read when β is zero and the operator, which may hide an
 iterative solve, is never applied when α is zero. =#
 function LinearAlgebra.mul!(out::GlaFld{T}, opr::AbstractGlaOpr{T}, inp::GlaFld{T}, α::Number, β::Number) where T<:AbstractFloat
+    α, β = Complex{T}(α), Complex{T}(β)
     if iszero(α)
         iszero(β) ? fill!(out, zero(eltype(out))) : rmul!(out, β)
         return out

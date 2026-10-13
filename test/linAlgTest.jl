@@ -17,10 +17,11 @@
     @test_throws MethodError similar(opr)
     @test_throws MethodError similar(opr, Float64)
 
-    if CUDA.functional()
-        gOpr = GlaOprVac{Float64}(_vol2s; useGpu=true)
-        @test similar(gOpr, (5,)) isa CuArray
-        @test similar(gOpr, Float32, (5,)) isa CuArray{Float32}
+    @testset "$(nameof(typeof(dev)))" for dev in gpuBackends
+        gOpr = GlaOprVac{Float32}(_vol2s; dev)
+        @test get_backend(similar(gOpr, (5,))) isa typeof(dev)
+        s = similar(gOpr, Float32, (5,))
+        @test get_backend(s) isa typeof(dev) && eltype(s) == Float32
     end
 end
 

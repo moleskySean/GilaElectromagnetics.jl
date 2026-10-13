@@ -2,11 +2,11 @@ using Test, Logging, GilaElectromagnetics
 
 prxVol(xOrg) = GlaVol((4, 4, 4), scl16, (xOrg, 0//1, 0//1))
 prxMem(opt, xOrg) = GlaVacOprMem(opt, prxVol(0//1), prxVol(xOrg))
-prxLsy() = (opt = CPUKerOpt{Float64}(); opt.frqPhz = 1.0 + 0.3im; opt)
+prxLsy() = (opt = GlaKerOpt{Float64}(); opt.frqPhz = 1.0 + 0.3im; opt)
 
 @testset "Proximity warns under a third of a wavelength" begin
-    @test_logs (:warn, r"third of a wavelength") prxMem(CPUKerOpt{Float64}(), 6//16)
-    @test_logs min_level = Logging.Warn prxMem(CPUKerOpt{Float64}(), 10//16)
+    @test_logs (:warn, r"third of a wavelength") prxMem(GlaKerOpt{Float64}(), 6//16)
+    @test_logs min_level = Logging.Warn prxMem(GlaKerOpt{Float64}(), 10//16)
 end
 
 @testset "Proximity says to measure when lossy" begin
@@ -15,9 +15,9 @@ end
 end
 
 @testset "Proximity skips touching, self and suppressed" begin
-    @test_logs min_level = Logging.Warn prxMem(CPUKerOpt{Float64}(), 4//16)
-    @test_logs min_level = Logging.Warn GlaVacOprMem(CPUKerOpt{Float64}(), prxVol(0//1))
-    @test_logs min_level = Logging.Warn GlaVacOprMem(CPUKerOpt{Float64}(),
+    @test_logs min_level = Logging.Warn prxMem(GlaKerOpt{Float64}(), 4//16)
+    @test_logs min_level = Logging.Warn GlaVacOprMem(GlaKerOpt{Float64}(), prxVol(0//1))
+    @test_logs min_level = Logging.Warn GlaVacOprMem(GlaKerOpt{Float64}(),
         prxVol(0//1), prxVol(6//16); prxWrn = false)
 end
 

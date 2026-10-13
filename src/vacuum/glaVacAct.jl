@@ -1,4 +1,3 @@
-using CUDA
 using KernelAbstractions
 
 """
@@ -71,7 +70,7 @@ function egoBrn!(egoMem::GlaVacOprMem, lvl::Integer, bId::Integer, actVec::Abstr
             # allocate progeny vectors
             prgVecEve = similar(orgVec, prgSze..., 3, parNumSrc)
             prgVecOdd = similar(orgVec, prgSze..., 3, parNumSrc)
-            sncGpu(cmpInf)
+            synchronize(cmpInf.dev)
             # memory previously associated with orgVec is freed internally
             sptBrn!(prgVecEve, prgVecOdd, lvl + 1, egoMem.phzInf[lvl+1],
                 egoMem.mixInf, parNumSrc, orgVec, egoMem.cmpInf)
@@ -103,11 +102,10 @@ function egoBrn!(egoMem::GlaVacOprMem, lvl::Integer, bId::Integer, actVec::Abstr
     else
         retVec = similar(orgVec, brnSze..., 3, parNumTrg)
         fill!(retVec, zero(eltype(retVec)))
-        sncGpu(cmpInf)
+        synchronize(cmpInf.dev)
         # multiply by Toeplitz vector, avoid race condition DO NOT SPAWN!
         for trgItr in eachindex(1:parNumTrg) 
             for srcItr in eachindex(1:parNumSrc) 
-                # CUDA stream is synchronized inside mulBrn!
                 mulBrn!(egoMem.mixInf, bId, selectdim(retVec, 5, trgItr),
                 view(egoMem.egoFur[bId + 1], :, :, :, :, srcItr, trgItr), 
                 selectdim(orgVec, 5, srcItr), egoMem.cmpInf)
@@ -123,7 +121,7 @@ function egoBrn!(egoMem::GlaVacOprMem, lvl::Integer, bId::Integer, actVec::Abstr
         invFFT!(egoMem, lvl, retVec, cmpInf)
     end
     # terminate task and return control to previous level 
-    sncGpu(cmpInf)
+    synchronize(cmpInf.dev)
     # zero level return
     if lvl == 0
         # check if there are partitions that need to be merged
@@ -144,7 +142,7 @@ function fwdFFT!(egoMem::GlaVacOprMem, lvl::Int, actVec::AbstractArray{<:Complex
         egoMem.fftPlnFwd[lvl] * actVec
     end
     # wait for completion of FFT
-    sncGpu(cmpInf)
+    synchronize(cmpInf.dev)
 end
 
 function invFFT!(egoMem::GlaVacOprMem, lvl::Int, actVec::AbstractArray{<:Complex}, cmpInf::GlaKerOpt)
@@ -155,26 +153,18 @@ function invFFT!(egoMem::GlaVacOprMem, lvl::Int, actVec::AbstractArray{<:Complex
         egoMem.fftPlnRev[lvl] * actVec
     end
     # wait for completion of FFT
-    sncGpu(cmpInf)
+    synchronize(cmpInf.dev)
 end
 
-function egoBrnExe!(egoMem::GlaVacOprMem, prgVecEve::AbstractArray{<:Complex}, prgVecOdd::AbstractArray{<:Complex}, lvl::Int, bId::Int, cmpInf::CPUKerOpt)
+function egoBrnExe!(egoMem::GlaVacOprMem, prgVecEve::AbstractArray{<:Complex}, prgVecOdd::AbstractArray{<:Complex}, lvl::Int, bId::Int, cmpInf::GlaKerOpt)
     # Branches run sequentially: concurrent execution of the same FFTW plan from
     # multiple Julia tasks causes segfaults due to shared internal scratch space.
-    eveVec = egoBrn!(egoMem, lvl + 1, bId, prgVecEve, cmpInf)
-    oddVec = egoBrn!(egoMem, lvl + 1, nxtBrnId(length(egoMem.dimInf), lvl, bId), prgVecOdd, cmpInf)
-    return eveVec, oddVec
-end
-
-function egoBrnExe!(egoMem::GlaVacOprMem, prgVecEve::AbstractArray{<:Complex}, prgVecOdd::AbstractArray{<:Complex}, lvl::Int, bId::Int, cmpInf::GPUKerOpt)
     # !async causes errors + no speed up!
-    # even branch
     eveVec = egoBrn!(egoMem, lvl + 1, bId, prgVecEve, cmpInf)
     # !wait for even branch to return, functionality choice!
     if lvl < length(egoMem.dimInf) - 1
-        CUDA.synchronize(CUDA.stream()) 
+        synchronize(cmpInf.dev)
     end
-    # phase modified branch
     oddVec = egoBrn!(egoMem, lvl + 1, nxtBrnId(length(egoMem.dimInf), lvl, bId), prgVecOdd, cmpInf)
     return eveVec, oddVec
 end
@@ -265,7 +255,7 @@ function mulBrn!(mixInf::GlaExtInf, bId::Integer, prdVec::AbstractArray{<:Comple
                      symSgn[1,divItr + 1] * symSgn[3,divItr + 1],
                      symSgn[2,divItr + 1] * symSgn[3,divItr + 1]]))
                 # perform Hadamard product
-                krn = mulKer!(bckEnd(cmpInf))
+                krn = mulKer!(cmpInf.dev)
                 krn(view(prdVec, vecRng[1, divItr + 1], vecRng[2, divItr + 1], vecRng[3, divItr + 1], :),
                     view(vecMod, modRng[1, divItr + 1], modRng[2, divItr + 1], modRng[3, divItr + 1], :),
                     view(orgVec, vecRng[1, divItr + 1], vecRng[2, divItr + 1], vecRng[3, divItr + 1], :),
@@ -274,7 +264,6 @@ function mulBrn!(mixInf::GlaExtInf, bId::Integer, prdVec::AbstractArray{<:Comple
 			end
 		end
 	end
-    memCln!(dimInf, dirSym)
 	return nothing
 end
 @kernel function mulKer!(prdVec::AbstractArray{<:Complex, 4}, vecMod::AbstractArray{<:Complex, 4}, orgVec::AbstractArray{<:Complex, 4}, dirSym::NTuple{3, Float32})

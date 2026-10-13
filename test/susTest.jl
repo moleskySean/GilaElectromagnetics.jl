@@ -23,7 +23,7 @@ susVec() = randn(ComplexF64, 24)
     @test glaSze(isoOpr) == ((2, 2, 2, 3), (2, 2, 2, 3))
     @test isselfoperator(isoOpr) && !isexternaloperator(isoOpr)
     @test !isoverlappingoperator(isoOpr) && !isquasistatic(isoOpr) && !isadjoint(isoOpr)
-    @test !isgpu(isoOpr)
+    @test get_backend(isoOpr) isa CPU
     @test SusOpr(susVol, 0.5) isa SusOpr{dflPrc}
     @test occursin("X", sprint(show, isoOpr))
     # Every accepted input, against the same reference

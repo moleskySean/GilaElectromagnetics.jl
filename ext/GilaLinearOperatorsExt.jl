@@ -2,7 +2,6 @@
 module GilaLinearOperatorsExt
 
 using GilaElectromagnetics
-using GilaElectromagnetics: arrTyp
 using LinearAlgebra: mul!
 import LinearOperators
 import LinearOperators: LinearOperator
@@ -19,7 +18,7 @@ function LinearOperators.LinearOperator(opr::AbstractGlaOpr)
     end
     is_symmetric = false
     is_hermitian = false
-    return LinearOperator(T, m, n, is_symmetric, is_hermitian, fwd!, nothing, adj!; S=arrTyp(opr))
+    return LinearOperator(T, m, n, is_symmetric, is_hermitian, fwd!, nothing, adj!; S=typeof(similar(opr, (0,))))
 end
 
 end

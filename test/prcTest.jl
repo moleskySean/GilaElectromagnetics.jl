@@ -3,7 +3,6 @@
 correctly rounded image of the fp64 one and every accuracy bound below is a
 statement about that single rounding, not about fp32 arithmetic in the build. =#
 using Test, GilaElectromagnetics, LinearAlgebra, LinearMaps, Serialization, CUDA
-import GilaElectromagnetics.GilaVacuum: arrTyp, useGpu
 import GilaElectromagnetics.GilaOperators: setSus!, invMul!, invMulAdj!
 import GilaElectromagnetics.GilaSolvers: slvPrm
 
@@ -15,8 +14,8 @@ const prcSus32 = mkSus(Float32, (4,4,4))
 const prcSus64 = mkSus((4,4,4))
 
 # The fp32 twins of tstHlp's _selfMem4 / _extMem4, generated independently
-const prcSlfMem32 = GlaVacOprMem(CPUKerOpt{Float32}(), prcVol)
-const prcExtMem32 = GlaVacOprMem(CPUKerOpt{Float32}(), prcTrg, prcVol)
+const prcSlfMem32 = GlaVacOprMem(GlaKerOpt{Float32}(), prcVol)
+const prcExtMem32 = GlaVacOprMem(GlaKerOpt{Float32}(), prcTrg, prcVol)
 
 prcG032() = GlaOprVac(prcSlfMem32)
 
@@ -55,8 +54,7 @@ end
 
 @testset "Default precision" begin
     @test dflPrc === Float32
-    @test CPUKerOpt() isa CPUKerOpt{Float32}
-    @test GPUKerOpt() isa GPUKerOpt{Float32}
+    @test GlaKerOpt() isa GlaKerOpt{Float32, CPU}
     @test prcDflOpr isa GlaOprVac{Float32}
     @test zerofield(GlaCmpVol(prcVol2)) isa GlaFld{Float32}
     @test zerofield(prcVol2) isa GlaFld{Float32}
@@ -67,34 +65,33 @@ end
 end
 
 @testset "Construction and traits" begin
-    @test CPUKerOpt{Float32}() isa CPUKerOpt{Float32}
-    @test arrTyp(CPUKerOpt{Float32}()) == Array{ComplexF32}
-    @test arrTyp(GPUKerOpt{Float32}()) == CuArray{ComplexF32}
+    @test GlaKerOpt{Float32}() isa GlaKerOpt{Float32, CPU}
+    @test GlaKerOpt{Float32}(GlaKerOpt{Float64}()) isa GlaKerOpt{Float32, CPU}
     @test prcSlfMem32 isa GlaVacOprMem{Float32}
     @test eltype(first(prcSlfMem32.egoFur)) == ComplexF32
     @test eltype(first(prcSlfMem32.phzInf)) == ComplexF32
-    # useGpu only builds the options object, so it runs without a device
-    @test useGpu(CPUKerOpt{Float32}()) isa GPUKerOpt{Float32}
-    @test useGpu(CPUKerOpt{Float64}()) isa GPUKerOpt{Float64}
 
     # generation at Float32 returns NaN, and the options are mutable, so the guard has
     # to sit on the assignment as well as on the constructor
-    prcOptGen = CPUKerOpt{Float64}()
-    @test_throws ArgumentError CPUKerOpt{Float64}(1.0+0.0im, Float32, false, false, prcOptGen.bckEnd)
+    prcOptGen = GlaKerOpt{Float64}()
+    @test_throws ArgumentError GlaKerOpt{Float64}(1.0+0.0im, Float32, false, false, prcOptGen.dev)
     @test_throws ArgumentError (prcOptGen.genPrc = Float32)
-    @test_throws ArgumentError (useGpu(prcOptGen).genPrc = Float32)
     prcOptGen.genPrc = Float64
     prcOptGen.frqPhz = 1.0 + 0.1im
     @test prcOptGen.genPrc === Float64
     @test prcOptGen.frqPhz == 1.0 + 0.1im
+
+    # A backend without Float64 (Metal, OpenCL per KernelAbstractions' trait) refuses fp64 storage
+    @testset "$(nameof(typeof(dev)))" for dev in gpuBackends
+        supports_float64(dev) || @test_throws ArgumentError GlaKerOpt{Float64}(dev)
+    end
 
     opr32 = prcG032()
     @test eltype(opr32) == ComplexF32
     @test eltype(typeof(opr32)) == ComplexF32
     @test eltype(similar(opr32, (4,))) == ComplexF32
     @test size(opr32) == (192, 192)
-    @test !isgpu(opr32)
-    @test arrTyp(opr32) == Array{ComplexF32}
+    @test get_backend(opr32) isa CPU
     @test isselfoperator(opr32)
     for opr in (AsyGlaOprVac(opr32), SymGlaOprVac(opr32), GlaOprVac(prcExtMem32),
         InvSctOpr(opr32, prcSus32), SctOpr(opr32, prcSus32), GlaOpr(opr32, prcSus32))
@@ -196,6 +193,14 @@ end
     # A converted composite is the composite that would have been built directly
     @test dnsMat(GlaCmpOprVac{Float32}(prcCmp64)) == prcCmpDns32
     @test sus(InvSctOpr{Float32}(InvSctOpr(_g0(), prcSus64))).sus == repeat(vec(prcSus32), 3)
+
+    # An adjoint between unequal volumes converts, copies and moves with its plans intact
+    adj = adjoint!(GlaOprVac{Float64}(mkVol((6,4,8); org=extOrg), mkVol((4,4,4))))
+    x = rand(ComplexF64, size(adj, 2))
+    ref = adj * x
+    @test norm(GlaOprVac(GlaVacOprMem{Float32}(adj.mem)) * ComplexF32.(x) - ref) < 1e-6 * norm(ref)
+    @test deepcopy(adj) * x == ref
+    @test adapt(CPU(), adj) * x == ref
 end
 
 @testset "Mixed precision throws" begin
@@ -356,11 +361,12 @@ end
 end
 
 @testset "Mixed precision refinement GPU" begin
-    if CUDA.functional()
+    @testset "$(nameof(typeof(dev)))" for dev in gpuBackends
+        supports_float64(dev) || continue
         vol = prcVol
-        sus = CuArray(prcSus64)
-        opr = InvSctOpr(GlaOprVac{Float64}(vol; useGpu=true), sus)
-        b = CUDA.rand(ComplexF64, 192)
+        sus = adapt(dev, prcSus64)
+        opr = InvSctOpr(GlaOprVac{Float64}(vol; dev), sus)
+        b = adapt(dev, rand(ComplexF64, 192))
         b ./= norm(b)
         sol = solve(opr, copy(b), MixPrcRfn(Float32; relTol=1e-10))
         @test eltype(sol) == ComplexF64
@@ -374,7 +380,7 @@ end
     seekstart(buf)
     memDes = deserialize(buf)
     @test memDes isa GlaVacOprMem{Float32}
-    @test memDes.cmpInf isa CPUKerOpt{Float32}
+    @test memDes.cmpInf isa GlaKerOpt{Float32}
     for (furDes, fur32) in zip(memDes.egoFur, prcSlfMem32.egoFur)
         @test furDes == fur32
     end
@@ -399,21 +405,20 @@ end
 end
 
 @testset "Float32 GPU" begin
-    if CUDA.functional()
-        opr32 = GlaOprVac{Float32}(prcVol; useGpu=true)
-        @test isgpu(opr32)
+    @testset "$(nameof(typeof(dev)))" for dev in gpuBackends
+        opr32 = GlaOprVac{Float32}(prcVol; dev)
+        @test get_backend(opr32) isa typeof(dev)
         @test eltype(opr32) == ComplexF32
-        @test arrTyp(opr32) == CuArray{ComplexF32}
-        v32 = CUDA.rand(ComplexF32, 192)
+        v32 = adapt(dev, rand(ComplexF32, 192))
         out32 = opr32 * copy(v32)
-        @test out32 isa CuVector{ComplexF32}
+        @test get_backend(out32) isa typeof(dev)
         outCpu = prcG032() * Array(v32)
-        @test norm(Array(out32) - outCpu) < 1e-5 * norm(outCpu)
-        @test_throws ArgumentError opr32 * CUDA.zeros(ComplexF64, 192)
-        @test GlaOprVac{Float64}(opr32) isa GlaOprVac{Float64}
-        fld32 = zerofield(Float32, GlaCmpVol(prcVol); useGpu=true)
-        @test parent(fld32) isa CuVector{ComplexF32}
-        sol = solve(InvSctOpr(opr32, CuArray(prcSus32)), copy(v32), GMRESSolver())
+        @test norm(Array(out32) - outCpu) < gpuTol(Float32) * norm(outCpu)
+        supports_float64(dev) && @test_throws(ArgumentError, opr32 * adapt(dev, zeros(ComplexF64, 192)))
+        supports_float64(dev) && @test(GlaOprVac{Float64}(opr32) isa GlaOprVac{Float64})
+        fld32 = zerofield(Float32, GlaCmpVol(prcVol); dev)
+        @test get_backend(fld32) isa typeof(dev)
+        sol = solve(InvSctOpr(opr32, adapt(dev, prcSus32)), copy(v32), GMRESSolver())
         @test eltype(sol) == ComplexF32
     end
 end

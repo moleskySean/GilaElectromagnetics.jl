@@ -5,13 +5,17 @@ module GilaVacuum
 This module provides memory structures and operations for the vacuum Green function operator in Gila.
 """
 
-# Holds computational information (CPU vs GPU, number of threads, etc.) for the Green function
+# The Bloch-periodic Green tensor of a periodic unit cell
+include("bloch/bloch.jl")
+using .Bloch
+
+# Holds computational information (CPU vs GPU, etc.) for the Green function
 include("glaVacCmp.jl")
-export GlaKerOpt, CPUKerOpt, GPUKerOpt, dflPrc, frqPhz, genPrc, qssApx, adjMod, bckEnd, arrTyp
+export GlaKerOpt, dflPrc, frqPhz, genPrc, qssApx, adjMod
 
 # Defines GlaVacOprMem, the struct holding the info to compute the Green function
 include("glaVacOprMem.jl")
-export GlaVacOprMem, useCpu!, useGpu! 
+export GlaVacOprMem
 
 include("glaVacAct.jl")
 export egoOpr!

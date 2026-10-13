@@ -6,6 +6,8 @@ function genEgoCrc!(egoCrc::AbstractArray{<:Complex}, trgVol::GlaVol, srcVol::Gl
     if srcVol == trgVol
         return genEgoSlf!(selectdim(selectdim(egoCrc, 7, 1), 6, 1), trgVol, cmpInf; shpCch = shpCch)
     end
+    # a Bloch pair of a composite: the block blcCmp gave, in this layout
+    cmpInf.blc === nothing || return view(egoCrc, :, :, :, :, :, 1, 1) .= blcKer(cmpInf.blc, cmpInf.blc.blk...)
     # external green function case
     # total number of target and source partitions
     totParTrg = prod(mixInf.trgDiv)
@@ -43,15 +45,31 @@ end
 Calculate circulant vector of the Green function on a single domain: the contact block from the
 closed-form moments, every pair two or more cells apart from the far-field expansion, then the
 identity term and the circulant embedding. Under qssApx the same two blocks are taken at zero
-frequency, giving S = f^2 G, and the single 1/f^2 at the end keeps that identity exact.
+frequency, giving S = f^2 G, and the single 1/f^2 at the end keeps that identity exact. With a
+Bloch lattice one blcFil call, or the block blcCmp gave a composite region (blc.blk), is the
+whole block, identity term included.
 =#
+# The Bloch kernel hrmPrt asks for: H, A or G = H + iA
+blcKer(blc, H, A) = blc.hrmPrt === :sym ? H : blc.hrmPrt === :asy ? A : H .+ im .* A
+
 function genEgoSlf!(egoCrc::AbstractArray{<:Complex,5}, slfVol::GlaVol, cmpInf::GlaKerOpt;
     shpCch::Bool = false)
 
     prc = real(eltype(egoCrc))
-    egoToe = Array{eltype(egoCrc)}(undef, 3, 3, slfVol.cel...)
+    blc = cmpInf.blc
     stp = ntuple(dir -> Int(step(slfVol.grd[dir]) // slfVol.scl[dir]), 3)
-    if qssApx(cmpInf)
+    if blc !== nothing && haskey(blc, :blk)
+        egoToe = blcKer(blc, blc.blk...)
+    elseif blc !== nothing
+        frq = Complex{prc}(frqPhz(cmpInf))
+        # one BlcSet per frequency and unit cell, kept for setBlc!
+        st = cmpInf.blcSet
+        st !== nothing && (st.f, st.N) == (frq, slfVol.cel) ||
+            (st = cmpInf.blcSet = blcSet(slfVol.scl, frq, blc.ax, slfVol.cel, blc.P))
+        H, A, _ = blcFil(st, blc.θ)
+        egoToe = blcKer(blc, H, A)
+    elseif qssApx(cmpInf)
+        egoToe = Array{eltype(egoCrc)}(undef, 3, 3, slfVol.cel...)
         momBlkQss!(egoToe, slfVol, [(Tuple(itr) .- 1) .* stp # the contact offsets
             for itr ∈ vec(CartesianIndices(min.(slfVol.cel, 2)))])
         ner = farBlkQss!(egoToe, slfVol.scl; tol = farTol(prc), disk = shpCch, stp = stp)
@@ -62,6 +80,7 @@ function genEgoSlf!(egoCrc::AbstractArray{<:Complex,5}, slfVol::GlaVol, cmpInf::
         end
         egoToe ./= frqPhz(cmpInf)^2
     else
+        egoToe = Array{eltype(egoCrc)}(undef, 3, 3, slfVol.cel...)
         cntBlk!(egoToe, slfVol, cmpInf)
         farBlk!(egoToe, slfVol.scl, Complex{prc}(frqPhz(cmpInf)); tol = farTol(prc),
             disk = shpCch, stp = stp)
@@ -69,9 +88,10 @@ function genEgoSlf!(egoCrc::AbstractArray{<:Complex,5}, slfVol::GlaVol, cmpInf::
             egoToe[dir,dir,1,1,1] -= 1 / (frqPhz(cmpInf)^2)
         end
     end
+    prd = ntuple(dir -> blc !== nothing && dir in blc.ax, 3)
     @threads for crtItr ∈ CartesianIndices(axes(egoCrc)[3:5])
         @inbounds egoToeCrc!(view(egoCrc, :, :, crtItr), egoToe, crtItr,
-            div.(size(egoCrc)[3:5], 2))
+            div.(size(egoCrc)[3:5], 2), prd)
     end
     return nothing
 end
@@ -179,23 +199,21 @@ end
 #=
 Generate circulant self Green function from Toeplitz self Green function. The 
 implemented mask takes into account the relative flip in the assumed dipole 
-direction under a coordinate reflection. 
+direction under a coordinate reflection. A periodic axis (prd) is no reflection
+symmetry: its Toeplitz block holds the signed offsets m = -(N-1):(N-1) at m + N.
 =#
 function egoToeCrc!(egoCrc::AbstractArray{<:Complex,2}, egoToe::AbstractArray{<:Complex,5},
-    posInd::CartesianIndex{3}, indSpt::Tuple{Vararg{Integer}})
+    posInd::CartesianIndex{3}, indSpt::Tuple{Vararg{Integer}}, prd::NTuple{3,Bool} = (false, false, false))
     
     if posInd[1] == (indSpt[1] + 1) || posInd[2] == (indSpt[2] + 1) ||
         posInd[3] == (indSpt[3] + 1)
         fill!(egoCrc, zero(eltype(egoCrc)))
     else
         # flip field under coordinate reflection
-        fi = indFlp(posInd[1], indSpt[1])
-        fj = indFlp(posInd[2], indSpt[2])
-        fk = indFlp(posInd[3], indSpt[3])
+        fi, fj, fk = ntuple(dir -> prd[dir] ? 1.0 : indFlp(posInd[dir], indSpt[dir]), 3)
         # embedding
-        egoCrc .= view(egoToe, :, :,
-            indSel(posInd[1], indSpt[1]), indSel(posInd[2], indSpt[2]),
-            indSel(posInd[3], indSpt[3])) .*
+        egoCrc .= view(egoToe, :, :, ntuple(dir -> prd[dir] ?
+            mod(posInd[dir] - 1 + indSpt[dir], 2 * indSpt[dir]) : indSel(posInd[dir], indSpt[dir])[1], 3)...) .*
             SMatrix{3,3,Float64}(1.0, (fj * fi), (fk * fi),
             (fi * fj), 1.0, (fk * fj),
             (fi * fk), (fj * fk), 1.0)

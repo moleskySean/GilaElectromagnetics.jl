@@ -22,7 +22,8 @@ module GilaFields
 using ..GilaVolumes
 using ..GilaTypes
 using LinearAlgebra
-using CUDA
+using Adapt
+using KernelAbstractions
 
 import ..GilaVolumes: _lwrEdg, _uprEdg
 
@@ -58,8 +59,8 @@ The layout inside the buffer is the flat degree of freedom layout of
 an array of size `(reg.cel..., 3)`.
 
 # Fields
-- `dat::AbstractVector{Complex{T}}`: The flat buffer, a `Vector` on the CPU or a
-  `CuVector` on the GPU, whose eltype fixes the storage precision `T`
+- `dat::AbstractVector{Complex{T}}`: The flat buffer, on any KernelAbstractions
+  backend, whose eltype fixes the storage precision `T`
 - `cvol::GlaCmpVol`: The composite volume the field lives on
 - `off::Vector{Int}`: Buffer offset of each region block, with the total length
   as a last entry
@@ -81,32 +82,34 @@ end
 const MultiScaleField = GlaFld
 
 """
-    GlaFld(cvol::GlaCmpVol; useGpu::Bool=false)
+    GlaFld(cvol::GlaCmpVol; dev::Backend=CPU())
 
 Construct the zero field over a composite volume. Same as `zerofield`.
 
 # Arguments
 - `cvol::GlaCmpVol`: The composite volume
-- `useGpu::Bool=false`: Whether to put the buffer on the GPU
+- `dev::Backend=CPU()`: The KernelAbstractions backend holding the buffer
 
 # Returns
 - `GlaFld`: A field of zeros with one entry per degree of freedom
 """
-GlaFld(cvol::GlaCmpVol; useGpu::Bool=false) = zerofield(cvol; useGpu=useGpu)
+GlaFld(cvol::GlaCmpVol; dev::Backend=CPU()) = zerofield(cvol; dev=dev)
 
 """
-    GlaFld(vol::GlaVol; useGpu::Bool=false)
+    GlaFld(vol::GlaVol; dev::Backend=CPU())
 
 Construct the zero field over a plain volume. Same as `zerofield`.
 
 # Arguments
 - `vol::GlaVol`: The volume
-- `useGpu::Bool=false`: Whether to put the buffer on the GPU
+- `dev::Backend=CPU()`: The KernelAbstractions backend holding the buffer
 
 # Returns
 - `GlaFld`: A field of zeros with one entry per degree of freedom
 """
-GlaFld(vol::GlaVol; useGpu::Bool=false) = zerofield(GlaCmpVol(vol); useGpu=useGpu)
+GlaFld(vol::GlaVol; dev::Backend=CPU()) = zerofield(GlaCmpVol(vol); dev=dev)
+
+Adapt.adapt_structure(to, fld::GlaFld) = GlaFld(adapt(to, fld.dat), fld.cvol)
 
 Base.zero(fld::GlaFld) = GlaFld(zero(fld.dat), fld.cvol)
 
@@ -134,7 +137,7 @@ Base.similar(fld::GlaFld, ::Type{T}) where T = similar(fld.dat, T)
 Base.copy(fld::GlaFld) = GlaFld(copy(fld.dat), fld.cvol)
 
 function Base.show(io::IO, fld::GlaFld)
-    dev = isa(fld.dat, CuArray) ? "GPU" : "CPU"
+    dev = nameof(typeof(get_backend(fld)))
     if nregions(fld.cvol) == 1
         reg = regions(fld.cvol)[1]
         print(io, "Field ($(length(fld)) degrees of freedom, $dev) on a (" *
@@ -215,28 +218,28 @@ function Base.copyto!(fld::GlaFld,
 end
 
 """
-    zerofield(::Type{T}, cvol::GlaCmpVol; useGpu::Bool=false)
-    zerofield(cvol::GlaCmpVol; useGpu::Bool=false)
+    zerofield(::Type{T}, cvol::GlaCmpVol; dev::Backend=CPU())
+    zerofield(cvol::GlaCmpVol; dev::Backend=CPU())
 
 Allocate a zero field of storage precision `T` (`dflPrc` when unrequested) over a composite volume.
 
 # Arguments
 - `cvol::GlaCmpVol`: The composite volume
-- `useGpu::Bool=false`: Whether to put the buffer on the GPU
+- `dev::Backend=CPU()`: The KernelAbstractions backend holding the buffer
 
 # Returns
 - `GlaFld{T}`: A field of zeros with one entry per degree of freedom
 """
-function zerofield(::Type{T}, cvol::GlaCmpVol; useGpu::Bool=false) where T<:AbstractFloat
+function zerofield(::Type{T}, cvol::GlaCmpVol; dev::Backend=CPU()) where T<:AbstractFloat
     len = sum(3 * prod(reg.cel) for reg in regions(cvol))
-    dat = useGpu ? CUDA.zeros(Complex{T}, len) : zeros(Complex{T}, len)
+    dat = KernelAbstractions.zeros(dev, Complex{T}, len)
     return GlaFld(dat, cvol)
 end
-zerofield(cvol::GlaCmpVol; useGpu::Bool=false) = zerofield(dflPrc, cvol; useGpu=useGpu)
+zerofield(cvol::GlaCmpVol; dev::Backend=CPU()) = zerofield(dflPrc, cvol; dev=dev)
 
 """
-    zerofield(::Type{T}, vol::GlaVol; useGpu::Bool=false)
-    zerofield(vol::GlaVol; useGpu::Bool=false)
+    zerofield(::Type{T}, vol::GlaVol; dev::Backend=CPU())
+    zerofield(vol::GlaVol; dev::Backend=CPU())
 
 Allocate a zero field of storage precision `T` (`dflPrc` when unrequested) over a plain volume.
 
@@ -245,13 +248,13 @@ The volume is taken as a tiling of one region, so the result is an ordinary
 
 # Arguments
 - `vol::GlaVol`: The volume
-- `useGpu::Bool=false`: Whether to put the buffer on the GPU
+- `dev::Backend=CPU()`: The KernelAbstractions backend holding the buffer
 
 # Returns
 - `GlaFld`: A field of zeros with one entry per degree of freedom
 """
-zerofield(::Type{T}, vol::GlaVol; useGpu::Bool=false) where T<:AbstractFloat = zerofield(T, GlaCmpVol(vol); useGpu=useGpu)
-zerofield(vol::GlaVol; useGpu::Bool=false) = zerofield(dflPrc, GlaCmpVol(vol); useGpu=useGpu)
+zerofield(::Type{T}, vol::GlaVol; dev::Backend=CPU()) where T<:AbstractFloat = zerofield(T, GlaCmpVol(vol); dev=dev)
+zerofield(vol::GlaVol; dev::Backend=CPU()) = zerofield(dflPrc, GlaCmpVol(vol); dev=dev)
 
 """
     regionview(fld::GlaFld, idx::Integer)

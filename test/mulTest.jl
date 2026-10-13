@@ -119,30 +119,30 @@ end
 end
 
 @testset "mul! GPU" begin
-    if CUDA.functional()
-        opr = GlaOprVac{Float64}(_vol2s; useGpu=true)
-        inp = CuArray(randn(ComplexF64, size(opr, 2)))
+    @testset "$(nameof(typeof(dev))) $T" for dev in gpuBackends, T in gpuPrcs(dev)
+        opr = GlaOprVac{T}(_vol2s; dev)
+        inp = adapt(dev, randn(Complex{T}, size(opr, 2)))
         sav = Array(inp)
         ref = Array(opr * inp)
-        out0 = CuArray(randn(ComplexF64, size(opr, 1)))
+        out0 = adapt(dev, randn(Complex{T}, size(opr, 1)))
         for α in mulScls, β in mulScls
-            out = iszero(β) ? fill!(similar(out0), mulNaN) : copy(out0)
+            out = iszero(β) ? fill!(similar(out0), Complex{T}(mulNaN)) : copy(out0)
             @test mul!(out, opr, inp, α, β) === out
             tst = iszero(β) ? α .* ref : α .* ref .+ β .* Array(out0)
-            @test norm(Array(out) - tst) <= 1e-10 * max(norm(tst), norm(ref))
+            @test norm(Array(out) - tst) <= gpuTol(T) * max(norm(tst), norm(ref))
         end
         @test Array(inp) == sav
-        @test norm(ref - _g0s() * Array(inp)) <= 1e-10 * norm(ref)
+        @test norm(ref - GlaOprVac{T}(_vol2s) * Array(inp)) <= gpuTol(T) * norm(ref)
         # A host input on a device operator warns and copies
-        @test_logs (:warn, r"not a CuArray") opr * Array(inp)
+        @test_logs (:warn, r"not on the operator's") opr * Array(inp)
 
-        cmpGpu = GlaCmpOprVac{Float64}(mulCvl; useGpu=true)
-        gInp = CuArray(randn(ComplexF64, size(cmpGpu, 2)))
+        cmpGpu = GlaCmpOprVac{T}(mulCvl; dev)
+        gInp = adapt(dev, randn(Complex{T}, size(cmpGpu, 2)))
         gRef = Array(cmpGpu * gInp)
-        gOut = fill!(similar(gInp, size(cmpGpu, 1)), mulNaN)
-        @test mul!(gOut, cmpGpu, gInp, 1.0, 0.0) === gOut
-        @test norm(Array(gOut) - gRef) <= 1e-10 * norm(gRef)
-        @test norm(gRef - mulCmp * Array(gInp)) <= 1e-10 * norm(gRef)
+        gOut = fill!(similar(gInp, size(cmpGpu, 1)), Complex{T}(mulNaN))
+        @test mul!(gOut, cmpGpu, gInp, one(T), zero(T)) === gOut
+        @test norm(Array(gOut) - gRef) <= gpuTol(T) * norm(gRef)
+        @test norm(gRef - GlaCmpOprVac{T}(mulCvl) * Array(gInp)) <= gpuTol(T) * norm(gRef)
     end
 end
 

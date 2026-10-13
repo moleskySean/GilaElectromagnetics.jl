@@ -4,7 +4,7 @@
 # Operators come from GlaVacOprMem, so what gets tested is the external
 # construction rather than the routing in the GlaOprVac constructor.
 cntExtMat(trgVol::GlaVol, srcVol::GlaVol) =
-    dnsMat(GlaVacOprMem(CPUKerOpt{Float64}(), trgVol, srcVol))
+    dnsMat(GlaVacOprMem(GlaKerOpt{Float64}(), trgVol, srcVol))
 
 # The topologies a pair of same-scale volumes can meet in: name, target, source
 const cntTop = [

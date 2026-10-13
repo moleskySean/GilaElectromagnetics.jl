@@ -18,29 +18,24 @@ const oprMsk = GlaOprVac{Float64}(oprSlb, oprBox)
         @test isexternaloperator(opr) == ext
         @test isoverlappingoperator(opr) == ovr
         @test !isadjoint(opr)
-        @test !isgpu(opr)
+        @test get_backend(opr) isa CPU
     end
     # Only the overlapping route carries masks
     @test !all(==(0:0), gOvr.srcMsk)
     @test !all(==(0:0), gOvr.trgMsk)
 end
 
-@testset "isgpu follows cmpInf" begin
-    # useGpu!/useCpu! swap mem.cmpInf between GPUKerOpt and CPUKerOpt, so isgpu
-    # only needs to check the type of the options. Swapping the options by hand
-    # avoids needing a GPU; nothing here applies the operator. Fresh mem so the
-    # shared _selfMem4 is not mutated.
-    mem = GlaVacOprMem(CPUKerOpt{Float64}(), _vol4)
-    opr = GlaOprVac(mem)
-    @test !isgpu(opr)
+@testset "get_backend follows cmpInf" begin
+    # mem.cmpInf carries the backend, so get_backend and show only need to read it.
+    opr = GlaOprVac(GlaVacOprMem(GlaKerOpt{Float64}(), _vol4))
+    @test get_backend(opr) isa CPU
     @test occursin("CPU", sprint(show, opr))
 
-    mem.cmpInf = GPUKerOpt{Float64}()
-    @test isgpu(opr)
-    @test occursin("GPU", sprint(show, opr))
-
-    mem.cmpInf = CPUKerOpt{Float64}()
-    @test !isgpu(opr)
+    @testset "$(nameof(typeof(dev))) $T" for dev in gpuBackends, T in gpuPrcs(dev)
+        gOpr = GlaOprVac{T}(_vol2s; dev)
+        @test get_backend(gOpr) isa typeof(dev)
+        @test occursin(string(nameof(typeof(dev))), sprint(show, gOpr))
+    end
 end
 
 @testset "Hermitian part constructors" begin
@@ -243,32 +238,27 @@ end
 end
 
 @testset "Operator CPU/GPU parity" begin
-    if CUDA.functional()
-        sus  = _sus4
-        susg = CuArray(sus)
-        vcpu = rand(ComplexF64, size(_g0(), 2))
-        vgpu = CuArray(vcpu)
+    @testset "$(nameof(typeof(dev))) $T" for dev in gpuBackends, T in gpuPrcs(dev)
+        sus  = Complex{T}.(_sus4)
+        susg = adapt(dev, sus)
+        vcpu = rand(Complex{T}, size(_g0(), 2))
+        vgpu = adapt(dev, vcpu)
 
         pairs = [
-            (_g0(),                        GlaOprVac{Float64}(_vol4; useGpu=true)),
-            (InvSctOpr{Float64}(_vol4, sus),        InvSctOpr{Float64}(_vol4, susg; useGpu=true)),
-            (SctOpr{Float64}(_vol4, sus),           SctOpr{Float64}(_vol4, susg; useGpu=true)),
-            (GlaOpr{Float64}(_vol4, sus),           GlaOpr{Float64}(_vol4, susg; useGpu=true)),
+            (GlaOprVac{T}(_vol4),             GlaOprVac{T}(_vol4; dev)),
+            (InvSctOpr{T}(_vol4, sus),         InvSctOpr{T}(_vol4, susg; dev)),
+            (SctOpr{T}(_vol4, sus),            SctOpr{T}(_vol4, susg; dev)),
+            (GlaOpr{T}(_vol4, sus),            GlaOpr{T}(_vol4, susg; dev)),
         ]
         for (cOpr, gOpr) in pairs
             @test cOpr * vcpu ≈ Array(gOpr * vgpu)
-            # useGpu! on cpu opr
-            useGpu!(cOpr)
-            @test isgpu(cOpr)
-            @test cOpr * vgpu ≈ gOpr * vgpu
-            # useCpu! on gpu opr
-            useCpu!(gOpr)
-            @test !isgpu(gOpr)
-            # No-ops
-            useCpu!(gOpr)
-            @test !isgpu(gOpr)
-            useCpu!(cOpr)  # after useGpu!
-            useGpu!(gOpr)
+            # adapt moves an operator to the device and back, matching the native build either way
+            toGpu = adapt(dev, cOpr)
+            @test get_backend(toGpu) isa typeof(dev)
+            @test Array(toGpu * vgpu) ≈ Array(gOpr * vgpu)
+            toCpu = adapt(CPU(), gOpr)
+            @test get_backend(toCpu) isa CPU
+            @test toCpu * vcpu ≈ cOpr * vcpu
         end
     end
 end

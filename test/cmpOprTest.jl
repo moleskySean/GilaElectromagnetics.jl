@@ -4,7 +4,6 @@
 # the fine rows it covers, a composite source column injects unit density into
 # the fine cells it covers, and the √ΔV basis puts sqrt(ΔVᵢ/ΔVⱼ) on block (i, j).
 import GilaElectromagnetics.GilaVolumes: _lwrEdg
-import GilaElectromagnetics.GilaVacuum: arrTyp
 import GilaElectromagnetics.GilaOperators: _nrmWgt
 
 # The smallest tiling this file uses: one region of 2×2×2 cells of 1/16 λ
@@ -107,7 +106,7 @@ const mnyAgr = cmpAgrRef(mnyCvl, mnyRef, dnsMat(GlaOprVac{Float64}(mnyRef)))
     @test isselfoperator(mnyOpr)
     @test !isexternaloperator(mnyOpr)
     @test !isadjoint(mnyOpr)
-    @test !isgpu(mnyOpr)
+    @test get_backend(mnyOpr) isa CPU
     @test glaSze(mnyOpr) == glaSze.(mnyOpr.blkMat)
     @test glaSze(mnyOpr, 2)[1, 1] == (4, 8, 8, 3)
     # The two cross-scale blocks touch, so they take the fine mesh route
@@ -174,9 +173,8 @@ the same block matrix, so a matvec costs one application of G₀. =#
     @test !isexternaloperator(asyOpr)
     @test !isadjoint(asyOpr)
     @test !isoverlappingoperator(asyOpr)
-    @test !isgpu(asyOpr)
-    @test arrTyp(asyOpr) <: Array
-    @test useCpu!(asyOpr) === asyOpr
+    @test get_backend(asyOpr) isa CPU
+    @test frbErr(dnsMat(adapt(CPU(), asyOpr)), dnsMat(asyOpr)) < 1e-12
     @test occursin("composite Asym(G₀)", sprint(show, asyOpr))
     @test occursin("composite Sym(G₀)", sprint(show, symOpr))
     @test !occursin("\n", sprint(show, asyOpr))
@@ -352,8 +350,8 @@ end
     # One region reproduces the plain anti-Hermitian operator
     @test frbErr(dnsMat(asym(opr)), dnsMat(AsyGlaOprVac{Float64}(smlVol))) < 1e-12
     @test slv(opr) isa GlaSlv
-    @test arrTyp(opr) <: Array
-    @test useCpu!(opr) === opr
+    @test get_backend(opr) isa CPU
+    @test frbErr(dnsMat(adapt(CPU(), opr)), dnsMat(opr)) < 1e-12
     @test occursin("composite G₀", sprint(show, opr))
     @test !occursin("\n", sprint(show, opr))
     @test sprint(show, MIME"text/plain"(), opr) != sprint(show, opr)
@@ -372,23 +370,29 @@ end
 end
 
 @testset "Composite operator GPU" begin
-    if CUDA.functional()
-        oprGpu = GlaCmpOprVac{Float64}(mnyCvl; useGpu=true)
-        @test isgpu(oprGpu)
-        @test arrTyp(oprGpu) <: CuArray
-        fldGpu = discretize!(zerofield(Float64, mnyCvl; useGpu=true), tstDns)
+    @testset "$(nameof(typeof(dev))) $T" for dev in gpuBackends, T in gpuPrcs(dev)
+        oprGpu = GlaCmpOprVac{T}(mnyCvl; dev)
+        @test get_backend(oprGpu) isa typeof(dev)
+        fldGpu = discretize!(zerofield(T, mnyCvl; dev), tstDns)
         outGpu = oprGpu * fldGpu
         @test outGpu isa GlaFld
-        @test parent(outGpu) isa CuVector{ComplexF64}
-        fldCpu = discretize!(zerofield(Float64, mnyCvl), tstDns)
-        outCpu = mnyOpr * fldCpu
-        @test norm(Array(outGpu.dat) - outCpu.dat) < 1e-10 * norm(outCpu.dat)
+        @test get_backend(outGpu) isa typeof(dev)
+        fldCpu = discretize!(zerofield(T, mnyCvl), tstDns)
+        outCpu = GlaCmpOprVac{T}(mnyCvl) * fldCpu
+        @test norm(Array(outGpu.dat) - outCpu.dat) < gpuTol(T) * norm(outCpu.dat)
 
         asyGpu = asym(oprGpu)
-        @test isgpu(asyGpu)
-        @test arrTyp(asyGpu) <: CuArray
+        @test get_backend(asyGpu) isa typeof(dev)
         asyOutGpu = asyGpu * fldGpu
-        asyOutCpu = asym(mnyOpr) * fldCpu
-        @test norm(Array(asyOutGpu.dat) - asyOutCpu.dat) < 1e-10 * norm(asyOutCpu.dat)
+        asyOutCpu = asym(GlaCmpOprVac{T}(mnyCvl)) * fldCpu
+        @test norm(Array(asyOutGpu.dat) - asyOutCpu.dat) < gpuTol(T) * norm(asyOutCpu.dat)
+
+        # adapt moves a composite operator to the device and back, matching the native build either way
+        toGpu = adapt(dev, GlaCmpOprVac{T}(mnyCvl))
+        @test get_backend(toGpu) isa typeof(dev)
+        @test norm(Array((toGpu * fldGpu).dat) - outCpu.dat) < gpuTol(T) * norm(outCpu.dat)
+        toCpu = adapt(CPU(), oprGpu)
+        @test get_backend(toCpu) isa CPU
+        @test norm((toCpu * fldCpu).dat - outCpu.dat) < gpuTol(T) * norm(outCpu.dat)
     end
 end

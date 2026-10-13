@@ -50,7 +50,7 @@ end
 
 # the assembled quasistatic operator, the object GlaOprVac is handed
 qssMem(cel, scl, ::Type{T} = Float64, frq = 1.0 + 0.0im) where {T} =
-    (opt = CPUKerOpt{T}(); opt.qssApx = true; opt.frqPhz = frq;
+    (opt = GlaKerOpt{T}(); opt.qssApx = true; opt.frqPhz = frq;
         GlaVacOprMem(opt, mkVol(cel; scl = scl)))
 
 @testset "Quasistatic Tests" begin
@@ -156,7 +156,7 @@ qssMem(cel, scl, ::Type{T} = Float64, frq = 1.0 + 0.0im) where {T} =
         end
         @info "homogeneity, worst deviation = $wst ulp of max|egoFur|"
         err = map((1e-2, 1e-3)) do f
-            opt = CPUKerOpt{Float64}()
+            opt = GlaKerOpt{Float64}()
             opt.frqPhz = complex(f)
             mem = GlaVacOprMem(opt, mkVol(cel))
             sqrt(sum(sum(abs2, f^2 .* b .- a) for (a, b) ∈ zip(qss.egoFur, mem.egoFur)) /
@@ -173,7 +173,7 @@ qssMem(cel, scl, ::Type{T} = Float64, frq = 1.0 + 0.0im) where {T} =
     # a printed operator names the kernel it was built from, in its block form
     @testset "show" begin
         qss = GlaOprVac(qssMem((2, 2, 2), stdScl))
-        cls = GlaOprVac(GlaVacOprMem(CPUKerOpt{Float64}(), mkVol((2, 2, 2))))
+        cls = GlaOprVac(GlaVacOprMem(GlaKerOpt{Float64}(), mkVol((2, 2, 2))))
         @test isquasistatic(qss) && !isquasistatic(cls)
         @test occursin("quasistatic", sprint(show, MIME"text/plain"(), qss))
         @test occursin("quasistatic", sprint(show, MIME"text/plain"(), asym(qss)))

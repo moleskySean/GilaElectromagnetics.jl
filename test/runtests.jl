@@ -1,5 +1,8 @@
 using Test, Random, GilaElectromagnetics, LinearAlgebra
-using LinearMaps, LinearOperators, SciMLOperators, Serialization, CUDA
+using LinearMaps, LinearOperators, SciMLOperators, Serialization
+# pocl_jll before OpenCL activates its platform. Metal compiles in the world of its __init__,
+# so loading it last lets it see the GPUCompiler methods OpenCL adds
+using CUDA, pocl_jll, OpenCL, Metal
 import GilaElectromagnetics.GilaVolumes: uniVol
 import GilaElectromagnetics.GilaVacuum: egoOpr!
 import GilaElectromagnetics.GilaTypes: dflPrc
@@ -28,5 +31,6 @@ include("tstHlp.jl")
     include("cntTest.jl")
     include("prxTest.jl")
     include("physTest.jl")
+    include("blochTest.jl")
     include("vacuum/runtests.jl")
 end

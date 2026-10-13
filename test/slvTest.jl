@@ -254,17 +254,17 @@ hand side moves, so the probe passes and the subspace is never rebuilt. =#
 end
 
 @testset "solve GPU" begin
-    if CUDA.functional()
-        vol = mkVol((4,4,4))
-        opr = GlaOprVac{Float64}(vol; useGpu=true)
-        rhs = CUDA.ones(ComplexF64, size(opr, 1))
+    vol = mkVol((4,4,4))
+    @testset "$(nameof(typeof(dev))) $T" for dev in gpuBackends, T in gpuPrcs(dev)
+        opr = GlaOprVac{T}(vol; dev)
+        rhs = adapt(dev, ones(Complex{T}, size(opr, 1)))
 
         sol_bcg = solve(opr, rhs, BiCGStabSolver())
         @test size(sol_bcg) == (size(opr, 2),)
-        @test norm(opr * sol_bcg - rhs) < sqrt(eps(Float64)) * norm(rhs)
+        @test norm(opr * sol_bcg - rhs) < sqrt(eps(T)) * norm(rhs)
 
         sol_gmr = solve(opr, rhs, GMRESSolver())
         @test size(sol_gmr) == (size(opr, 2),)
-        @test norm(opr * sol_gmr - rhs) < sqrt(eps(Float64)) * norm(rhs)
+        @test norm(opr * sol_gmr - rhs) < sqrt(eps(T)) * norm(rhs)
     end
 end

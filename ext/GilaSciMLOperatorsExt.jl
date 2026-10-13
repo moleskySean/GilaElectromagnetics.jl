@@ -2,7 +2,6 @@
 module GilaSciMLOperatorsExt
 
 using GilaElectromagnetics
-using GilaElectromagnetics: arrTyp
 using GilaElectromagnetics.GilaOperators: invMul!, invMulAdj!
 using LinearAlgebra: mul!
 import SciMLOperators: FunctionOperator
@@ -10,8 +9,8 @@ import SciMLOperators: FunctionOperator
 function FunctionOperator(opr::AbstractGlaOpr)
     T = eltype(opr)
     m, n = size(opr)
-    inp = fill!(arrTyp(opr)(undef, n), zero(T)) # Input prototype
-    out = fill!(arrTyp(opr)(undef, m), zero(T)) # Output prototype
+    inp = fill!(similar(opr, (n,)), zero(T)) # Input prototype
+    out = fill!(similar(opr, (m,)), zero(T)) # Output prototype
     fwd!(w, v, _u, _p, _t) = mul!(w, opr, v, one(T), zero(T)) # Matrix-vector product
     adj!(w, v, _u, _p, _t) = begin # Adjoint matrix-vector product
         adjOpr = adjoint!(opr) # Compute with the adjoint operator

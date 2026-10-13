@@ -60,8 +60,8 @@ end
     strRef = sprint(show, zerofield(Float64, mkFldRef()))
     @test occursin("Composite field", strRef)
     @test occursin("Composite volume (7 regions)", strRef)
-    if CUDA.functional()
-        @test occursin("GPU", sprint(show, zerofield(Float64, vol; useGpu=true)))
+    @testset "$(nameof(typeof(dev)))" for dev in gpuBackends
+        @test occursin(string(nameof(typeof(dev))), sprint(show, zerofield(Float32, vol; dev)))
     end
 end
 
@@ -257,27 +257,30 @@ end
 end
 
 @testset "GlaFld GPU" begin
-    if CUDA.functional()
+    @testset "$(nameof(typeof(dev))) $T" for dev in gpuBackends, T in gpuPrcs(dev)
         cvol = mkFldRef()
-        fldGpu = zerofield(Float64, cvol; useGpu=true)
-        @test parent(fldGpu) isa CuVector{ComplexF64}
+        fldGpu = zerofield(T, cvol; dev)
+        @test get_backend(fldGpu) isa typeof(dev)
         @test length(fldGpu) == fldLen(cvol)
         @test iszero(norm(fldGpu))
-        fldCpu = discretize!(zerofield(Float64, cvol), fldSmt)
+        fldCpu = discretize!(zerofield(T, cvol), fldSmt)
         discretize!(fldGpu, fldSmt)
         @test norm(fldGpu) ≈ norm(fldCpu)
         @test dot(fldGpu, fldGpu) ≈ dot(fldCpu, fldCpu)
         # Broadcasting stays on the device
         fldTwo = 2 .* fldGpu
         @test fldTwo isa GlaFld
-        @test parent(fldTwo) isa CuVector{ComplexF64}
+        @test get_backend(fldTwo) isa typeof(dev)
         @test norm(fldTwo) ≈ 2 * norm(fldCpu)
         fldTwo .= fldGpu .+ fldGpu
         @test norm(fldTwo) ≈ 2 * norm(fldCpu)
-        @test norm(axpy!(1.0, fldGpu, copy(fldGpu))) ≈ 2 * norm(fldCpu)
-        @test parent(similar(fldGpu)) isa CuVector{ComplexF64}
+        @test norm(axpy!(one(T), fldGpu, copy(fldGpu))) ≈ 2 * norm(fldCpu)
+        @test get_backend(similar(fldGpu)) isa typeof(dev)
         # Region views and resampling work off the device buffer
         @test size(regionview(fldGpu, 1)) == (Int.(regions(cvol)[1].cel)..., 3)
-        @test maximum(abs, regrid(fldGpu) .- regrid(fldCpu)) < 1e-12
+        @test maximum(abs, regrid(fldGpu) .- regrid(fldCpu)) < gpuTol(T)
+        # adapt round trips to the same backend and back to the host
+        @test get_backend(adapt(CPU(), fldGpu)) isa CPU
+        @test norm(adapt(CPU(), fldGpu)) ≈ norm(fldCpu)
     end
 end

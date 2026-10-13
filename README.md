@@ -42,6 +42,23 @@ converting. For iterative solves that need `Float64` accuracy at `Float32`
 matvec cost, use `MixPrcRfn`: `GlaOpr{Float64}(vol, vol, sus;
 slv=MixPrcRfn(Float32))`.
 
+## GPU
+
+Every constructor that builds an operator or a field takes a
+`dev::KernelAbstractions.Backend` keyword (default `CPU()`). Loading a GPU
+package is all that's needed to compute there:
+
+```julia
+using GilaElectromagnetics, CUDA # or Metal, or OpenCL
+G_0 = GlaOpr{Float32}(vol, sus; dev=CUDABackend())
+```
+
+CUDA, Metal and OpenCL are supported, all through VkFFT for the GPU FFT.
+`adapt(dev, x)` moves an operator or field to another backend. Metal and
+OpenCL have no `Float64`; building a `Float64` operator there throws. See
+[GPU backends](https://moleskysean.github.io/GilaElectromagnetics.jl/stable/usage/#gpu-backends)
+in the docs for OpenCL's memory-backend preference and other details.
+
 ## Showcase
 
 The following figures demonstrate the capabilities of GilaElectromagnetics to

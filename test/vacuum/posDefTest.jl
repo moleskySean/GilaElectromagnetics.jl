@@ -5,7 +5,7 @@ number that hides behind a small operator. =#
 using Test, GilaElectromagnetics, LinearAlgebra
 
 function pdAsyEig(cel, scl, frq)
-    opt = CPUKerOpt{Float64}()
+    opt = GlaKerOpt{Float64}()
     opt.frqPhz = frq
     mat = dnsMat(GlaVacOprMem(opt, GlaVol(cel, scl, stdOrg)))
     return eigvals(Hermitian((mat - adjoint(mat)) / 2im))

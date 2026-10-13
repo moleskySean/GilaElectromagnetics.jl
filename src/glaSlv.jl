@@ -20,9 +20,10 @@ It includes implementations of GMRES and BiCGStab methods, with support for both
 module GilaSolvers
 
 using LinearAlgebra
-using CUDA
+using Adapt
+using KernelAbstractions: get_backend
 using ..GilaTypes
-using ..GilaTypes: isgpu, isadjoint
+using ..GilaTypes: isadjoint
 
 export GMRESSolver, GCRODRSolver, RcySpc, BiCGStabSolver, MixPrcRfn, SlvLog, solve, isvarying
 export MixedPrecisionRefinement
@@ -486,9 +487,7 @@ function solve(opr, inp::AbstractArray{T}, slv::GMRESSolver; x0 = nothing, log =
                 push!(log.hss, Matrix{ComplexF64}(view(hss, 1:k, 1:k-1)))
             end
             lstSqrHss(view(hss, 1:k, 1:k-1), y) # Note: this mutates `hss`, but it's fine because we don't need it anymore
-            if out isa CuArray
-                y = CuArray(y) # Copy to GPU if needed
-            end
+            y = adapt(get_backend(out), y) # Copy to the device if needed
 
             # Update the solution vector
             if sid == :right
@@ -1055,7 +1054,7 @@ function solve(opr::AbstractGlaOpr{Thi}, inp::AbstractVector{Complex{Thi}},
         throw(ArgumentError("Iterative refinement in the precision it refines from does nothing: both the correction solves and the right hand side are $Thi. Either drop MixPrcRfn or raise the precision of the operator and the right hand side."))
     end
     (; maxItr, absTol, relTol) = slvPrm(slv, inp)
-    if first(slv.cch[]) !== opr || isgpu(last(slv.cch[])) != isgpu(opr)
+    if first(slv.cch[]) !== opr
         slv.cch[] = (opr, Base.typename(typeof(opr)).wrapper{Tlo}(opr))
     end
     oprLo = last(slv.cch[])

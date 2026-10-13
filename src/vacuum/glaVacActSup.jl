@@ -6,7 +6,7 @@ restructure input vector to match partitioned Green function data
 function genPrt!(actVec::AbstractArray{<:Complex, 4}, cmpInf::GlaKerOpt, mixInf::GlaExtInf, parNum::Integer)
     maxItr = mixInf.srcCel
     orgVec = similar(actVec, maxItr..., 3, parNum)
-    ker = genPrtKer!(bckEnd(cmpInf))
+    ker = genPrtKer!(cmpInf.dev)
     for parItr in 1:parNum, dirItr in 1:3
         stp = Tuple(mixInf.srcDiv)
         off = Tuple(mixInf.srcPar[parItr])
@@ -43,7 +43,7 @@ split a branch so that even and odd Fourier coefficients are independent
 =#
 function sptBrn!(prgVec::AbstractArray{<:Complex, 5}, sptDir::Integer, phzVec::AbstractVector{<:Complex}, parNum::Integer, orgVec::AbstractArray{<:Complex, 5}, cmpInf::GlaKerOpt)
     vecSze = size(orgVec)[1:3]
-    ker = sptKer!(bckEnd(cmpInf))
+    ker = sptKer!(cmpInf.dev)
     for parItr in 1:parNum
         ker(sptDir, phzVec, parItr, orgVec, prgVec; ndrange=vecSze)
     end
@@ -96,7 +96,7 @@ function sptBrn!(prgVecEve::AbstractArray{<:Complex,5}, prgVecOdd::AbstractArray
     fill!(prgVecOdd, zero(eltype(prgVecOdd)))
 
     # Launch one kernel per (par,dir) over the entire prgSze
-    ker = sptBrnExt!(bckEnd(cmpInf))
+    ker = sptBrnExt!(cmpInf.dev)
     for parItr in 1:parNum, dirItr in 1:3
       ker(ovrRng, stdRng, ovrOff, dirSpt, dirItr, parItr,
           phzVec, orgVec, prgVecEve, prgVecOdd;
@@ -158,7 +158,7 @@ merge two branches, eliminating unused coefficients
 function mrgBrn!(orgVec::AbstractArray{<:Complex,5}, mrgDir::Integer, parNumTrg::Integer, phzVec::AbstractVector{<:Complex}, prgVec::AbstractArray{<:Complex,5}, cmpInf::GlaKerOpt)
     # launch one fused kernel per (partition, direction)
     vecSze = size(orgVec)[1:3]
-    ker = mrgKer!(bckEnd(cmpInf))
+    ker = mrgKer!(cmpInf.dev)
 
     for prtItr in 1:parNumTrg, dirItr in 1:3
         ker(mrgDir, phzVec, dirItr, prtItr, orgVec, prgVec;
@@ -210,7 +210,7 @@ function mrgBrn!(mrgVec::AbstractArray{<:Complex,5}, mrgDir::Integer, parNumTrg:
     offSet  = topStop
 
     # kernel launcher
-    ker = mrgKerGnl!(bckEnd(cmpInf))
+    ker = mrgKerGnl!(cmpInf.dev)
 
     # launch one kernel per (partition, direction)
     for prtItr in 1:parNumTrg, dirItr in 1:3
@@ -280,14 +280,14 @@ merge partitions and return output vector
 function mrgPrt!(mixInf::GlaExtInf, cmpInf::GlaKerOpt, parNum::Integer, prtVec::AbstractArray{<:Complex, 5})
     maxItr = mixInf.trgCel
     mrgVec = similar(prtVec, (mixInf.trgDiv .* mixInf.trgCel)..., 3)
-    sncGpu(cmpInf)
-    ker = mrgPrtKer!(bckEnd(cmpInf))
+    synchronize(cmpInf.dev)
+    ker = mrgPrtKer!(cmpInf.dev)
     for parItr in 1:parNum, dirItr in 1:3
         stp = Tuple(mixInf.trgDiv)
         off = Tuple(mixInf.trgPar[parItr])
         ker(stp, off, dirItr, parItr, mrgVec, prtVec; ndrange=maxItr)
     end
-    sncGpu(cmpInf)
+    synchronize(cmpInf.dev)
     memCln!(prtVec)
     return mrgVec
 end
@@ -320,22 +320,11 @@ binary branch indexing
 	return bId + ^(2, maxLvl - (lvl + 1))
 end
 
-# Calls CUDA.synchronize on GPU, and noop on CPU
-sncGpu(::GPUKerOpt) = CUDA.synchronize(CUDA.stream())
-sncGpu(::CPUKerOpt) = nothing
-
-function memCln!(vec::CuArray)
-    CUDA.synchronize(CUDA.stream())
-    CUDA.unsafe_free!(vec)
-    CUDA.synchronize(CUDA.stream())
+# Release a device buffer ahead of the GC, a no-op on the CPU
+function memCln!(vec::AbstractArray)
+    dev = get_backend(vec)
+    synchronize(dev)
+    finalize(vec)
+    synchronize(dev)
     return nothing
 end
-function memCln!(vec1::CuArray, vec2::CuArray)
-    CUDA.synchronize(CUDA.stream())
-    CUDA.unsafe_free!(vec1)
-    CUDA.unsafe_free!(vec2)
-    CUDA.synchronize(CUDA.stream())
-    return nothing
-end
-memCln!(::AbstractArray) = nothing
-memCln!(::AbstractArray, ::AbstractArray) = nothing

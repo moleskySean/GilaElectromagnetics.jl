@@ -4,12 +4,12 @@ adds no names to Gila's interface. Only two types need a hook: `GlaVacOprMem`,
 whose FFTW plans are process-local C pointers and are rebuilt from the stored
 Fourier data on load, and `SusOpr`, whose susceptibility may live on a device.
 Everything wrapping them is plain data that JLD2's own struct handling covers.
-An operator written from the GPU reads back on the CPU---call `useGpu!` on it
-to put it back on the device. =#
+An operator written from a GPU reads back on the CPU---`adapt` it to put it
+back on the device. =#
 module GilaJLD2Ext
 
 using GilaElectromagnetics
-using GilaElectromagnetics.GilaVacuum: glaOprPrp, useCpu
+using GilaElectromagnetics.GilaVacuum: glaOprPrp
 using GilaElectromagnetics.GilaVolumes: genEveExtInf
 using DoubleFloats: Double64
 using KernelAbstractions: CPU
@@ -22,6 +22,7 @@ struct MemDsk{T<:AbstractFloat}
     genPrc::Symbol
     qssApx::Bool
     adjMod::Bool
+    blc::Union{Nothing, NamedTuple}
     trgVol::GlaVol
     srcVol::GlaVol
 end
@@ -45,9 +46,8 @@ _symPrc(genPrc::Symbol) = genPrc === :Float64 ? Float64 :
 JLD2.writeas(::Type{<:GlaVacOprMem{T}}) where T<:AbstractFloat = MemDsk{T}
 
 function JLD2.wconvert(::Type{MemDsk{T}}, mem::GlaVacOprMem{T}) where T<:AbstractFloat
-    cmpInf = useCpu(mem.cmpInf)
-    return MemDsk{T}(collect(map(Array, mem.egoFur)), cmpInf.frqPhz,
-        _prcSym(cmpInf.genPrc), cmpInf.qssApx, cmpInf.adjMod, mem.trgVol, mem.srcVol)
+    return MemDsk{T}(collect(map(Array, mem.egoFur)), mem.cmpInf.frqPhz,
+        _prcSym(mem.cmpInf.genPrc), mem.cmpInf.qssApx, mem.cmpInf.adjMod, mem.cmpInf.blc, mem.trgVol, mem.srcVol)
 end
 
 #= mixInf is a pure function of the two volumes---GlaVacOprMem's own constructor
@@ -55,7 +55,7 @@ computes it as genEveExtInf(trgVol, srcVol)---so it never reaches the disk, and
 neither do the CartesianIndices it holds. =#
 JLD2.rconvert(::Type{<:GlaVacOprMem{T}}, dsk::MemDsk{T}) where T<:AbstractFloat =
     glaOprPrp(dsk.egoFur, dsk.trgVol, dsk.srcVol, genEveExtInf(dsk.trgVol, dsk.srcVol),
-        CPUKerOpt{T}(dsk.frqPhz, _symPrc(dsk.genPrc), dsk.qssApx, dsk.adjMod, CPU()))
+        GlaKerOpt{T}(dsk.frqPhz, _symPrc(dsk.genPrc), dsk.qssApx, dsk.adjMod, CPU(), dsk.blc))
 
 JLD2.writeas(::Type{<:SusOpr{T, A}}) where {T<:AbstractFloat, A} = SusDsk{T, ndims(A)}
 

@@ -93,7 +93,7 @@ smallest volume that leaves cells outside the exclusion window. =#
     # field is not the point-dipole field
     winInt = 2
     vol    = mkVol((6,6,6))
-    oprMem = GlaVacOprMem(CPUKerOpt{Float64}(), vol)
+    oprMem = GlaVacOprMem(GlaKerOpt{Float64}(), vol)
     dipVec = zeros(ComplexF64, 3)
     relErrDir = zeros(Float64, 3)
     anaOut = Array{ComplexF64}(undef, 3 * prod(vol.cel))

@@ -37,8 +37,7 @@ storage precision of the operator, so the operator acts on `Complex{T}` data.
 abstract type AbstractGlaOpr{T<:AbstractFloat} end
 
 #= Declared here, with the methods in GilaOperators, so the solvers can query
-the device and the adjoint state of an operator they are handed. =#
-function isgpu end
+the adjoint state of an operator they are handed. =#
 function isadjoint end
 
 # One labelled row of a multi-line show; a multi-line val re-indents to align.
@@ -68,11 +67,10 @@ A subtype has to implement:
 - `mulAct!(opr, act::AbstractVector{Complex{T}})`: The matrix-vector product on a
   flat vector (mutating)
 - `adjoint!(opr)`: The adjoint, with the value semantics of its docstring
-- `arrTyp(opr)`: `Array` or `CuArray`, whichever the operator computes with
+- `KernelAbstractions.get_backend(opr)`: The backend the operator computes on
 - `isadjoint(opr)`: Whether the operator is the adjoint of the Green operator
 - `isselfoperator(opr)`: Whether the source and target geometry are the same
 - `isexternaloperator(opr)`: Whether the source and target geometry are disjoint
-- `isgpu(opr)`: Whether the operator computes on the GPU
 - `glaSze(opr)`: The target and source sizes in tensor form
 
 `isoverlappingoperator` defaults to `false` here, `eltype` to `Complex{T}` on

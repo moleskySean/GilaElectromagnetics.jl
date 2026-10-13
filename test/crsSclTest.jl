@@ -104,7 +104,7 @@ end
     # finite but wrong values
     volBad = GlaVol((2,2,2), stdScl, _xsSep)
     @test_throws ArgumentError GlaOprVac{Float64}(_xsVolCrs, volBad)
-    @test_throws ArgumentError GlaVacOprMem(CPUKerOpt{Float64}(), _xsVolCrs, volBad)
+    @test_throws ArgumentError GlaVacOprMem(GlaKerOpt{Float64}(), _xsVolCrs, volBad)
     # doubling the fine cell count in every direction fixes the parity
     @test GilaElectromagnetics.GilaVolumes.genEveExtInf(_xsVolCrs, _xsVolFin) isa
         GilaElectromagnetics.GilaVolumes.GlaExtInf

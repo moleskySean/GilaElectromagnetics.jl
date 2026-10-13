@@ -1,7 +1,17 @@
 # Shared helpers — included before all topic files in runtests.jl
-# Requires: using GilaElectromagnetics, LinearAlgebra, CUDA (done in runtests.jl)
+# Requires: using GilaElectromagnetics, LinearAlgebra, CUDA, Metal, OpenCL (done in runtests.jl)
 import GilaElectromagnetics.GilaOperators: mskRng
 import GilaElectromagnetics.GilaVolumes: uniVol
+using KernelAbstractions: functional, supports_float64
+
+# OpenCL.jl leaves functional unimplemented (missing); pocl always provides a device
+const gpuBackends = filter(dev -> coalesce(functional(dev), true), [CUDABackend(), MetalBackend(), OpenCLBackend()])
+
+# Storage precisions to test on a backend: Float32 always, Float64 only where supported
+gpuPrcs(dev) = supports_float64(dev) ? (Float32, Float64) : (Float32,)
+
+# Relative CPU-GPU parity bound; Float64 leaves room for device FFTs less exact than pocl's
+gpuTol(T) = T === Float64 ? 1e-12 : 1e-5
 
 # sym, unlike asym, is not exported; the fine mesh block type is internal as well
 const glaSym = GilaElectromagnetics.GilaOperators.sym
@@ -27,13 +37,13 @@ const _vol4  = mkVol((4,4,4))
 const _sus4  = mkSus((4,4,4))
 const _trgV4 = mkVol((4,4,4); org=extOrg)
 
-const _selfMem4 = GlaVacOprMem(CPUKerOpt{Float64}(), _vol4)
-const _extMem4  = GlaVacOprMem(CPUKerOpt{Float64}(), _trgV4, _vol4)
+const _selfMem4 = GlaVacOprMem(GlaKerOpt{Float64}(), _vol4)
+const _extMem4  = GlaVacOprMem(GlaKerOpt{Float64}(), _trgV4, _vol4)
 
 # Tiny (2,2,2) operator for tests that loop over many mul! calls (linAlg, extOps)
 const _vol2s   = mkVol((2,2,2))
 const _sus2s   = mkSus((2,2,2))
-const _mem2s   = GlaVacOprMem(CPUKerOpt{Float64}(), _vol2s)
+const _mem2s   = GlaVacOprMem(GlaKerOpt{Float64}(), _vol2s)
 _g0s()     = GlaOprVac(_mem2s)
 _asys()    = AsyGlaOprVac(_g0s())
 _invScts() = InvSctOpr(_g0s(), _sus2s)

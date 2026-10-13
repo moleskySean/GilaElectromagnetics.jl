@@ -180,7 +180,7 @@ const momSlv = (1//32, 1//32, 1//512)
     @testset "slender contact block" begin
         vol = mkVol((4, 4, 4); scl=momSlv)
         frq = 1.0 + 0.1im
-        opt = CPUKerOpt{Float64}()
+        opt = GlaKerOpt{Float64}()
         opt.frqPhz = frq
         toe = zeros(ComplexF64, 3, 3, 2, 2, 2)
         GVM.cntBlk!(toe, vol, opt)
@@ -212,8 +212,8 @@ const momSlv = (1//32, 1//32, 1//512)
     # of its own to disagree about
     @testset "fp32 build is the narrowed fp64 build" begin
         vol = mkVol((4, 4, 4))
-        mem64 = GlaVacOprMem(CPUKerOpt{Float64}(), vol)
-        mem32 = GlaVacOprMem(CPUKerOpt{Float32}(), vol)
+        mem64 = GlaVacOprMem(GlaKerOpt{Float64}(), vol)
+        mem32 = GlaVacOprMem(GlaKerOpt{Float32}(), vol)
         @test all(ComplexF32.(f64) == f32
             for (f32, f64) ∈ zip(mem32.egoFur, mem64.egoFur))
     end

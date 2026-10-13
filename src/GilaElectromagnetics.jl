@@ -8,6 +8,10 @@ Distribution: The code distributed under GNU LGPL.
 """
 module GilaElectromagnetics
 
+using KernelAbstractions: CPU, get_backend
+using Adapt: adapt
+export CPU, get_backend, adapt
+
 include("glaTyp.jl")
 using .GilaTypes
 export GlaSlv, AbstractGlaOpr, AbstractGlaVacOpr
@@ -23,7 +27,7 @@ export GlaFld, MultiScaleField, zerofield, discretize!, regionview, eachregion, 
 
 include("vacuum/glaVac.jl")
 using .GilaVacuum
-export GlaKerOpt, CPUKerOpt, GPUKerOpt, GlaVacOprMem, useCpu!, useGpu!
+export GlaKerOpt, GlaVacOprMem
 
 include("glaSlv.jl")
 using .GilaSolvers
@@ -34,7 +38,7 @@ include("glaOpr.jl")
 using .GilaOperators
 export GlaOprVac, AsyGlaOprVac, SymGlaOprVac, GlaCmpOprVac, AsyGlaCmpOprVac, SymGlaCmpOprVac, InvSctOpr, SctOpr, GlaOpr, SusOpr
 export VacuumGreenOperator, AsymVacuumGreenOperator, SymVacuumGreenOperator, CompositeVacuumGreenOperator, AsymCompositeVacuumGreenOperator, SymCompositeVacuumGreenOperator, InverseScatteringOperator, ScatteringOperator, GreenOperator, SusceptibilityOperator
-export isadjoint, isselfoperator, isexternaloperator, isoverlappingoperator, isgpu, isquasistatic, adjoint!, glaSze, slv, sus, asym, sym, setSus!
+export isadjoint, isselfoperator, isexternaloperator, isoverlappingoperator, isquasistatic, adjoint!, glaSze, slv, sus, asym, sym, setSus!, setBlc!
 
 #
 # include("glaSlv.jl")
