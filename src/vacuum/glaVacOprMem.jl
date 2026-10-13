@@ -53,19 +53,6 @@ end
 
 include("glaVacOprMemGen.jl") # For genEgoCrc!
 
-"""
-    GlaVacOprMem(cmpInf::GlaKerOpt{T}, trgVol::GlaVol, srcVol::GlaVol=trgVol)
-
-Generate the Fourier coefficients and the operator memory. One volume gives the
-self construction.
-
-# Keywords
-- `shpCch::Bool=false`: cache the far-field geometry table of each cell shape in a
-  scratch space; a table is 16-19 MB and takes 12-16 s to build against 0.6-0.7 s to read
-- `prxWrn::Bool=true`: warn when separated volumes are closer than a third of a wavelength
-- `hrmPrt=nothing`: keep only the entry by entry real (`:sym`) or imaginary (`:asy`)
-  part of the kernel, as `SymGlaOprVac` and `AsyGlaOprVac` do
-"""
 #= Closer than a third of a wavelength a separated pair's discretisation error
 is several times its wide separation value. The bound is a distance, not a cell
 count, and loss makes it worse. =#
@@ -93,6 +80,19 @@ end
 prxChk(cmpInf::GlaKerOpt, trgVol::GlaVol, srcVol::GlaVol) =
     prxChk(frqPhz(cmpInf), trgVol, srcVol)
 
+"""
+    GlaVacOprMem(cmpInf::GlaKerOpt{T}, trgVol::GlaVol, srcVol::GlaVol=trgVol; shpCch, prxWrn, hrmPrt)
+
+Generate the Fourier coefficients and the operator memory. One volume gives the
+self construction.
+
+# Keywords
+- `shpCch::Bool=false`: cache the far-field geometry table of each cell shape in a
+  scratch space; a table is 16-19 MB and takes 12-16 s to build against 0.6-0.7 s to read
+- `prxWrn::Bool=true`: warn when separated volumes are closer than a third of a wavelength
+- `hrmPrt=nothing`: keep only the entry by entry real (`:sym`) or imaginary (`:asy`)
+  part of the kernel, as `SymGlaOprVac` and `AsyGlaOprVac` do
+"""
 function GlaVacOprMem(cmpInf::GlaKerOpt{T}, trgVol::GlaVol, srcVol::GlaVol=trgVol; shpCch::Bool = false, prxWrn::Bool = true, hrmPrt::Union{Nothing,Symbol} = nothing) where T<:AbstractFloat
     hrmPrt ∈ (nothing, :sym, :asy) || throw(ArgumentError("hrmPrt is :sym, :asy or nothing, got $(repr(hrmPrt))."))
     prxWrn && prxChk(cmpInf, trgVol, srcVol)
