@@ -130,14 +130,13 @@ mulAct!(opr::SusOpr{T, <:AbstractVector{Complex{T}}}, act::AbstractVector{Comple
 
 #= The tensor shape, one region block at a time. A component occupies a
 contiguous run of celNum entries inside a block, so the block reshapes to
-(celNum, 3) and each row of the cell tensor is one broadcast of three terms. The
-block is read before it is written, which is the copy a full tensor costs. =#
+(celNum, 3) and each row of the cell tensor is one broadcast of three terms. =#
 function mulAct!(opr::SusOpr{T, <:AbstractArray{Complex{T}, 3}}, act::AbstractVector{Complex{T}}) where T<:AbstractFloat
     celOff, dofOff = 0, 0
     for reg in regions(opr.cvol)
         celNum = prod(reg.cel)
         actBlk = reshape(view(act, (dofOff + 1):(dofOff + 3 * celNum)), celNum, 3)
-        innBlk = copy(actBlk)
+        innBlk = copy(actBlk) # later rows still read what earlier rows overwrite
         susBlk = view(opr.sus, (celOff + 1):(celOff + celNum), :, :)
         for dir in 1:3
             @views actBlk[:, dir] .= susBlk[:, dir, 1] .* innBlk[:, 1] .+

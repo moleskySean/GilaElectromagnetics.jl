@@ -95,7 +95,7 @@ function egoBrn!(egoMem::GlaVacOprMem, lvl::Integer, bId::Integer, actVec::Abstr
         retVec = similar(orgVec, brnSze..., 3, parNumTrg)
         fill!(retVec, zero(eltype(retVec)))
         synchronize(cmpInf.dev)
-        # multiply by Toeplitz vector, avoid race condition DO NOT SPAWN!
+        # multiply by Toeplitz vector, sequentially: every source partition adds into the same target slice
         for trgItr in eachindex(1:parNumTrg) 
             for srcItr in eachindex(1:parNumSrc) 
                 mulBrn!(egoMem.mixInf, bId, selectdim(retVec, 5, trgItr),
@@ -149,11 +149,8 @@ function invFFT!(egoMem::GlaVacOprMem, lvl::Int, actVec::AbstractArray{<:Complex
 end
 
 function egoBrnExe!(egoMem::GlaVacOprMem, prgVecEve::AbstractArray{<:Complex}, prgVecOdd::AbstractArray{<:Complex}, lvl::Int, bId::Int, cmpInf::GlaKerOpt)
-    # Branches run sequentially: concurrent execution of the same FFTW plan from
-    # multiple Julia tasks causes segfaults due to shared internal scratch space.
-    # !async causes errors + no speed up!
+    # Sequential: tasks sharing an FFTW plan segfault on its scratch space
     eveVec = egoBrn!(egoMem, lvl + 1, bId, prgVecEve, cmpInf)
-    # !wait for even branch to return, functionality choice!
     if lvl < length(egoMem.dimInf) - 1
         synchronize(cmpInf.dev)
     end

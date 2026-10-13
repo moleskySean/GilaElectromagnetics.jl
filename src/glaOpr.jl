@@ -207,7 +207,7 @@ The inverse scattering operator (I - XGâ‚€), with X over the source tiling of Gâ
 """
 mutable struct InvSctOpr{T<:AbstractFloat, O<:AbstractGlaVacOpr{T}} <: AbstractGlaOpr{T}
     oprVac::O
-    # Left abstract: setSus! rewrites this field with another shape
+    # setSus! may store either storage shape
     sus::SusOpr{T}
 
     #= The susceptibility comes in any of the forms SusOpr accepts, and is the

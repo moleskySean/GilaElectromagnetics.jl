@@ -43,9 +43,9 @@ function Base.setproperty!(opt::GlaKerOpt, fld::Symbol, val)
     return setfield!(opt, fld, convert(fieldtype(typeof(opt), fld), val))
 end
 
-# genPrc = Float32 overflows the h_l recursion near l ≈ 27 and returns NaN (D14)
+# genPrc = Float32 overflows the h_l recursion near l ≈ 27 and returns NaN
 chkGenPrc(genPrc::Type{<:AbstractFloat}) = genPrc === Float32 &&
-    throw(ArgumentError("genPrc = Float32 would return NaN: the contact h_l recursion overflows near l ≈ 27 (D14). Use Float64 (default) or Double64."))
+    throw(ArgumentError("genPrc = Float32 would return NaN: the contact h_l recursion overflows near l ≈ 27. Use Float64 (default) or Double64."))
 
 """
     GlaKerOpt{T}(dev::KernelAbstractions.Backend=CPU())

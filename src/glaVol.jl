@@ -38,7 +38,6 @@ struct GlaVol
     scl::NTuple{3,Rational{Int}}
     org::NTuple{3,Rational{Int}}
     grd::NTuple{3,StepRange{Rational{Int},Rational{Int}}}
-    # boundary conditions here?
 end
 
 """

@@ -46,7 +46,7 @@ are a `GlaSndOprVac`; every other block is a `GlaOprVac`.
 struct GlaCmpOprVac{T<:AbstractFloat} <: AbstractGlaVacOpr{T}
     trgCvl::GlaCmpVol
     srcCvl::GlaCmpVol
-    # Left abstract on purpose: a mix of GlaOprVac and GlaSndOprVac, one dispatch per FFT
+    # GlaOprVac and GlaSndOprVac blocks mixed
     blkMat::Matrix{AbstractGlaOpr{T}}
 end
 
@@ -490,8 +490,7 @@ _strKnd(opr::GlaCmpOprVac) = "composite G₀"
 _strKnd(opr::AsyGlaCmpOprVac) = "composite Asym(G₀)"
 _strKnd(opr::SymGlaCmpOprVac) = "composite Sym(G₀)"
 
-#= A scattering operator built over a composite volume gets the same "composite"
-marker its vacuum operator does, dispatched rather than branched (Phase 3). =#
+# A scattering operator over a composite volume is marked composite too
 _strKnd(::InvSctOpr{T, <:GlaCmpOprVac}) where T<:AbstractFloat = "composite (I - XG₀)"
 _strKnd(::SctOpr{T, <:InvSctOpr{T, <:GlaCmpOprVac}}) where T<:AbstractFloat = "composite (I - XG₀)⁻¹"
 _strKnd(::GlaOpr{T, <:SctOpr{T, <:InvSctOpr{T, <:GlaCmpOprVac}}}) where T<:AbstractFloat = "composite G₀(I - XG₀)⁻¹"

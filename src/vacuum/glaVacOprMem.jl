@@ -173,9 +173,8 @@ end
 
 #=
 Extract one even/odd Fourier branch: copy the strided branch corner of the
-transformed circulant into the branch array. Views plus broadcast express the
-copy once for every backend. The trailing
-(component / partition) dimensions of the two arrays must agree. When a
+transformed circulant into the branch array. The trailing (component /
+partition) dimensions of the two arrays must agree. When a
 dimension of the circulant holds a single unique coefficient the length-1 view
 broadcasts up to the minimum branch extent of 2.
 =#
