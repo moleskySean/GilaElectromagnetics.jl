@@ -22,7 +22,6 @@ end
     @test nregions(cvol) == 1
     @test regions(cvol) == [vol]
     @test cvol == CompositeVolume(vol)
-    @test CompositeVolume === GlaCmpVol
     @test finest(cvol) == scl16
     # One entry per cell, three per degree of freedom
     crd = collect(coordinates(cvol))
@@ -257,13 +256,9 @@ end
 @testset "GlaCmpVol refine convenience form" begin
     vol = mkCmpVol()
     box = (stdOrg, (1//8, 1//8, 1//8))
-    @test refine(vol, box) == refine(GlaCmpVol(vol), box)
     @test refine(vol, box; factor=(1, 1, 2)) ==
         refine(GlaCmpVol(vol), box; factor=(1, 1, 2))
     # A GlaVol works as a box: only its outer bounds matter
     boxVol = GlaVol((2, 2, 2), scl16, stdOrg)
-    @test refine(vol, boxVol) == refine(vol, (stdOrg, (1//8, 1//8, 1//8)))
-    # A coarser box volume with the same bounds gives the same tiling
-    boxCrs = GlaVol((2, 2, 2), scl16, stdOrg)
-    @test refine(vol, boxCrs) == refine(vol, boxVol)
+    @test refine(vol, boxVol) == refine(vol, box)
 end

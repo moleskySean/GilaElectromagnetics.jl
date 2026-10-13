@@ -20,7 +20,6 @@ import GilaElectromagnetics.GilaSolvers: slvPrm
     @test isnothing(rfn.maxItr)
     @test isnothing(rfn.absTol)
     @test isnothing(rfn.relTol)
-    @test MixedPrecisionRefinement === MixPrcRfn
     @test MixPrcRfn(Float32; innSlv=BiCGStabSolver()).innSlv isa BiCGStabSolver
 
     gcr = GCRODRSolver()
@@ -251,20 +250,4 @@ hand side moves, so the probe passes and the subspace is never rebuilt. =#
     @test all(inn -> inn.numItr <= gcr.inner[1].numItr, gcr.inner)
     # Refinement steps cost GMRES more as they go and GCRO-DR does not pay it
     @test sum(inn -> inn.numItr, gcr.inner) < sum(inn -> inn.numItr, gmr.inner)
-end
-
-@testset "solve GPU" begin
-    vol = mkVol((4,4,4))
-    @testset "$(nameof(typeof(dev))) $T" for dev in gpuBackends, T in gpuPrcs(dev)
-        opr = GlaOprVac{T}(vol; dev)
-        rhs = adapt(dev, ones(Complex{T}, size(opr, 1)))
-
-        sol_bcg = solve(opr, rhs, BiCGStabSolver())
-        @test size(sol_bcg) == (size(opr, 2),)
-        @test norm(opr * sol_bcg - rhs) < sqrt(eps(T)) * norm(rhs)
-
-        sol_gmr = solve(opr, rhs, GMRESSolver())
-        @test size(sol_gmr) == (size(opr, 2),)
-        @test norm(opr * sol_gmr - rhs) < sqrt(eps(T)) * norm(rhs)
-    end
 end

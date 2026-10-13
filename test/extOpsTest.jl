@@ -1,10 +1,10 @@
 # glaMatFreExtOps tests
-# Uses _g0s(), _invScts(), _scts(), _glas() (2,2,2) from tstHlp.jl for cheap loops
+# Uses the (2,2,2) builders from tstHlp.jl
 import GilaElectromagnetics.GilaOperators: invMul!, invMulAdj!
 
+# Each wrapper is a closure over mul! and adjoint!, so one operator apiece covers it
 @testset "matrix-free wrappers" begin
-    for wrp in (FunctionOperator, LinearOperator, LinearMap),
-        opr in (_g0s(), _invScts(), _scts(), _glas())
+    for (wrp, opr) in ((FunctionOperator, _g0s()), (LinearOperator, _invScts()), (LinearMap, _glas()))
         wrpOpr = wrp(opr)
         n, m = size(opr, 2), size(opr, 1)
         inp, out = rand(ComplexF64, n), rand(ComplexF64, m)

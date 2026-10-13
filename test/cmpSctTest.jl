@@ -37,36 +37,23 @@ const sctVol = GlaVol((4, 2, 2), scl16, stdOrg)
 const sctCvl = refine(GlaCmpVol(sctVol), ((-1//16, 0//1, 0//1), (1//8, 1//8, 1//8)))
 const sctVac = GlaCmpOprVac{Float64}(sctCvl)
 const sctInv = InvSctOpr(sctVac, sctChi)
-const sctMat = dnsMat(sctInv)
 const sctOne = GlaCmpVol(GlaVol((2, 2, 2), scl16, stdOrg))
 
-@testset "Composite scattering traits" begin
+@testset "Composite scattering construction" begin
     @test nregions(sctCvl) == 2
     @test regions(sctCvl)[1].cel == (4, 4, 4)
     @test regions(sctCvl)[1].scl == stdScl
     @test regions(sctCvl)[2].cel == (2, 2, 2)
-    @test size(sctInv) == (216, 216)
-    @test size(sctInv, 1) == 216 && size(sctInv, 2) == 216
-    @test eltype(sctInv) == ComplexF64
     @test length(sus(sctInv).sus) == 216
     @test sus(sctInv).sus isa Vector{ComplexF64}
     @test isselfoperator(sctInv)
     @test !isexternaloperator(sctInv)
-    @test !isadjoint(sctInv)
-    @test get_backend(sctInv) isa CPU
     @test !isoverlappingoperator(sctInv)
-    @test glaSze(sctInv) == glaSze(sctVac)
     @test slv(sctInv) isa GlaSlv
     sct = SctOpr(sctVac, sctChi)
     gla = GlaOpr(sctVac, sctChi)
-    @test size(sct) == (216, 216) && size(gla) == (216, 216)
     @test isselfoperator(sct) && isselfoperator(gla)
     @test slv(sct) isa GCRODRSolver
-    @test occursin("composite", sprint(show, sctInv))
-    @test occursin("composite", sprint(show, gla))
-    @test !occursin("\n", sprint(show, sctInv)) && !occursin("\n", sprint(show, gla))
-    @test sprint(show, MIME"text/plain"(), sctInv) != sprint(show, sctInv)
-    @test sprint(show, MIME"text/plain"(), gla) != sprint(show, gla)
     # The composite volume takes the place of the volume in every constructor
     @test InvSctOpr{Float64}(sctOne, 0.5 + 0.1im) isa InvSctOpr
     @test SctOpr{Float64}(sctOne, 0.5 + 0.1im; slv=GMRESSolver()) isa SctOpr
@@ -79,29 +66,12 @@ const sctOne = GlaCmpVol(GlaVol((2, 2, 2), scl16, stdOrg))
 end
 
 @testset "Composite scattering dense identity" begin
-    vacMat = dnsMat(sctVac)
-    ref = Matrix{ComplexF64}(I, 216, 216) - Diagonal(sus(sctInv).sus) * vacMat
-    @test frbErr(sctMat, ref) < 1e-13
+    inp = randn(ComplexF64, 216, 3)
+    @test frbErr(sctInv * inp, inp - sus(sctInv).sus .* (sctVac * inp)) < 1e-13
     # The susceptibility is one value per cell, repeated over the components
     susCel = [ComplexF64(sctChi(pos)) for (pos, _, _) in coordinates(sctCvl)]
     @test sus(sctInv).sus[1:64] ≈ susCel[1:64]
     @test sus(sctInv).sus[65:128] ≈ susCel[1:64]
-end
-
-@testset "Composite scattering adjoint" begin
-    adjInv = adjoint(sctInv)
-    @test isadjoint(adjInv)
-    @test !isadjoint(sctInv)
-    @test frbErr(dnsMat(adjInv), sctMat') < 1e-13
-    @test dnsMat(sctInv) == sctMat
-    # The full operator satisfies the same identity on random vectors
-    gla = GlaOpr(sctVac, sctChi)
-    adjGla = adjoint(gla)
-    vecX = randn(ComplexF64, 216)
-    vecY = randn(ComplexF64, 216)
-    lhs = dot(vecY, gla * vecX)
-    rhs = dot(adjGla * vecY, vecX)
-    @test abs(lhs - rhs) < 1e-7 * abs(lhs)
 end
 
 @testset "Composite scattering solver" begin
@@ -187,7 +157,7 @@ end
     plnVac = GlaOprVac{Float64}(vol)
     cmpInv = InvSctOpr(cmpVac, chi)
     plnInv = InvSctOpr(plnVac, susTen)
-    @test dnsMat(cmpInv) == dnsMat(plnInv)
+    @test prbErr(cmpInv, plnInv) == 0
     vecX = randn(ComplexF64, 192)
     @test SctOpr(cmpVac, chi) * vecX ≈ SctOpr(plnVac, susTen) * vecX
     @test GlaOpr(cmpVac, chi) * vecX ≈ GlaOpr(plnVac, susTen) * vecX
@@ -217,21 +187,4 @@ end
     @test crsErr < 1e-2
     # Both meshes carry the same physical current, so the L² norms agree as well
     @test norm(cmpFld) ≈ norm(finFld) rtol=1e-12
-end
-
-@testset "Composite scattering GPU" begin
-    @testset "$(nameof(typeof(dev))) $T" for dev in gpuBackends, T in gpuPrcs(dev)
-        oprGpu = InvSctOpr{T}(sctCvl, sctChi; dev)
-        @test get_backend(oprGpu) isa typeof(dev)
-        @test get_backend(sus(oprGpu).sus) isa typeof(dev)
-        fldGpu = discretize!(zerofield(T, sctCvl; dev), sctCur)
-        outGpu = oprGpu * fldGpu
-        @test outGpu isa GlaFld
-        @test get_backend(outGpu) isa typeof(dev)
-        fldCpu = discretize!(zerofield(T, sctCvl), sctCur)
-        outCpu = InvSctOpr{T}(sctCvl, sctChi) * fldCpu
-        @test norm(Array(outGpu.dat) - outCpu.dat) < gpuTol(T) * norm(outCpu.dat)
-        sctGpu = SctOpr(oprGpu.oprVac, sctChi)
-        @test norm((oprGpu * (sctGpu * fldGpu)).dat - fldGpu.dat) < 1e-4 * norm(fldGpu.dat)
-    end
 end

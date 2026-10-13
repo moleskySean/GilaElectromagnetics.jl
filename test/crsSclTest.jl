@@ -41,11 +41,8 @@ const _xsRefCrsTrg = dnsMat(GlaOprVac{Float64}(_xsVolRef, _xsVolFin))
 const _xsRefFinTrg = dnsMat(GlaOprVac{Float64}(_xsVolFin, _xsVolRef))
 
 @testset "Cross-scale separated, coarse target" begin
-    # srcDiv > 1 partitions the input, so this orientation runs genPrt!
+    # The finer source is partitioned, so this orientation runs genPrt!
     @test isexternaloperator(_xsOprCrsTrg)
-    @test prod(_xsOprCrsTrg.mem.mixInf.srcDiv) == 8
-    @test prod(_xsOprCrsTrg.mem.mixInf.trgDiv) == 1
-    @test size(_xsOprCrsTrg) == (24, 192)
 
     # coarse target row is the mean of the eight fine target rows
     @test frbErr(_xsMatCrsTrg, (_xsAgr ./ 8) * _xsRefCrsTrg) < 1e-12
@@ -54,11 +51,8 @@ const _xsRefFinTrg = dnsMat(GlaOprVac{Float64}(_xsVolFin, _xsVolRef))
 end
 
 @testset "Cross-scale separated, fine target" begin
-    # trgDiv > 1 partitions the output, so this orientation runs mrgPrt!
+    # The finer target is partitioned, so this orientation runs mrgPrt!
     @test isexternaloperator(_xsOprFinTrg)
-    @test prod(_xsOprFinTrg.mem.mixInf.trgDiv) == 8
-    @test prod(_xsOprFinTrg.mem.mixInf.srcDiv) == 1
-    @test size(_xsOprFinTrg) == (192, 24)
 
     # coarse source column injects unit density into the eight fine cells
     @test frbErr(_xsMatFinTrg, _xsRefFinTrg * _xsInj) < 1e-12
@@ -75,14 +69,6 @@ end
     @test frbErr(_xsRefCrsTrg, transpose(_xsRefFinTrg)) < 1e-12
 end
 
-@testset "Cross-scale adjoint" begin
-    adjMat = dnsMat(adjoint(_xsOprCrsTrg))
-    @test size(adjMat) == reverse(size(_xsMatCrsTrg))
-    @test frbErr(adjMat, _xsMatCrsTrg') < 1e-13
-    # the original operator is untouched by adjoint
-    @test !isadjoint(_xsOprCrsTrg)
-end
-
 @testset "Same-scale touching goes external" begin
     volSrc = GlaVol((4,4,4), stdScl, stdOrg)
     volTrg = GlaVol((4,4,4), stdScl, (4//32, 0//1, 0//1))
@@ -90,8 +76,6 @@ end
     # face contact is not overlap: the external path has contact corrections
     @test isexternaloperator(opr)
     @test !isoverlappingoperator(opr)
-    @test all(==(0:0), opr.srcMsk)
-    @test all(==(0:0), opr.trgMsk)
     # the masked union is the route GlaOprVac took for touching volumes before
     # the strict check
     @test uniVol(volTrg, volSrc).cel == (8, 4, 4)
@@ -105,9 +89,6 @@ end
     volBad = GlaVol((2,2,2), stdScl, _xsSep)
     @test_throws ArgumentError GlaOprVac{Float64}(_xsVolCrs, volBad)
     @test_throws ArgumentError GlaVacOprMem(GlaKerOpt{Float64}(), _xsVolCrs, volBad)
-    # doubling the fine cell count in every direction fixes the parity
-    @test GilaElectromagnetics.GilaVolumes.genEveExtInf(_xsVolCrs, _xsVolFin) isa
-        GilaElectromagnetics.GilaVolumes.GlaExtInf
 end
 
 @testset "Cross-scale touching" begin

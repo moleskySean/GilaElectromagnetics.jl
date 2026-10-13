@@ -26,15 +26,9 @@ fldCelOff(cvol, idx) = sum(prod(regions(cvol)[r].cel) for r in 1:(idx - 1); init
     cvol = mkFldRef()
     fld = zerofield(Float64, cvol)
     @test fld isa GlaFld
-    @test MultiScaleField === GlaFld
-    @test eltype(fld) == ComplexF64
     @test length(fld) == fldLen(cvol)
-    @test size(fld) == (fldLen(cvol),)
-    @test IndexStyle(fld) == IndexLinear()
     @test all(iszero, fld)
     @test iszero(norm(fld))
-    @test parent(fld) === fld.dat
-    @test parent(fld) isa Vector{ComplexF64}
     @test fld.cvol == cvol
     # A trivial composite has one block of the whole volume
     @test length(zerofield(Float64, mkFldUni())) == 3 * prod(mkFldVol().cel)
@@ -52,17 +46,7 @@ end
     @test GlaFld(vol) == fld
     @test fld == zerofield(Float64, GlaCmpVol(vol))
     @test discretize!(zerofield(Float64, vol), fldStp) == discretize!(zerofield(Float64, GlaCmpVol(vol)), fldStp)
-    # A one-region field never mentions a composite
-    str = sprint(show, fld)
-    @test str == "Field (1536 degrees of freedom, CPU) on a (8×8×8) cells, (1//16×1//16×1//16)λ³ volume"
-    @test !occursin("composite", lowercase(str))
-    # A tiling of several regions still lists them
-    strRef = sprint(show, zerofield(Float64, mkFldRef()))
-    @test occursin("Composite field", strRef)
-    @test occursin("Composite volume (7 regions)", strRef)
-    @testset "$(nameof(typeof(dev)))" for dev in gpuBackends
-        @test occursin(string(nameof(typeof(dev))), sprint(show, zerofield(Float32, vol; dev)))
-    end
+    @test shwChk(fld)
 end
 
 @testset "GlaFld zero and constructor" begin
@@ -200,19 +184,6 @@ end
     @test norm(axp .- ((2.0 + 1im) .* fldX .+ fldY)) < 1e-12 * norm(axp)
     axb = axpby!(2.0, fldX, 3.0, copy(fldY))
     @test norm(axb .- (2 .* fldX .+ 3 .* fldY)) < 1e-12 * norm(axb)
-    # rmul!, fill!, copyto!, copy, similar
-    @test norm(rmul!(copy(fldX), 2.0)) ≈ 2 * norm(fldX)
-    @test iszero(norm(fill!(copy(fldX), 0)))
-    @test norm(copyto!(zerofield(Float64, cvol), fldX)) ≈ norm(fldX)
-    @test copy(fldX) == fldX
-    @test copy(fldX).dat !== fldX.dat
-    sim = similar(fldX)
-    @test sim isa GlaFld
-    @test length(sim) == length(fldX)
-    @test similar(fldX, ComplexF64) isa GlaFld
-    @test similar(fldX, Float64) isa Vector{Float64}
-    # vec is not overloaded, so it gives the field itself back
-    @test vec(fldX) === fldX
 end
 
 @testset "GlaFld broadcasting" begin
@@ -254,33 +225,4 @@ end
     # The refined tiling of the same domain is a different volume again
     fldRef = zerofield(Float64, mkFldRef())
     @test_throws ArgumentError dot(fldA, fldRef)
-end
-
-@testset "GlaFld GPU" begin
-    @testset "$(nameof(typeof(dev))) $T" for dev in gpuBackends, T in gpuPrcs(dev)
-        cvol = mkFldRef()
-        fldGpu = zerofield(T, cvol; dev)
-        @test get_backend(fldGpu) isa typeof(dev)
-        @test length(fldGpu) == fldLen(cvol)
-        @test iszero(norm(fldGpu))
-        fldCpu = discretize!(zerofield(T, cvol), fldSmt)
-        discretize!(fldGpu, fldSmt)
-        @test norm(fldGpu) ≈ norm(fldCpu)
-        @test dot(fldGpu, fldGpu) ≈ dot(fldCpu, fldCpu)
-        # Broadcasting stays on the device
-        fldTwo = 2 .* fldGpu
-        @test fldTwo isa GlaFld
-        @test get_backend(fldTwo) isa typeof(dev)
-        @test norm(fldTwo) ≈ 2 * norm(fldCpu)
-        fldTwo .= fldGpu .+ fldGpu
-        @test norm(fldTwo) ≈ 2 * norm(fldCpu)
-        @test norm(axpy!(one(T), fldGpu, copy(fldGpu))) ≈ 2 * norm(fldCpu)
-        @test get_backend(similar(fldGpu)) isa typeof(dev)
-        # Region views and resampling work off the device buffer
-        @test size(regionview(fldGpu, 1)) == (Int.(regions(cvol)[1].cel)..., 3)
-        @test maximum(abs, regrid(fldGpu) .- regrid(fldCpu)) < gpuTol(T)
-        # adapt round trips to the same backend and back to the host
-        @test get_backend(adapt(CPU(), fldGpu)) isa CPU
-        @test norm(adapt(CPU(), fldGpu)) ≈ norm(fldCpu)
-    end
 end

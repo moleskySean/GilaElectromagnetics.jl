@@ -1,5 +1,6 @@
 # Bloch-periodic operators: against the dense Bloch matrix of blcFil's Toeplitz block, the accuracy records of
 # ref/bloch.txt and the 256-bit composite references of ref/blochCmp.txt
+using JLD2
 import GilaElectromagnetics.GilaVacuum.Bloch: blcSet, blcFil, blcTns, blcCmp, QI
 
 # dense Bloch matrix in Gila's vector layout (cells..., 3) of the Toeplitz block H + iA over the offsets ms

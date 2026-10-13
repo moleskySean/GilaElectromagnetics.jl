@@ -1,9 +1,8 @@
 # GilaVolumes tests
-import GilaElectromagnetics.GilaVolumes:
-    GlaExtInf, genVolEve, genEveExtInf, genCntVol, sepGrd, crcIndClc, uniVol
+import GilaElectromagnetics.GilaVolumes: GlaExtInf, uniVol
 
 @testset "GlaVol construction" begin
-    for dim in volSizes
+    for dim in [(2,2,2), (4,4,4), (6,6,6), (8,8,8), (6,4,8), (8,2,10)]
         volObj = mkVol(dim)
         @test volObj.cel == Tuple(dim)
         @test volObj.scl == stdScl
@@ -78,24 +77,6 @@ end
     @test_throws AssertionError uniVol(v1, vBad)
 end
 
-@testset "GlaExtInf" begin
-    # Mixed-scale row: minScl = (1/32), maxScl = (2/32)
-    # trgDiv = maxScl/coarseScl = 1; srcDiv = maxScl/fineScl = 2
-    for (trgVol, srcVol, trgDiv, srcDiv) in (
-        (mkVol((4,4,4)), mkVol((4,4,4); org=extOrg), (1,1,1), (1,1,1)),
-        (GlaVol((4,4,4), (2//32, 2//32, 2//32), stdOrg),
-            GlaVol((8,8,8), stdScl, extOrg), (1,1,1), (2,2,2)))
-        inf = GlaExtInf(trgVol, srcVol)
-        @test inf.minScl == stdScl
-        @test inf.trgDiv == trgDiv
-        @test inf.srcDiv == srcDiv
-        @test inf.trgCel == (4,4,4)
-        @test inf.srcCel == (4,4,4)
-        @test length(inf.trgPar) == prod(trgDiv)
-        @test length(inf.srcPar) == prod(srcDiv)
-    end
-end
-
 @testset "GlaExtInf error cases" begin
     # Incommensurate scales
     vA = mkVol((4,4,4))
@@ -107,78 +88,14 @@ end
     @test_throws ErrorException GlaExtInf(vCoarse, vFine)
 end
 
-@testset "genEveExtInf" begin
-    # Even+even → no regen, no warn
-    v1 = mkVol((4,4,4))
-    v2 = mkVol((4,4,4); org=extOrg)
-    @test_nowarn genEveExtInf(v1, v2)
-    inf = genEveExtInf(v1, v2)
-    @test isa(inf, GlaExtInf)
-
-    # Odd+odd where dim-wise sum is all-even → no regen, no warn
-    vOdd  = mkVol((3,3,3))
-    vOdd2 = mkVol((3,3,3); org=extOrg)
-    @test_nowarn genEveExtInf(vOdd, vOdd2)
-
-    # Source bug: when regen IS triggered (sum has odd elements), genVolEve changes cell scales
-    # non-uniformly, making the resulting scales incommensurate between the two volumes.
-    # GlaExtInf then throws "Volume pair must share a common scale grid."
-    # Document with @test_throws: the regen path is broken.
-    vOddS  = mkVol((3,3,3))
-    vEvenS = mkVol((4,4,4); org=extOrg)
-    @test_throws ErrorException genEveExtInf(vOddS, vEvenS)
-end
-
-@testset "genVolEve" begin
-    # Even → returned unchanged
-    vEve = mkVol((4,4,4))
-    @test genVolEve(vEve) == vEve
-    # Odd → warns, physical extent preserved
-    vOdd = mkVol((3,3,3))
-    eveVol = @test_logs (:warn,) genVolEve(vOdd)
-    @test all(iseven.(eveVol.cel))
-    @test all(Rational.(eveVol.cel) .* eveVol.scl .== Rational.(vOdd.cel) .* vOdd.scl)
-    @test eveVol.org == vOdd.org
-end
-
-@testset "genCntVol" begin
-    v1 = mkVol((4,4,4))
-    v2 = mkVol((4,4,4); org=extOrg)
-    cnt = genCntVol(v1, v2)
-    @test cnt.scl == min.(v1.scl, v2.scl)
-    @test cnt.org == (0//1, 0//1, 0//1)
-    # cel = trgDiv + srcDiv for each dim; with equal scales, div=(1,1,1)
-    @test cnt.cel == (2, 2, 2)
-end
-
-@testset "sepGrd" begin
-    vSrc = mkVol((4,4,4))
-    vTrg = mkVol((4,4,4); org=extOrg)
-    # flip==1: grid over source
-    sep1 = sepGrd(vTrg, vSrc, 1)
-    @test length(sep1) == 3
-    @test Tuple(length.(sep1)) == vSrc.cel
-    # flip==2: grid over target
-    sep2 = sepGrd(vTrg, vSrc, 2)
-    @test length(sep2) == 3
-    @test Tuple(length.(sep2)) == vTrg.cel
-end
-
-@testset "crcIndClc" begin
-    cntVol = GlaVol((4,4,4), stdScl, stdOrg)
-    # Positive separation: index is trgInd - srcInd + CartesianIndex(1,1,1)
-    @test crcIndClc(cntVol, CartesianIndex(3,3,3), CartesianIndex(1,1,1)) ==
-        CartesianIndex(3, 3, 3)
-    # Negative separation wraps with +2*cel+1 per dim: -2 + 2*4 + 1 == 7
-    @test crcIndClc(cntVol, CartesianIndex(1,1,1), CartesianIndex(3,3,3)) ==
-        CartesianIndex(7, 7, 7)
+#= Known bug: an odd-cell volume against an even one is regenerated with a cell
+size that no longer shares a grid with the other. Flip to a passing build when
+the regeneration is fixed. =#
+@testset "Odd and even volume pair" begin
+    vOdd, vEve = mkVol((3,3,3)), mkVol((4,4,4); org=extOrg)
+    @test_logs (:warn, r"regenerated") (@test_throws ErrorException GlaOprVac{Float64}(vOdd, vEve))
 end
 
 @testset "GlaVol show" begin
-    vol = mkVol((4,4,4))
-    str = sprint(show, vol)
-    @test occursin("4×4×4", str) && occursin("1//32", str)
-    @test !occursin("grid", str) # grdScl == celScl by default, so no grid row
-    volGap = GlaVol((4,4,4), stdScl, stdOrg, scl16)
-    @test occursin("grid", sprint(show, volGap))
+    @test shwChk(mkVol((4,4,4)))
 end

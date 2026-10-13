@@ -65,7 +65,6 @@ end
                 err > GVF.certEq(frqSet, celSep, knd, lvl, lvlOct) +
                     40 * eps() * maximum(abs, egoNew) && (crtBad += 1)
             end
-            @info "far reference $(Float64.(sclQ)) f = $frq: $(length(cas)) tensors, worst $errMax"
             @test errMax < 1e-13
             @test crtBad == 0
         end
@@ -131,7 +130,6 @@ end
                 # farTnsX's certificate already carries 20 eps; this set is measured at 40
                 err > crt + 20 * eps() * maximum(abs, egoNew) && (crtBad += 1)
             end
-            @info "cross-scale reference $(Float64.(sclSrc)) f = $frq: $(length(cas)) tensors, worst $errMax"
             @test errMax < 1e-13
             @test crtBad == 0
         end

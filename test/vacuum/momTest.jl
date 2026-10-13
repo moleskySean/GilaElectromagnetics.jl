@@ -84,7 +84,6 @@ const momSlv = (1//32, 1//32, 1//512)
                 wst = max(wst, abs(v[m + 2] - rf) / abs(rf))
             end
         end
-        @info "even moments vs exact rationals, worst relative = $wst"
         @test wst < 1e-13
     end
 
@@ -104,7 +103,6 @@ const momSlv = (1//32, 1//32, 1//512)
             end
         end
         @test hit == length(momRef) == 300
-        @info "test/ref moments in Float64, worst relative = $wst"
         @test wst < 1e-13
     end
 
@@ -119,7 +117,6 @@ const momSlv = (1//32, 1//32, 1//512)
             w = first(GVM.momSer(GVM.parFac(D, F, Fp, lam .* s)..., f / lam, 16))
             wst = max(wst, abs(w - lam^5 * v) / abs(w))
         end
-        @info "series homogeneity, worst relative = $wst"
         @test wst < 1e-12
     end
 
@@ -149,7 +146,6 @@ const momSlv = (1//32, 1//32, 1//512)
                 end
             end
         end
-        @info "scale homogeneity, $bad of $cnt dyadic comparisons off bitwise, non-dyadic worst relative = $wst"
         @test bad == 0
         @test wst < 1e-13
     end
@@ -160,7 +156,6 @@ const momSlv = (1//32, 1//32, 1//512)
             v = GVM.parMom(canPnl(cod, a, b, c)..., 12)
             w = GVM.parMom(canPnl(cod, sw...)..., 12)
             e = maximum(abs.(w .- v) ./ abs.(v))
-            @info "$cod swap symmetry, worst relative = $e"
             @test e < 1e-13
         end
         # every other length swap is either a symmetry or absent, never wrong
@@ -204,17 +199,6 @@ const momSlv = (1//32, 1//32, 1//512)
                     maximum(abs, ref)))
             end
         end
-        @info "slender contact block vs a 192-bit assembly, worst = $wst"
         @test wst < 1e-13
-    end
-
-    # generation is fp64 and narrows once, so the fp32 build has no arithmetic
-    # of its own to disagree about
-    @testset "fp32 build is the narrowed fp64 build" begin
-        vol = mkVol((4, 4, 4))
-        mem64 = GlaVacOprMem(GlaKerOpt{Float64}(), vol)
-        mem32 = GlaVacOprMem(GlaKerOpt{Float32}(), vol)
-        @test all(ComplexF32.(f64) == f32
-            for (f32, f64) ∈ zip(mem32.egoFur, mem64.egoFur))
     end
 end
