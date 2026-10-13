@@ -247,21 +247,9 @@ GlaOprVac(trgVol::GlaVol, srcVol::GlaVol; dev::Backend=CPU(), prxWrn::Bool=true,
 """
     GlaOprVac(mem::GlaVacOprMem)
 
-Wrap prepared operator memory, masking the two volumes when they overlap.
+Wrap prepared operator memory, unmasked.
 """
-function GlaOprVac(mem::GlaVacOprMem{T}) where T<:AbstractFloat
-    innMsk = ntuple(_ -> 0:0, 3)
-    outMsk = ntuple(_ -> 0:0, 3)
-    trgVol, srcVol = mem.trgVol, mem.srcVol
-    if trgVol != srcVol && ovrChk(trgVol, srcVol)
-        # Overlap: create the union volume and mask out the input/output regions
-        vol = uniVol(trgVol, srcVol)
-        innMsk = mskRng(srcVol, vol)
-        outMsk = mskRng(trgVol, vol)
-        trgVol, srcVol = vol, vol
-    end
-    return GlaOprVac{T}(mem, innMsk, outMsk)
-end
+GlaOprVac(mem::GlaVacOprMem) = GlaOprVac(mem, ntuple(_ -> 0:0, 3), ntuple(_ -> 0:0, 3))
 
 GlaOprVac{T}(vol::GlaVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false,
     shpCch::Bool=false, hrmPrt::Union{Nothing,Symbol}=nothing, blc=nothing) where T<:AbstractFloat =

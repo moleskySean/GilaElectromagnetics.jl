@@ -174,83 +174,81 @@ function mulBrn!(mixInf::GlaExtInf, bId::Integer, prdVec::AbstractArray{<:Comple
 	# sign symmetry for Green function multiplication
 	symSgn = Array{Float32}(undef, 3, 8)
 	# perform Hadamard---forward and reverse operation in each direction
-	@sync begin
-		for divItr ∈ 0:7
-			# one for reverse direction, zero for forward
-            revSwt = isodd.(divItr .>> (0:2))
-			# set copy ranges
-			for dirItr ∈ 1:3
-				# switch between full and partial stored information cases
-				if egoSze[dirItr] == brnSze[dirItr]
-					if revSwt[dirItr] == 0
-						# Green function range
-						modRng[dirItr, divItr + 1] = 1:1:brnSze[dirItr]
-						vecRng[dirItr, divItr + 1] = 1:1:brnSze[dirItr]
-                        symSgn[dirItr, divItr + 1] = one(eltype(symSgn))
-					else
-						modRng[dirItr, divItr + 1] = 1:1:0
-						vecRng[dirItr, divItr + 1] = 1:1:0
-                        symSgn[dirItr, divItr + 1] = zero(eltype(symSgn))
-					end
-				# partial information case
-				else
-					# switch between even and odd branch cases
-					if brnSym[dirItr] == 0 
-						# switch between source and target portions 
-						if revSwt[dirItr] == 0
-							begInd = 1
-							endInd = Integer.(ceil.(mixInf.trgCel[dirItr] / 
-								2)) + iseven(mixInf.trgCel[dirItr])
-						# source coefficients
-						else
-							begInd = 2
-							endInd = Integer.(floor.(mixInf.srcCel[dirItr] / 
-								2)) + 1 - iseven(mixInf.trgCel[dirItr])
-						end
-					# odd coefficient branch
-					else
-						begInd = 1 
-						# target coefficients
-						if revSwt[dirItr] == 0
-							endInd = Integer.(ceil.(mixInf.trgCel[dirItr] / 2)) 
-						# source coefficients
-						else
-							endInd = Integer.(floor.(mixInf.srcCel[dirItr] / 2)) 
-						end
-					end
+	for divItr ∈ 0:7
+		# one for reverse direction, zero for forward
+        revSwt = isodd.(divItr .>> (0:2))
+		# set copy ranges
+		for dirItr ∈ 1:3
+			# switch between full and partial stored information cases
+			if egoSze[dirItr] == brnSze[dirItr]
+				if revSwt[dirItr] == 0
 					# Green function range
-					modRng[dirItr,divItr + 1] = begInd:1:endInd
-					# vector range
-					if revSwt[dirItr] == 0
-						vecRng[dirItr,divItr + 1] = 1:1:(1 + endInd - begInd)
-					else
-						vecRng[dirItr,divItr + 1] = 
-							brnSze[dirItr]:-1:(brnSze[dirItr] - endInd + begInd)
-					end
-					# sign symmetry for Green function multiplication
-					symSgn[dirItr, divItr + 1] = 1.0 - 2.0 * revSwt[dirItr]
+					modRng[dirItr, divItr + 1] = 1:1:brnSze[dirItr]
+					vecRng[dirItr, divItr + 1] = 1:1:brnSze[dirItr]
+                    symSgn[dirItr, divItr + 1] = one(eltype(symSgn))
+				else
+					modRng[dirItr, divItr + 1] = 1:1:0
+					vecRng[dirItr, divItr + 1] = 1:1:0
+                    symSgn[dirItr, divItr + 1] = zero(eltype(symSgn))
 				end
+			# partial information case
+			else
+				# switch between even and odd branch cases
+				if brnSym[dirItr] == 0 
+					# switch between source and target portions 
+					if revSwt[dirItr] == 0
+						begInd = 1
+						endInd = Integer.(ceil.(mixInf.trgCel[dirItr] / 
+							2)) + iseven(mixInf.trgCel[dirItr])
+					# source coefficients
+					else
+						begInd = 2
+						endInd = Integer.(floor.(mixInf.srcCel[dirItr] / 
+							2)) + 1 - iseven(mixInf.trgCel[dirItr])
+					end
+				# odd coefficient branch
+				else
+					begInd = 1 
+					# target coefficients
+					if revSwt[dirItr] == 0
+						endInd = Integer.(ceil.(mixInf.trgCel[dirItr] / 2)) 
+					# source coefficients
+					else
+						endInd = Integer.(floor.(mixInf.srcCel[dirItr] / 2)) 
+					end
+				end
+				# Green function range
+				modRng[dirItr,divItr + 1] = begInd:1:endInd
+				# vector range
+				if revSwt[dirItr] == 0
+					vecRng[dirItr,divItr + 1] = 1:1:(1 + endInd - begInd)
+				else
+					vecRng[dirItr,divItr + 1] = 
+						brnSze[dirItr]:-1:(brnSze[dirItr] - endInd + begInd)
+				end
+				# sign symmetry for Green function multiplication
+				symSgn[dirItr, divItr + 1] = 1.0 - 2.0 * revSwt[dirItr]
 			end
-			# check that range is not empty
-			if !isempty(CartesianIndices(tuple(modRng[:,divItr + 1]...)))
-                # number of elements
-                copyto!(view(dimInf, :, divItr + 1), 
-                    getproperty.(modRng[:,divItr + 1], :stop) .-
-                    getproperty.(modRng[:,divItr + 1], :start) .+ 1)
-                # symmetry information
-				copyto!(view(dirSym, :, divItr + 1), 
-					eltype(dirSym).(
-                    [symSgn[1,divItr + 1] * symSgn[2,divItr + 1],
-                     symSgn[1,divItr + 1] * symSgn[3,divItr + 1],
-                     symSgn[2,divItr + 1] * symSgn[3,divItr + 1]]))
-                # perform Hadamard product
-                krn = mulKer!(cmpInf.dev)
-                krn(view(prdVec, vecRng[1, divItr + 1], vecRng[2, divItr + 1], vecRng[3, divItr + 1], :),
-                    view(vecMod, modRng[1, divItr + 1], modRng[2, divItr + 1], modRng[3, divItr + 1], :),
-                    view(orgVec, vecRng[1, divItr + 1], vecRng[2, divItr + 1], vecRng[3, divItr + 1], :),
-                    Tuple(dirSym[:, divItr + 1]);
-                    ndrange=tuple(dimInf[:, divItr + 1]...))
-			end
+		end
+		# check that range is not empty
+		if !isempty(CartesianIndices(tuple(modRng[:,divItr + 1]...)))
+            # number of elements
+            copyto!(view(dimInf, :, divItr + 1), 
+                getproperty.(modRng[:,divItr + 1], :stop) .-
+                getproperty.(modRng[:,divItr + 1], :start) .+ 1)
+            # symmetry information
+			copyto!(view(dirSym, :, divItr + 1), 
+				eltype(dirSym).(
+                [symSgn[1,divItr + 1] * symSgn[2,divItr + 1],
+                 symSgn[1,divItr + 1] * symSgn[3,divItr + 1],
+                 symSgn[2,divItr + 1] * symSgn[3,divItr + 1]]))
+            # perform Hadamard product
+            krn = mulKer!(cmpInf.dev)
+            krn(view(prdVec, vecRng[1, divItr + 1], vecRng[2, divItr + 1], vecRng[3, divItr + 1], :),
+                view(vecMod, modRng[1, divItr + 1], modRng[2, divItr + 1], modRng[3, divItr + 1], :),
+                view(orgVec, vecRng[1, divItr + 1], vecRng[2, divItr + 1], vecRng[3, divItr + 1], :),
+                Tuple(dirSym[:, divItr + 1]);
+                ndrange=tuple(dimInf[:, divItr + 1]...))
 		end
 	end
 	return nothing
