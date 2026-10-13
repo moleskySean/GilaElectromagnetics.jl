@@ -279,49 +279,6 @@ function egoCntOut!(cntVol::GlaVol, egoCrcCnt::AbstractArray{<:Complex,5},
 end
 
 #=
-All unique pairs of cube faces. Row 1 is the target face and row 2 the source
-face, the convention srfSum! assembles by: the tensor component (a, b) sums the
-face pairs whose row 1 normal is a and row 2 normal is b.
-=#
-const facPar = let
-    fPairs = Array{Int,2}(undef, 2, 36)
-    for i ∈ 1:6, j ∈ 1:6
-        k = (i - 1) * 6 + j
-        fPairs[1, k] = i
-        fPairs[2, k] = j
-    end
-    SMatrix{2, 36, Int}(fPairs)
-end
-#=
-Update egoCrc to hold Green function interactions. The storage format of egoCrc 
-is [[ii, ji, ki]^{T}; [ij, jj, kj]^{T}; [ik, jk, kk]^{T}]. 
-See documentation for explanation.
-=#
-function srfSum!(egoCrc::AbstractMatrix{<:Complex}, srfMat::AbstractVector{<:Complex})
-    # ii
-    egoCrc[1,1] = srfMat[15] - srfMat[16] - srfMat[21] + 
-    srfMat[22] + srfMat[29] - srfMat[30] - srfMat[35] + srfMat[36]
-    # ji
-    egoCrc[2,1] = - srfMat[13] + srfMat[14] + srfMat[19] - srfMat[20] 
-    # ki
-    egoCrc[3,1] = - srfMat[25] + srfMat[26] + srfMat[31] - srfMat[32] 
-    # ij
-    egoCrc[1,2] = - srfMat[3] + srfMat[4] + srfMat[9] - srfMat[10]
-    # jj
-    egoCrc[2,2] = srfMat[1] - srfMat[2] - srfMat[7] + srfMat[8] + 
-    srfMat[29] - srfMat[30] - srfMat[35] + srfMat[36]
-    # kj
-    egoCrc[3,2] = - srfMat[27] + srfMat[28] + srfMat[33] - srfMat[34]
-    # ik
-    egoCrc[1,3] = - srfMat[5] + srfMat[6] + srfMat[11] - srfMat[12]
-    # jk
-    egoCrc[2,3] = - srfMat[17] + srfMat[18] + srfMat[23] - srfMat[24]
-    # kk
-    egoCrc[3,3] = srfMat[1] - srfMat[2] - srfMat[7] + srfMat[8] + 
-    srfMat[15] - srfMat[16] - srfMat[21] + srfMat[22]
-    return nothing
-end
-#=
 Return the separation between two elements from circulant embedding indices and 
 domain grids. 
 =#
