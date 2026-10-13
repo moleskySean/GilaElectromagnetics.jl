@@ -19,7 +19,7 @@ handling grid layouts, and computing volume interactions.
 - `crcIndClc`: Calculate circulant index for self Green function vector
 """
 
-export GlaVol, GlaExtInf, genVolEve, genEveExtInf, genCntVol, sepGrd, crcIndClc, uniVol
+export GlaVol, GlaExtInf, genVolEve, genEveExtInf, genCntVol, sepGrd, crcIndClc, uniVol, prxGap, prxChk
 export GlaCmpVol, CompositeVolume, refine, regions, nregions, coordinates, cellvolumes, finest
 
 """
@@ -441,6 +441,29 @@ function _ovrLap(vol1::GlaVol, vol2::GlaVol)
     lwr = max.(_lwrEdg(vol1), _lwrEdg(vol2))
     upr = min.(_uprEdg(vol1), _uprEdg(vol2))
     return all(lwr .< upr)
+end
+
+# Closer than a third of a wavelength a separated pair's discretisation error
+# is several times its wide separation value.
+const prxSepMin = 1 / 3
+
+# Face to face distance between two volumes, or nothing when they meet
+function prxGap(volA::GlaVol, volB::GlaVol)
+    sep = max.(_lwrEdg(volB) .- _uprEdg(volA), _lwrEdg(volA) .- _uprEdg(volB))
+    all(sep .<= 0) && return nothing
+    return sqrt(sum(x -> Float64(max(x, 0//1))^2, sep))
+end
+
+function prxChk(frq::Number, trgVol::GlaVol, srcVol::GlaVol)
+    gap = prxGap(trgVol, srcVol)
+    isnothing(gap) && return nothing
+    sep = gap * real(frq)
+    sep >= prxSepMin && return nothing
+    why = iszero(imag(frq)) ?
+        "A separated pair needs at least a third of a wavelength for its discretisation error to settle." :
+        "The background is lossy, which needs more than a third of a wavelength; how much more depends on the problem, so measure it against a refined mesh."
+    @warn "The target and source are separated by $(round(sep; sigdigits = 3)) wavelengths. $why Refine the facing surfaces with `refine`, or separate the volumes further."
+    return nothing
 end
 
 """

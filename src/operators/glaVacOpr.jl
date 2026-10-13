@@ -423,10 +423,10 @@ end
 
 # One warning for the closest pair of regions, none when the two bodies meet
 function _prxCmpChk(trgRegs, srcRegs)
-    prs = [(GilaVacuum.prxGap(a, b), a, b) for a in trgRegs, b in srcRegs]
+    prs = [(prxGap(a, b), a, b) for a in trgRegs, b in srcRegs]
     any(pr -> isnothing(pr[1]), prs) && return nothing
     _, trgReg, srcReg = argmin(pr -> pr[1], prs)
-    return GilaVacuum.prxChk(1.0, trgReg, srcReg)
+    return prxChk(1.0, trgReg, srcReg)
 end
 
 # blcCmp's blocks of every ordered region pair of a periodic composite of periods L
