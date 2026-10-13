@@ -38,7 +38,9 @@ non-uniform mesh, with no stitching at region boundaries.
 
 Blocks work in the √ΔV normalized basis of `GlaFld`, so block `(i, j)` carries the
 scalar `sqrt(ΔV_i / ΔV_j)`. In this basis the Euclidean inner product is the
-physical L² pairing and the self operator is complex-symmetric.
+physical L² pairing and the self operator is complex-symmetric. A raw vector
+holds √ΔV times the density `c`: `sqrt.(cellvolumes(cvol)) .* c`, or
+fill a `GlaFld` with `discretize!`.
 
 Cross-scale pairs in contact, and every cross-scale pair under a Bloch lattice,
 are a `GlaSndOprVac`; every other block is a `GlaOprVac`.
