@@ -56,7 +56,7 @@ function Base.getindex(opr::AbstractGlaOpr, row::GlaIdx, col::GlaIdx)
         for (i, idx) in enumerate(rowInd)
             idt[idx, i] = one(T)
         end
-        outDag = _withAdj(adjOpr -> adjOpr * adapt(get_backend(adjOpr), idt), opr)
+        outDag = _witAdj(adjOpr -> adjOpr * adapt(get_backend(adjOpr), idt), opr)
         res = copy(outDag[colInd, :]')
     end
     # An integer index drops its dimension, as for any AbstractMatrix
@@ -171,7 +171,7 @@ end
 Base.adjoint(opr::AbstractGlaOpr) = adjoint!(deepcopy(opr))
 
 # f applied to the adjoint of opr, restoring the memory opr points at afterwards
-function _withAdj(f, opr::AbstractGlaOpr)
+function _witAdj(f, opr::AbstractGlaOpr)
     adjOpr = adjoint!(opr)
     out = f(adjOpr)
     adjoint!(adjOpr)
@@ -184,7 +184,7 @@ function invMul!(w, opr::AbstractGlaOpr, v, α, β)
     return axpby!(α, solve(opr, v, slv(opr)), β, w)
 end
 
-invMulAdj!(w, opr::AbstractGlaOpr, v, α, β) = _withAdj(adjOpr -> invMul!(w, adjOpr, v, α, β), opr)
+invMulAdj!(w, opr::AbstractGlaOpr, v, α, β) = _witAdj(adjOpr -> invMul!(w, adjOpr, v, α, β), opr)
 
 """
     \\(opr::AbstractGlaOpr, inp::AbstractVector)
