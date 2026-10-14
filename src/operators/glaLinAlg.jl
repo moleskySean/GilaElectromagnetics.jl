@@ -164,9 +164,9 @@ its G₀ half, with the default solver rather than its own; a `SctOpr` and a
 LinearAlgebra.ldiv!(out, opr::AbstractGlaOpr, inp) = invMul!(out, opr, inp, one(eltype(opr)), zero(eltype(opr)))
 Base.:\(opr::AbstractGlaOpr, inp::AbstractVector) = ldiv!(similar(inp, size(opr, 2)), opr, inp)
 
-# An operator only applies to fields on the tiling it was built for
+# An operator only applies to fields on the tiling it was built on
 _chkFld(opr::AbstractGlaOpr, fld::GlaFld) = fld.cvol == _srcCvl(opr) ||
-    throw(ArgumentError("The field does not live on the source tiling of the operator. An operator only applies to fields on the tiling it was built for."))
+    throw(ArgumentError("The field does not live on the source grid of the operator. An operator only applies to fields on the tiling it was built for."))
 
 """
     *(opr::AbstractGlaOpr, fld::GlaFld)
