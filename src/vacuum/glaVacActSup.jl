@@ -179,13 +179,6 @@ end
     @inbounds mrgVec[trgItr..., dirItr] = prtVec[itr..., dirItr, parItr]
 end
 
-#=
-binary branch indexing
-=#
-@inline function nxtBrnId(maxLvl::Integer, lvl::Integer, bId::Integer)::Integer
-	return bId + ^(2, maxLvl - (lvl + 1))
-end
-
 # Release a device buffer ahead of the GC, a no-op on the CPU
 function memCln!(vec::AbstractArray)
     dev = get_backend(vec)
