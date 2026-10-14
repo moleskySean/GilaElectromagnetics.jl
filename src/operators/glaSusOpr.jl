@@ -22,18 +22,8 @@ const SusceptibilityOperator = SusOpr
 that cell. A region block of the flat layout is the vec of a (cel..., 3) array,
 so the three copies of a block sit one after the other. =#
 function _expSus(cvol::GlaCmpVol, susCel::Vector{Complex{T}}) where T<:AbstractFloat
-    susDof = Vector{Complex{T}}(undef, 3 * length(susCel))
-    celOff, dofOff = 0, 0
-    for reg in regions(cvol)
-        celNum = prod(reg.cel)
-        blk = view(susCel, (celOff + 1):(celOff + celNum))
-        for dir in 1:3
-            copyto!(view(susDof, (dofOff + (dir - 1) * celNum + 1):(dofOff + dir * celNum)), blk)
-        end
-        celOff += celNum
-        dofOff += 3 * celNum
-    end
-    return susDof
+    off = _dofOff(cvol) .÷ 3
+    return reduce(vcat, [repeat(view(susCel, (off[idx] + 1):off[idx + 1]), 3) for idx in 1:nregions(cvol)])
 end
 
 # One scalar per cell read as the isotropic tensor of that cell
@@ -49,6 +39,15 @@ end
 asks for anisotropy, as one 3×3 tensor per cell in the same cell order. =#
 function _regSus(::Type{T}, reg::GlaVol, idx::Integer, sus) where T<:AbstractFloat
     celNum = prod(reg.cel)
+    # Anything that is neither a number nor an array is a function of position
+    if !(sus isa Number || sus isa AbstractArray)
+        susCel = [sus(pos) for (pos, _, _) in coordinates(GlaCmpVol(reg))]
+        eltype(susCel) <: Number && return Vector{Complex{T}}(susCel)
+        for (cel, mat) in enumerate(susCel)
+            size(mat) == (3, 3) || throw(ArgumentError("The susceptibility function returned a value of size $(size(mat)) at cell $cel of region $idx, and a susceptibility is either a number or a 3×3 tensor."))
+        end
+        return Array{Complex{T}}(permutedims(stack(susCel), (3, 1, 2)))
+    end
     sus isa Number && return fill(Complex{T}(sus), celNum)
     if sus isa AbstractMatrix{<:Number}
         size(sus) == (3, 3) || throw(ArgumentError("The susceptibility matrix of region $idx has size $(size(sus)), and a matrix is read as the 3×3 tensor of a uniform medium. Pass a $(join(reg.cel, "×"))×3×3 array for a tensor that varies from cell to cell."))
@@ -80,21 +79,7 @@ function _susDat(::Type{T}, cvol::GlaCmpVol, sus, dev::Backend) where T<:Abstrac
             _expSus(cvol, Vector{Complex{T}}(Array(sus)))
         return adapt(dev, susDof)
     end
-    # Anything that is neither a number nor an array is a function of position
-    if !(sus isa Number || sus isa AbstractArray)
-        susCel = [sus(pos) for (pos, _, _) in coordinates(cvol)]
-        if eltype(susCel) <: Number
-            susDat = _expSus(cvol, Vector{Complex{T}}(susCel))
-        else
-            susDat = Array{Complex{T}}(undef, celNum, 3, 3)
-            for (cel, mat) in enumerate(susCel)
-                size(mat) == (3, 3) || throw(ArgumentError("The susceptibility function returned a value of size $(size(mat)) at cell $cel, and a susceptibility is either a number or a 3×3 tensor."))
-                susDat[cel, :, :] .= mat
-            end
-        end
-        return adapt(dev, susDat)
-    end
-    if ndims(sus) in (3, 5) && nregions(cvol) != 1
+    if sus isa AbstractArray && ndims(sus) in (3, 5) && nregions(cvol) != 1
         throw(ArgumentError("A single susceptibility tensor only fits a composite volume of one region, and this one has $(nregions(cvol)). Pass one tensor per region as a vector."))
     end
     regSus = sus isa AbstractVector ? sus : fill(sus, length(regs))
