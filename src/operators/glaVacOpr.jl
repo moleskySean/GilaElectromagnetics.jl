@@ -604,9 +604,14 @@ function setBlc!(opr::GlaCmpOprVac, θ::Tuple)
     blcBlk = _blcCmp(regions(opr.trgCvl), frq, blc)
     for idx in CartesianIndices(opr.blkMat)
         blk = opr.blkMat[idx]
-        # adjoint! swaps the volumes of a sandwich's fine pair
-        blk isa GlaSndOprVac ? setBlc!(blk.opr.mem, θ, _blcCmp([blk.opr.mem.trgVol, blk.opr.mem.srcVol], frq, blc)[isadjoint(blk) ? (2, 1) : (1, 2)]) :
+        if blk isa GlaSndOprVac
+            # adjoint! swaps the volumes of a sandwich's fine pair
+            finMem = blk.opr.mem
+            finBlc = _blcCmp([finMem.trgVol, finMem.srcVol], frq, blc)
+            setBlc!(finMem, θ, finBlc[isadjoint(blk) ? (2, 1) : (1, 2)])
+        else
             setBlc!(blk.mem, θ, blcBlk[isadjoint(blk) ? (idx[2], idx[1]) : Tuple(idx)])
+        end
     end
     return opr
 end
