@@ -61,18 +61,13 @@ function GlaVol(cel::Union{Array{<:Integer,1},NTuple{3,Integer}},
     celScl::NTuple{3,Rational}, org::NTuple{3,Rational}=(0//1, 0//1, 0//1),
     grdScl::NTuple{3,Rational}=celScl)
     
-    if !prod(celScl .<= grdScl)
-        error("The cell scale must be smaller than the grid scale to avoid 
-        partially overlapping basis elements.")
-    end 
+    if !all(celScl .<= grdScl)
+        error("The cell scale must be smaller than the grid scale to avoid partially overlapping basis elements.")
+    end
     cel = Tuple(cel) # a Vector cel would broadcast the grid into a Vector
     brd = grdScl .* (Rational.(floor.(cel ./ 2)) .- (iseven.(cel) .// 2))
     grd = map(StepRange, org .- brd, grdScl, org .+ brd)
     return GlaVol(cel, celScl, org, grd)
-end
-
-function Base.:(==)(a::GlaVol, b::GlaVol)
-    return a.cel == b.cel && a.scl == b.scl && a.org == b.org && a.grd == b.grd
 end
 
 # A cell scale, as one rational times λ when isotropic, else one per dimension
@@ -114,8 +109,7 @@ function uniVol(vol1::GlaVol, vol2::GlaVol)
     return GlaVol(cel, scl, org)
 end
 
-Base.union(vol1::GlaVol, vol2::GlaVol) = uniVol(vol1, vol2)
-Base.union(vols::GlaVol...) where {T<:GlaVol} = reduce(uniVol, vols)
+Base.union(vols::GlaVol...) = reduce(uniVol, vols)
 
 """
     genVolEve(glaVol::GlaVol)
@@ -299,9 +293,7 @@ function genCntVol(trgVol::GlaVol, srcVol::GlaVol)
     trgDiv = Integer.(trgVol.scl ./ cntScl)
     srcDiv = Integer.(srcVol.scl ./ cntScl)
     # create padded self interaction domain for simplification of code
-    cntCel = (trgDiv[1] + srcDiv[1], trgDiv[2] + srcDiv[2], 
-        trgDiv[3] + srcDiv[3])
-    return GlaVol(cntCel, cntScl, (0//1, 0//1, 0//1))
+    return GlaVol(trgDiv .+ srcDiv, cntScl, (0//1, 0//1, 0//1))
 end
 
 """
@@ -325,18 +317,14 @@ function sepGrd(trgVol::GlaVol, srcVol::GlaVol,
     flip::Integer)
     # grid over the source volume
     if flip == 1
-        sep = getproperty.(srcVol.grd, :step)
-        str = getproperty.(trgVol.grd, :start) .- 
-            getproperty.(srcVol.grd, :stop)
-        stp = getproperty.(trgVol.grd, :start) .- 
-            getproperty.(srcVol.grd, :start)
+        sep = step.(srcVol.grd)
+        str = first.(trgVol.grd) .- last.(srcVol.grd)
+        stp = first.(trgVol.grd) .- first.(srcVol.grd)
     # grid over the target volume
     else
-        sep = getproperty.(trgVol.grd, :step)
-        str = getproperty.(trgVol.grd, :start) .- 
-                getproperty.(srcVol.grd, :start)
-        stp = getproperty.(trgVol.grd, :stop) .- 
-                getproperty.(srcVol.grd, :start)
+        sep = step.(trgVol.grd)
+        str = first.(trgVol.grd) .- first.(srcVol.grd)
+        stp = last.(trgVol.grd) .- first.(srcVol.grd)
     end 
     # match step to separation orientation
     sep = ntuple(dir -> stp[dir] < str[dir] ? -sep[dir] : sep[dir], 3)
@@ -506,11 +494,7 @@ The smallest cell scale present in a composite volume, taken elementwise.
 # Returns
 - `NTuple{3,Rational}`: The elementwise minimum of the region cell scales
 """
-function finest(cvol::GlaCmpVol)
-    scl = reduce((sclA, sclB) -> min.(sclA, sclB),
-        (reg.scl for reg in cvol.regions))
-    return Tuple(scl)
-end
+finest(cvol::GlaCmpVol) = reduce((sclA, sclB) -> min.(sclA, sclB), (reg.scl for reg in cvol.regions))
 
 Base.:(==)(cvolA::GlaCmpVol, cvolB::GlaCmpVol) = cvolA.regions == cvolB.regions
 
