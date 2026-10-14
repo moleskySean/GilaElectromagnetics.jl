@@ -23,7 +23,7 @@ mutable struct GlaVacOprMem{T<:AbstractFloat}
     trgVol::GlaVol
     srcVol::GlaVol
     mixInf::GlaExtInf
-    dimInf::NTuple{3,Integer} 
+    brnSze::NTuple{3,Int}
     egoFur::AbstractVector{<:AbstractArray{Complex{T}}}
     fftPlnFwd::AbstractVector{<:AbstractFFTs.Plan}
     fftPlnRev::AbstractVector{<:AbstractFFTs.Plan}
