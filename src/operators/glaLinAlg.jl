@@ -21,43 +21,24 @@ Base.getindex(opr::AbstractGlaOpr, i::Integer) = getindex(opr, CartesianIndices(
 Base.getindex(opr::AbstractGlaOpr, i::CartesianIndex) = getindex(opr, i.I...)
 const GlaIdx = Union{Integer, AbstractUnitRange{<:Integer}, AbstractVector{<:Integer}, Colon}
 function Base.getindex(opr::AbstractGlaOpr, row::GlaIdx, col::GlaIdx)
+    if row isa Integer && col isa Integer
+        @warn "Scalar indexing is not recommended. Invocation of getindex resulted in scalar indexing of an AbstractGlaOpr. This is typically caused by calling an iterating implementation of a method. Single element access ($row, $col) does a costly full matrix-vector product."
+        return only(Array(opr[[row], [col]]))
+    end
     T = eltype(opr)
     numRow, numCol = size(opr)
-    row = row === Colon() ? (1:numRow) : row
-    col = col === Colon() ? (1:numCol) : col
+    rowInd = row isa Colon ? (1:numRow) : row isa Integer ? [row] : collect(row)
+    colInd = col isa Colon ? (1:numCol) : col isa Integer ? [col] : collect(col)
 
-    if row isa Integer && col isa Integer
-        @warn """Scalar indexing is not recommended. Invocation of getindex resulted in scalar
-        indexing of an AbstractGlaOpr. This is typically caused by calling an iterating
-        implementation of a method. Single element access ($row, $col) does a costly full
-        matrix-vector product."""
-        e = zeros(T, size(opr, 2))
-        e[col] = one(T)
-        return Array(opr * adapt(get_backend(opr), e))[row]
-    end
-
-    rowInd = row isa Integer ? [row] : collect(row)
-    colInd = col isa Integer ? [col] : collect(col)
-
-    # Choose the cheapest way to compute the result (adjoint or forward)
+    # One-hots in the input slots, or in the output slots of the adjoint when there are fewer rows
     if length(rowInd) <= length(colInd)
-        # Forward batched mat–vec
-        # build a mini‐identity with 1‑hots in the input slots
         idt = zeros(T, numCol, length(colInd))
-        for (j, idx) in enumerate(colInd)
-            idt[idx, j] = one(T)
-        end
-        out = opr * adapt(get_backend(opr), idt)
-        res = out[rowInd, :]
+        idt[CartesianIndex.(colInd, eachindex(colInd))] .= one(T)
+        res = (opr * adapt(get_backend(opr), idt))[rowInd, :]
     else
-        # Adjoint batched vec–mat
-        # mini‑identity in the output slots
         idt = zeros(T, numRow, length(rowInd))
-        for (i, idx) in enumerate(rowInd)
-            idt[idx, i] = one(T)
-        end
-        outDag = _witAdj(adjOpr -> adjOpr * adapt(get_backend(adjOpr), idt), opr)
-        res = copy(outDag[colInd, :]')
+        idt[CartesianIndex.(rowInd, eachindex(rowInd))] .= one(T)
+        res = copy(_witAdj(adjOpr -> adjOpr * adapt(get_backend(adjOpr), idt), opr)[colInd, :]')
     end
     # An integer index drops its dimension, as for any AbstractMatrix
     (row isa Integer || col isa Integer) && return vec(res)
@@ -92,19 +73,12 @@ Both arrays are flat vectors or, over a single volume, `(cel..., 3)` tensors, of
 eltype `Complex{T}`: mixed precision throws rather than converting. `out` is not
 read when `β` is zero, and the operator is not applied when `α` is zero.
 """
-function LinearAlgebra.mul!(out::AbstractVector, opr::AbstractGlaOpr{T}, inp::AbstractVector, α::Number, β::Number) where T<:AbstractFloat
+function LinearAlgebra.mul!(out::AbstractVector, opr::AbstractGlaOpr, inp::AbstractVector, α::Number, β::Number)
     eltype(out) == eltype(inp) == eltype(opr) || _prcErr(opr, out, inp)
     if length(inp) != size(opr, 2) || length(out) != size(opr, 1)
         throw(ArgumentError("An input of length $(length(inp)) and an output of length $(length(out)) do not fit this operator, which maps $(size(opr, 2)) degrees of freedom to $(size(opr, 1))."))
     end
-    α, β = Complex{T}(α), Complex{T}(β)
-    if iszero(α)
-        iszero(β) ? fill!(out, zero(eltype(out))) : rmul!(out, β)
-        return out
-    end
-    tmp = mulAct!(opr, _devCpy(opr, inp))
-    iszero(β) ? (out .= α .* tmp) : (out .= α .* tmp .+ β .* out)
-    return out
+    return _mulCmb!(() -> mulAct!(opr, _devCpy(opr, inp)), out, α, β)
 end
 LinearAlgebra.mul!(out::AbstractArray{<:Any, 4}, opr::AbstractGlaOpr, inp::AbstractArray{<:Any, 4}, α::Number, β::Number) =
     (mul!(vec(out), opr, vec(inp), α, β); out)
@@ -143,18 +117,20 @@ end
 Base.:*(opr::AbstractGlaOpr, inp::AbstractArray{<:Any, 4}) = reshape(opr * vec(inp), glaSze(opr, 1))
 Base.:*(opr::AbstractGlaOpr, inp::AbstractMatrix) = mul!(similar(inp, size(opr, 1), size(inp, 2)), opr, inp)
 
-#= A field carries its tiling, so it goes through the methods that check it and
-apply the normalization, and only the combine happens here. As in the vector
-method, out is never read when β is zero and the operator, which may hide an
-iterative solve, is never applied when α is zero. =#
-function LinearAlgebra.mul!(out::GlaFld{T}, opr::AbstractGlaOpr{T}, inp::GlaFld{T}, α::Number, β::Number) where T<:AbstractFloat
-    α, β = Complex{T}(α), Complex{T}(β)
+# A field goes through the * that checks its tiling and applies the normalization
+LinearAlgebra.mul!(out::GlaFld{T}, opr::AbstractGlaOpr{T}, inp::GlaFld{T}, α::Number, β::Number) where T<:AbstractFloat =
+    _mulCmb!(() -> opr * inp, out, α, β)
+
+#= α * act() + β * out into out. out is not read when β is zero, and act, which
+may hide an iterative solve, is not called when α is zero. =#
+function _mulCmb!(act, out, α, β)
+    α, β = eltype(out)(α), eltype(out)(β)
     if iszero(α)
         iszero(β) ? fill!(out, zero(eltype(out))) : rmul!(out, β)
         return out
     end
-    fld = opr * inp
-    iszero(β) ? (out .= α .* fld) : axpby!(α, fld, β, out)
+    tmp = act()
+    iszero(β) ? (out .= α .* tmp) : (out .= α .* tmp .+ β .* out)
     return out
 end
 
