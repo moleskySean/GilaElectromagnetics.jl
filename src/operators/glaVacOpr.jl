@@ -745,6 +745,8 @@ function adjoint!(opr::GlaOprVac)
     # Swap source and target volumes (transpose)
     opr.mem.trgVol, opr.mem.srcVol = opr.mem.srcVol, opr.mem.trgVol
     opr.mem.mixInf = GlaExtInf(opr.mem.trgVol, opr.mem.srcVol)
+    opr.mem.fftPlnFwd, opr.mem.adjFftPlnFwd = opr.mem.adjFftPlnFwd, opr.mem.fftPlnFwd
+    opr.mem.fftPlnRev, opr.mem.adjFftPlnRev = opr.mem.adjFftPlnRev, opr.mem.fftPlnRev
 
     # Take the conjugate of the Fourier coefficients (conjugate transpose)
     # Also swap the last two axes because they hold the source and target

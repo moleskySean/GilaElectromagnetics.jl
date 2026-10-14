@@ -15,7 +15,7 @@ using ..GilaVolumes: _ovrLap, _lwrEdg
 Everything a vacuum operator needs to act: the options `cmpInf`, the two volumes,
 the grid matching `mixInf`, the Fourier coefficients `egoFur` of the circulant
 kernel (generated at `genPrc(cmpInf)`, rounded once to `Complex{T}`), the FFT
-plans of the operator and its adjoint, and the phases `phzInf` of the even/odd
+plans of the operator and of its adjoint, which `adjoint!` swaps, and the phases `phzInf` of the even/odd
 branch split at each level.
 """
 mutable struct GlaVacOprMem{T<:AbstractFloat}
@@ -291,11 +291,7 @@ function glaOprPrp(egoFur::AbstractVector{<:AbstractArray{Complex{T}}}, trgVol::
     fftPlnRev = Array{AbstractFFTs.Plan}(undef, lvls)
     adjFftPlnFwd = Array{AbstractFFTs.Plan}(undef, lvls)
     adjFftPlnRev = Array{AbstractFFTs.Plan}(undef, lvls)
-
-    # the plans keep the orientation the operator was built in, which adjoint! swaps out of mixInf
-    srcCel, trgCel, srcDiv, trgDiv = adjMod(cmpInf) ?
-        (mixInf.trgCel, mixInf.srcCel, mixInf.trgDiv, mixInf.srcDiv) :
-        (mixInf.srcCel, mixInf.trgCel, mixInf.srcDiv, mixInf.trgDiv)
+    (; srcCel, trgCel, srcDiv, trgDiv) = mixInf
     # initialize Fourier transform plans
     for dir ∈ eachindex(1:lvls)
         # size of vector changes throughout application for external Green 

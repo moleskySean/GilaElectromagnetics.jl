@@ -128,22 +128,14 @@ end
 
 function fwdFFT!(egoMem::GlaVacOprMem, lvl::Int, actVec::AbstractArray{<:Complex}, cmpInf::GlaKerOpt)
     # forward FFT
-    if isadjoint(egoMem)
-        egoMem.adjFftPlnFwd[lvl] * actVec
-    else
-        egoMem.fftPlnFwd[lvl] * actVec
-    end
+    egoMem.fftPlnFwd[lvl] * actVec
     # wait for completion of FFT
     synchronize(cmpInf.dev)
 end
 
 function invFFT!(egoMem::GlaVacOprMem, lvl::Int, actVec::AbstractArray{<:Complex}, cmpInf::GlaKerOpt)
     # inverse FFT
-    if isadjoint(egoMem)
-        egoMem.adjFftPlnRev[lvl] * actVec
-    else
-        egoMem.fftPlnRev[lvl] * actVec
-    end
+    egoMem.fftPlnRev[lvl] * actVec
     # wait for completion of FFT
     synchronize(cmpInf.dev)
 end
@@ -158,100 +150,37 @@ function egoBrnExe!(egoMem::GlaVacOprMem, prgVecEve::AbstractArray{<:Complex}, p
     return eveVec, oddVec
 end
 
+#= The stored Green function range, the vector range and the reflection sign of
+one direction of one octant. Only half the coefficients are stored in a direction
+where the branch is shorter than the source and target together. =#
+function _octRng(mixInf::GlaExtInf, brnSze, egoSze, dir::Int, brnOdd::Bool, rev::Bool)
+    if egoSze[dir] == brnSze[dir]
+        rng = rev ? (1:0) : (1:brnSze[dir])
+        return rng, rng, 1f0
+    end
+    trgCel, srcCel = mixInf.trgCel[dir], mixInf.srcCel[dir]
+    if brnOdd
+        begInd, endInd = 1, rev ? fld(srcCel, 2) : cld(trgCel, 2)
+    else
+        begInd, endInd = rev ? (2, fld(srcCel, 2) + 1 - iseven(trgCel)) : (1, cld(trgCel, 2) + iseven(trgCel))
+    end
+    vecRng = rev ? (brnSze[dir]:-1:(brnSze[dir] - endInd + begInd)) : (1:(1 + endInd - begInd))
+    return begInd:endInd, vecRng, rev ? -1f0 : 1f0
+end
+
+# The Hadamard product of a branch with its Green function, forward and reverse in each direction
 function mulBrn!(mixInf::GlaExtInf, bId::Integer, prdVec::AbstractArray{<:Complex, 4}, vecMod::AbstractArray{<:Complex, 4}, orgVec::AbstractArray{<:Complex, 4}, cmpInf::GlaKerOpt)
-	# size of branch
-	brnSze = (mixInf.trgCel .+ mixInf.srcCel) .÷ 2
-	# unique information of Green function
-	egoSze = size(vecMod)[1:3]
-	# zero if branch is even in that direction, one if branch is odd
-    brnSym = isodd.(bId .>> (2:-1:0))
-	# declare memory 
-    dimInf = Array{Int32}(undef, 3, 8)
-    dirSym = Array{Float32}(undef, 3, 8)
-	# selection ranges for Green function and vector
-	modRng = Array{StepRange}(undef, 3, 8)
-	vecRng = Array{StepRange}(undef, 3, 8)
-	# sign symmetry for Green function multiplication
-	symSgn = Array{Float32}(undef, 3, 8)
-	# perform Hadamard---forward and reverse operation in each direction
-	for divItr ∈ 0:7
-		# one for reverse direction, zero for forward
-        revSwt = isodd.(divItr .>> (0:2))
-		# set copy ranges
-		for dirItr ∈ 1:3
-			# switch between full and partial stored information cases
-			if egoSze[dirItr] == brnSze[dirItr]
-				if revSwt[dirItr] == 0
-					# Green function range
-					modRng[dirItr, divItr + 1] = 1:1:brnSze[dirItr]
-					vecRng[dirItr, divItr + 1] = 1:1:brnSze[dirItr]
-                    symSgn[dirItr, divItr + 1] = one(eltype(symSgn))
-				else
-					modRng[dirItr, divItr + 1] = 1:1:0
-					vecRng[dirItr, divItr + 1] = 1:1:0
-                    symSgn[dirItr, divItr + 1] = zero(eltype(symSgn))
-				end
-			# partial information case
-			else
-				# switch between even and odd branch cases
-				if brnSym[dirItr] == 0 
-					# switch between source and target portions 
-					if revSwt[dirItr] == 0
-						begInd = 1
-						endInd = Integer.(ceil.(mixInf.trgCel[dirItr] / 
-							2)) + iseven(mixInf.trgCel[dirItr])
-					# source coefficients
-					else
-						begInd = 2
-						endInd = Integer.(floor.(mixInf.srcCel[dirItr] / 
-							2)) + 1 - iseven(mixInf.trgCel[dirItr])
-					end
-				# odd coefficient branch
-				else
-					begInd = 1 
-					# target coefficients
-					if revSwt[dirItr] == 0
-						endInd = Integer.(ceil.(mixInf.trgCel[dirItr] / 2)) 
-					# source coefficients
-					else
-						endInd = Integer.(floor.(mixInf.srcCel[dirItr] / 2)) 
-					end
-				end
-				# Green function range
-				modRng[dirItr,divItr + 1] = begInd:1:endInd
-				# vector range
-				if revSwt[dirItr] == 0
-					vecRng[dirItr,divItr + 1] = 1:1:(1 + endInd - begInd)
-				else
-					vecRng[dirItr,divItr + 1] = 
-						brnSze[dirItr]:-1:(brnSze[dirItr] - endInd + begInd)
-				end
-				# sign symmetry for Green function multiplication
-				symSgn[dirItr, divItr + 1] = 1.0 - 2.0 * revSwt[dirItr]
-			end
-		end
-		# check that range is not empty
-		if !isempty(CartesianIndices(tuple(modRng[:,divItr + 1]...)))
-            # number of elements
-            copyto!(view(dimInf, :, divItr + 1), 
-                getproperty.(modRng[:,divItr + 1], :stop) .-
-                getproperty.(modRng[:,divItr + 1], :start) .+ 1)
-            # symmetry information
-			copyto!(view(dirSym, :, divItr + 1), 
-				eltype(dirSym).(
-                [symSgn[1,divItr + 1] * symSgn[2,divItr + 1],
-                 symSgn[1,divItr + 1] * symSgn[3,divItr + 1],
-                 symSgn[2,divItr + 1] * symSgn[3,divItr + 1]]))
-            # perform Hadamard product
-            krn = mulKer!(cmpInf.dev)
-            krn(view(prdVec, vecRng[1, divItr + 1], vecRng[2, divItr + 1], vecRng[3, divItr + 1], :),
-                view(vecMod, modRng[1, divItr + 1], modRng[2, divItr + 1], modRng[3, divItr + 1], :),
-                view(orgVec, vecRng[1, divItr + 1], vecRng[2, divItr + 1], vecRng[3, divItr + 1], :),
-                Tuple(dirSym[:, divItr + 1]);
-                ndrange=tuple(dimInf[:, divItr + 1]...))
-		end
-	end
-	return nothing
+    brnSze = (mixInf.trgCel .+ mixInf.srcCel) .÷ 2
+    egoSze = size(vecMod)[1:3]
+    krn = mulKer!(cmpInf.dev)
+    for oct in 0:7
+        rngs = ntuple(dir -> _octRng(mixInf, brnSze, egoSze, dir, isodd(bId >> (3 - dir)), isodd(oct >> (dir - 1))), 3)
+        modRng, vecRng, sgn = getindex.(rngs, 1), getindex.(rngs, 2), getindex.(rngs, 3)
+        any(isempty, modRng) && continue
+        krn(view(prdVec, vecRng..., :), view(vecMod, modRng..., :), view(orgVec, vecRng..., :),
+            (sgn[1] * sgn[2], sgn[1] * sgn[3], sgn[2] * sgn[3]); ndrange = length.(modRng))
+    end
+    return nothing
 end
 @kernel function mulKer!(prdVec::AbstractArray{<:Complex, 4}, vecMod::AbstractArray{<:Complex, 4}, orgVec::AbstractArray{<:Complex, 4}, dirSym::NTuple{3, Float32})
     itrX, itrY, itrZ = @index(Global, NTuple)
