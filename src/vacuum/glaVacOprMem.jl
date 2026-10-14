@@ -7,6 +7,7 @@ import VkFFT
 using LinearAlgebra
 using Serialization
 using ..GilaVolumes
+using ..GilaVolumes: _ovrLap, _lwrEdg
 
 """
     GlaVacOprMem{T<:AbstractFloat}

@@ -56,9 +56,7 @@ function Base.getindex(opr::AbstractGlaOpr, row::GlaIdx, col::GlaIdx)
         for (i, idx) in enumerate(rowInd)
             idt[idx, i] = one(T)
         end
-        adjOpr = adjoint!(opr) # Compute with the adjoint operator
-        outDag = adjOpr * adapt(get_backend(adjOpr), idt)
-        adjoint!(adjOpr) # Restore the memory the caller's operator still points at
+        outDag = _withAdj(adjOpr -> adjOpr * adapt(get_backend(adjOpr), idt), opr)
         res = copy(outDag[colInd, :]')
     end
     # An integer index drops its dimension, as for any AbstractMatrix
@@ -172,18 +170,21 @@ end
 
 Base.adjoint(opr::AbstractGlaOpr) = adjoint!(deepcopy(opr))
 
+# f applied to the adjoint of opr, restoring the memory opr points at afterwards
+function _withAdj(f, opr::AbstractGlaOpr)
+    adjOpr = adjoint!(opr)
+    out = f(adjOpr)
+    adjoint!(adjOpr)
+    return out
+end
+
 # A zero β never reads the output, which may hold anything
 function invMul!(w, opr::AbstractGlaOpr, v, α, β)
     iszero(β) && return w .= α .* solve(opr, v, slv(opr))
     return axpby!(α, solve(opr, v, slv(opr)), β, w)
 end
 
-function invMulAdj!(w, opr::AbstractGlaOpr, v, α, β)
-    adjOpr = adjoint!(opr) # Compute with the adjoint operator
-    out = invMul!(w, adjOpr, v, α, β) # Inverse adjoint matrix-vector product
-    adjoint!(opr) # Restore the original operator
-    return out
-end
+invMulAdj!(w, opr::AbstractGlaOpr, v, α, β) = _withAdj(adjOpr -> invMul!(w, adjOpr, v, α, β), opr)
 
 """
     \\(opr::AbstractGlaOpr, inp::AbstractVector)

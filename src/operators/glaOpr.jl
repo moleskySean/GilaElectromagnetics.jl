@@ -21,8 +21,7 @@ import LinearAlgebra: adjoint!
 
 import ..GilaTypes: isadjoint, _shwRow
 import ..GilaVacuum: egoCmpPos, setBlc!
-import ..GilaVolumes: _lwrEdg, _uprEdg, _ovrLap, _volDesc, _sclStr, _ratStr
-import ..GilaFields: _eqvCvl
+import ..GilaVolumes: _lwrEdg, _uprEdg, _ovrLap, _dofOff, _volDesc, _sclStr, _ratStr
 import ..GilaSolvers: isvarying
 
 export GlaOprVac, AsyGlaOprVac, SymGlaOprVac, GlaCmpOprVac, AsyGlaCmpOprVac, SymGlaCmpOprVac, InvSctOpr, SctOpr, GlaOpr, SusOpr

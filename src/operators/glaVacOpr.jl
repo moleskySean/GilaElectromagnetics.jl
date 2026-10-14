@@ -169,20 +169,6 @@ SymGlaCmpOprVac{T}(opr::SymGlaCmpOprVac) where T<:AbstractFloat =
 const AsymCompositeVacuumGreenOperator = AsyGlaCmpOprVac
 const SymCompositeVacuumGreenOperator = SymGlaCmpOprVac
 
-# Returns true if the volumes share interior. Face, edge, and corner contact is
-# not overlap: the external construction has contact corrections for it, and the
-# union path cannot represent contact between volumes at different cell scales.
-function ovrChk(vol1::GlaVol, vol2::GlaVol)
-    # Upper/lower edges of the volumes
-    lwrEdg1 = first.(vol1.grd) .- (vol1.scl .// 2)
-    uprEdg1 = last.(vol1.grd) .+ (vol1.scl .//2)
-    lwrEdg2 = first.(vol2.grd) .- (vol2.scl .// 2)
-    uprEdg2 = last.(vol2.grd) .+ (vol2.scl .//2)
-
-    # Volume overlap check
-    return all(max.(lwrEdg1, lwrEdg2) .< min.(uprEdg1, uprEdg2)) # < not <= to exclude contact
-end
-
 # Returns the region where subVol is contained within vol
 function mskRng(subVol::GlaVol, vol::GlaVol)
     stpVol = Rational.(step.(vol.grd))
@@ -227,7 +213,7 @@ function GlaOprVac{T}(trgVol::GlaVol, srcVol::GlaVol;
     blc === nothing || trgVol == srcVol || haskey(blc, :blk) || throw(ArgumentError("A Bloch lattice is self volume only."))
     innMsk = ntuple(_ -> 0:0, 3)
     outMsk = ntuple(_ -> 0:0, 3)
-    if trgVol != srcVol && ovrChk(trgVol, srcVol)
+    if trgVol != srcVol && _ovrLap(trgVol, srcVol)
         # Overlap: create the union volume and mask out the input/output regions
         vol = uniVol(trgVol, srcVol)
         innMsk = mskRng(srcVol, vol)
@@ -359,15 +345,6 @@ The Hermitian part of a self vacuum operator, see `SymGlaOprVac`.
 """
 sym(opr::GlaOprVac) = SymGlaOprVac(opr)
 
-# Start of each region block in the flat layout, plus the total length at the end
-function _dofOff(cvol::GlaCmpVol)
-    off = zeros(Int, nregions(cvol) + 1)
-    for (idx, reg) in enumerate(regions(cvol))
-        off[idx + 1] = off[idx] + 3 * prod(reg.cel)
-    end
-    return off
-end
-
 # Normalization of block (i, j) in the √ΔV basis
 _nrmWgt(trgReg::GlaVol, srcReg::GlaVol) =
     sqrt(Float64(prod(trgReg.scl) // prod(srcReg.scl)))
@@ -435,7 +412,7 @@ count cells of the finest region.
 function GlaCmpOprVac{T}(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol;
     dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false,
     shpCch::Bool=false, hrmPrt::Union{Nothing,Symbol}=nothing, blc=nothing) where T<:AbstractFloat
-    slfCmp = trgCvl === srcCvl || trgCvl == srcCvl
+    slfCmp = trgCvl == srcCvl
     trgRegs, srcRegs = regions(trgCvl), regions(srcCvl)
     slfCmp || _prxCmpChk(trgRegs, srcRegs)
     if blc !== nothing
@@ -647,8 +624,7 @@ isadjoint(opr::GlaSndOprVac) = isadjoint(opr.opr)
 isadjoint(opr::GlaCmpOprVac) = all(isadjoint, opr.blkMat)
 isadjoint(::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}) = false
 isselfoperator(opr::GlaSndOprVac) = false
-isselfoperator(opr::GlaCmpOprVac) =
-    opr.trgCvl === opr.srcCvl || opr.trgCvl == opr.srcCvl
+isselfoperator(opr::GlaCmpOprVac) = opr.trgCvl == opr.srcCvl
 isselfoperator(::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}) = true
 isexternaloperator(opr::GlaSndOprVac) = true
 isexternaloperator(opr::GlaCmpOprVac) = !isselfoperator(opr)
@@ -714,9 +690,7 @@ glaSze(opr::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}) = glaSze(opr.opr)
 glaSze(opr::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}, dim::Int) =
     glaSze(opr.opr, dim)
 
-Base.size(opr::GlaCmpOprVac) =
-    (sum(3 * prod(reg.cel) for reg in regions(opr.trgCvl)),
-     sum(3 * prod(reg.cel) for reg in regions(opr.srcCvl)))
+Base.size(opr::GlaCmpOprVac) = (_dofOff(opr.trgCvl)[end], _dofOff(opr.srcCvl)[end])
 Base.size(opr::GlaCmpOprVac, dim::Int) = size(opr)[dim]
 Base.size(opr::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}) = size(opr.opr)
 Base.size(opr::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}, dim::Int) =
@@ -800,7 +774,7 @@ Apply a composite operator to a field on its source tiling, giving a field on
 its target tiling.
 """
 function Base.:*(opr::GlaCmpOprVac{T}, fld::GlaFld{T}) where T<:AbstractFloat
-    if !(fld.cvol === opr.srcCvl || fld.cvol == opr.srcCvl)
+    if fld.cvol != opr.srcCvl
         throw(ArgumentError("The field lives on a different composite volume than the source volume of the operator. An operator only applies to fields on the tiling it was built for."))
     end
     return GlaFld(opr * fld.dat, opr.trgCvl)

@@ -25,18 +25,9 @@ using LinearAlgebra
 using Adapt
 using KernelAbstractions
 
-import ..GilaVolumes: _lwrEdg, _uprEdg
+import ..GilaVolumes: _lwrEdg, _uprEdg, _dofOff
 
 export GlaFld, MultiScaleField, zerofield, discretize!, regionview, eachregion, regrid
-
-# Start of each region block in the flat buffer, plus the total length at the end
-function _dofOff(cvol::GlaCmpVol)
-    off = zeros(Int, nregions(cvol) + 1)
-    for (idx, reg) in enumerate(regions(cvol))
-        off[idx + 1] = off[idx] + 3 * prod(reg.cel)
-    end
-    return off
-end
 
 """
     GlaFld{T}
@@ -115,10 +106,8 @@ Adapt.adapt_structure(to, fld::GlaFld) = GlaFld(adapt(to, fld.dat), fld.cvol)
 Base.zero(fld::GlaFld) = GlaFld(zero(fld.dat), fld.cvol)
 
 # Region blocks only line up if the two fields agree on the tiling
-_eqvCvl(cvolA::GlaCmpVol, cvolB::GlaCmpVol) = cvolA === cvolB || cvolA == cvolB
-
 function _chkCvl(fldA::GlaFld, fldB::GlaFld)
-    if !_eqvCvl(fldA.cvol, fldB.cvol)
+    if fldA.cvol != fldB.cvol
         throw(ArgumentError("The two fields live on different composite volumes. Operations that mix fields need a common tiling."))
     end
     return nothing
@@ -188,7 +177,7 @@ _bcUnw(bc::Broadcast.Broadcasted) =
 _bcCvl(cvol, arg) = cvol
 _bcCvl(cvol, bc::Broadcast.Broadcasted) = foldl(_bcCvl, bc.args; init=cvol)
 function _bcCvl(cvol, fld::GlaFld)
-    if !isnothing(cvol) && !_eqvCvl(cvol, fld.cvol)
+    if !isnothing(cvol) && cvol != fld.cvol
         throw(ArgumentError("A broadcast mixes fields that live on different composite volumes. Operations that mix fields need a common tiling."))
     end
     return fld.cvol
@@ -232,8 +221,7 @@ Allocate a zero field of storage precision `T` (`dflPrc` when unrequested) over 
 - `GlaFld{T}`: A field of zeros with one entry per degree of freedom
 """
 function zerofield(::Type{T}, cvol::GlaCmpVol; dev::Backend=CPU()) where T<:AbstractFloat
-    len = sum(3 * prod(reg.cel) for reg in regions(cvol))
-    dat = KernelAbstractions.zeros(dev, Complex{T}, len)
+    dat = KernelAbstractions.zeros(dev, Complex{T}, _dofOff(cvol)[end])
     return GlaFld(dat, cvol)
 end
 zerofield(cvol::GlaCmpVol; dev::Backend=CPU()) = zerofield(dflPrc, cvol; dev=dev)

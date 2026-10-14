@@ -160,7 +160,7 @@ function glaSze(opr::SusOpr)
 end
 
 function Base.size(opr::SusOpr)
-    dofNum = sum(3 * prod(reg.cel) for reg in regions(opr.cvol))
+    dofNum = _dofOff(opr.cvol)[end]
     return (dofNum, dofNum)
 end
 Base.size(opr::SusOpr, i::Int) = size(opr)[i]
@@ -240,7 +240,7 @@ isvarying(::SusOpr) = false
 #= A susceptibility carries no normalization factor of its own: it is
 dimensionless and diagonal in position, so it commutes with the √ΔV of GlaFld. =#
 function _chkSusFld(opr::SusOpr, fld::GlaFld)
-    if !_eqvCvl(fld.cvol, opr.cvol)
+    if fld.cvol != opr.cvol
         throw(ArgumentError("The field lives on a different composite volume than the susceptibility. A susceptibility only applies to fields on the tiling it was built for."))
     end
     return opr.cvol

@@ -131,15 +131,7 @@ function genEgoExt!(egoCrcExt::AbstractArray{<:Complex,5}, trgVol::GlaVol, srcVo
         "$(trgVol.cel) cells at $(trgVol.org) and $(srcVol.cel) cells at $(srcVol.org) are an external pair."))
     sepGrdTrg = sepGrd(trgVol, srcVol, 0)
     sepGrdSrc = sepGrd(trgVol, srcVol, 1)
-    # upper and lower edges of the source and target volumes
-    srcEdg = (getproperty.(srcVol.grd, :start) .- (srcVol.scl .//2),
-            getproperty.(srcVol.grd, :stop) .+ (srcVol.scl .//2))
-    trgEdg = (getproperty.(trgVol.grd, :start) .- (trgVol.scl .//2),
-            getproperty.(trgVol.grd, :stop) .+ (trgVol.scl .//2))
-    # shared interior in every dimension is overlap
-    if all(max.(srcEdg[1], trgEdg[1]) .< min.(srcEdg[2], trgEdg[2]))
-        throw(ArgumentError("Source and target volumes are overlapping."))
-    end
+    _ovrLap(trgVol, srcVol) && throw(ArgumentError("Source and target volumes are overlapping."))
     itrSpc = CartesianIndices(axes(egoCrcExt)[3:5])
     lat = trgVol.scl == srcVol.scl ? extOff(size(egoCrcExt)[3:5], trgVol.cel, trgVol.scl,
         sepGrdTrg, sepGrdSrc) : nothing
@@ -182,7 +174,7 @@ function genEgoExt!(egoCrcExt::AbstractArray{<:Complex,5}, trgVol::GlaVol, srcVo
     if !isempty(cntPos)
         # the contact average is over cells of the gcd, which both grids must sit on
         all(isinteger, max.(trgVol.scl, srcVol.scl) .// min.(trgVol.scl, srcVol.scl)) &&
-            all(isinteger, (trgEdg[1] .- srcEdg[1]) .// gcd.(trgVol.scl, srcVol.scl)) ||
+            all(isinteger, (_lwrEdg(trgVol) .- _lwrEdg(srcVol)) .// gcd.(trgVol.scl, srcVol.scl)) ||
             throw(ArgumentError("Cells in contact must sit on a common lattice."))
         cntVol = genCntVol(trgVol, srcVol)
         egoCrcCnt = Array{eltype(egoCrcExt)}(undef, 3, 3, (2 .* cntVol.cel)...)

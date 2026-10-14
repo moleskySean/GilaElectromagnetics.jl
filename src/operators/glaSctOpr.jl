@@ -354,7 +354,7 @@ end
 field. A plain vacuum operator carries a single volume, which is a tiling of one
 region. =#
 function _chkSctFld(oprVac::GlaCmpOprVac, fld::GlaFld)
-    fld.cvol === oprVac.srcCvl || fld.cvol == oprVac.srcCvl || throw(ArgumentError("The field lives on a different composite volume than the operator. An operator only applies to fields on the tiling it was built for."))
+    fld.cvol == oprVac.srcCvl || throw(ArgumentError("The field lives on a different composite volume than the operator. An operator only applies to fields on the tiling it was built for."))
     return oprVac.srcCvl
 end
 

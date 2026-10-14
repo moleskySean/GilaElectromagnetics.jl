@@ -104,13 +104,8 @@ function uniVol(vol1::GlaVol, vol2::GlaVol)
     @assert all(isinteger.(sclRat)) "Volumes must share a common scale grid for overlap handling"
     scl = sclMin # Pick the finer scale as the common scale
 
-    # Upper/lower edges of the volumes
-    lwrEdg1 = first.(vol1.grd) .- (vol1.scl .// 2)
-    uprEdg1 = last.(vol1.grd) .+ (vol1.scl .//2)
-    lwrEdg2 = first.(vol2.grd) .- (vol2.scl .// 2)
-    uprEdg2 = last.(vol2.grd) .+ (vol2.scl .//2)
-    minEdg = min.(lwrEdg1, lwrEdg2) # Lower edge of the union volume
-    maxEdg = max.(uprEdg1, uprEdg2) # Upper edge of the union volume
+    minEdg = min.(_lwrEdg(vol1), _lwrEdg(vol2))
+    maxEdg = max.(_uprEdg(vol1), _uprEdg(vol2))
 
     cel = (maxEdg .- minEdg) .// scl
     @assert all(isinteger.(cel)) "Computed union volume cell counts must be integers"
@@ -430,8 +425,7 @@ Construct the one-region composite volume around a single `GlaVol`.
 """
 GlaCmpVol(vol::GlaVol) = GlaCmpVol([vol])
 
-#= Lower and upper corner of the cuboid occupied by a volume. Written in terms
-of the grid and the cell scale, the same way ovrChk measures edges. =#
+# Lower and upper corner of the cuboid occupied by a volume
 _lwrEdg(vol::GlaVol) = first.(vol.grd) .- (vol.scl .// 2)
 _uprEdg(vol::GlaVol) = last.(vol.grd) .+ (vol.scl .// 2)
 
@@ -491,6 +485,15 @@ The number of regions in a composite volume.
 - The region count
 """
 nregions(cvol::GlaCmpVol) = length(cvol.regions)
+
+# Start of each region block in the flat layout, plus the total length at the end
+function _dofOff(cvol::GlaCmpVol)
+    off = zeros(Int, nregions(cvol) + 1)
+    for (idx, reg) in enumerate(regions(cvol))
+        off[idx + 1] = off[idx] + 3 * prod(reg.cel)
+    end
+    return off
+end
 
 """
     finest(cvol::GlaCmpVol)
@@ -564,25 +567,19 @@ function chkCmnScl(regA::GlaVol, regB::GlaVol, idxA::Integer, idxB::Integer)
     return nothing
 end
 
-#= The per-pair version of chkParExtInf: count the cells in one partition the
-way GlaExtInf does and require an even sum. =#
+#= The per-pair version of chkParExtInf, in region indices. Divisibility comes
+first: GlaExtInf throws a bare error for a region smaller than one partition. =#
 function chkParCmpVol(regA::GlaVol, regB::GlaVol, idxA::Integer, idxB::Integer)
     maxScl = lcm.(regA.scl, regB.scl)
-    divA = ntuple(dir -> maxScl[dir] ÷ regA.scl[dir], 3)
-    divB = ntuple(dir -> maxScl[dir] ÷ regB.scl[dir], 3)
-    for (idx, reg, divPar) in ((idxA, regA, divA), (idxB, regB, divB))
-        if any(mod.(reg.cel, divPar) .!= 0)
-            badDir = findall(mod.(reg.cel, divPar) .!= 0)
-            throw(ArgumentError("Region $idx cannot be partitioned against region $(idx == idxA ? idxB : idxA) in dimension(s) $(badDir): $(reg.cel) cells do not divide into $(divPar) sub-lattices. Adjust the refinement box so that the region spans a whole number of coarse cells."))
-        end
+    for (idx, reg) in ((idxA, regA), (idxB, regB))
+        divPar = maxScl .÷ reg.scl
+        badDir = findall(!iszero, mod.(reg.cel, divPar))
+        isempty(badDir) || throw(ArgumentError("Region $idx cannot be partitioned against region $(idx == idxA ? idxB : idxA) in dimension(s) $(badDir): $(reg.cel) cells do not divide into $(divPar) sub-lattices. Adjust the refinement box so that the region spans a whole number of coarse cells."))
     end
-    celParA = regA.cel .÷ divA
-    celParB = regB.cel .÷ divB
-    celSum = celParA .+ celParB
-    if any(isodd.(celSum))
-        badDir = findall(isodd.(celSum))
-        throw(ArgumentError("Regions $idxA and $idxB violate the partition parity condition in dimension(s) $(badDir): $(celParA) cells per partition in region $idxA plus $(celParB) in region $idxB gives $(celSum). Move the refinement box or change the refinement factor so that every dimension sums to an even number."))
-    end
+    mixInf = GlaExtInf(regA, regB)
+    celSum = mixInf.trgCel .+ mixInf.srcCel
+    badDir = findall(isodd, celSum)
+    isempty(badDir) || throw(ArgumentError("Regions $idxA and $idxB violate the partition parity condition in dimension(s) $(badDir): $(mixInf.trgCel) cells per partition in region $idxA plus $(mixInf.srcCel) in region $idxB gives $(celSum). Move the refinement box or change the refinement factor so that every dimension sums to an even number."))
     return nothing
 end
 
