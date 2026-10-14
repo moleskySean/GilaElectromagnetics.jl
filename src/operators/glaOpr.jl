@@ -15,7 +15,7 @@ using Adapt
 using KernelAbstractions
 using LinearAlgebra
 using Serialization
-using StaticArrays: StaticArray
+using StaticArrays: StaticArray, SMatrix
 
 import LinearAlgebra: adjoint!
 

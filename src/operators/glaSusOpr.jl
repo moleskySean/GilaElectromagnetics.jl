@@ -189,22 +189,15 @@ function _invSus(opr::SusOpr{T, <:AbstractVector{Complex{T}}}) where T<:Abstract
     return SusOpr(inv.(opr.sus), opr.cvol, opr.adjMod)
 end
 
-# The cofactor inverse of every cell tensor, all cells of a component at once
+# The inverse of every cell tensor, with the cells moved to the last axis to read them as 3×3 matrices
 function _invSus(opr::SusOpr{T, <:AbstractArray{Complex{T}, 3}}) where T<:AbstractFloat
-    susAdj = similar(opr.sus)
-    for row in 1:3, col in 1:3
-        rowNxt, rowPrv = mod1(row + 1, 3), mod1(row + 2, 3)
-        colNxt, colPrv = mod1(col + 1, 3), mod1(col + 2, 3)
-        @views susAdj[:, row, col] .=
-            opr.sus[:, colNxt, rowNxt] .* opr.sus[:, colPrv, rowPrv] .-
-            opr.sus[:, colNxt, rowPrv] .* opr.sus[:, colPrv, rowNxt]
-    end
-    susDet = @views opr.sus[:, 1, 1] .* susAdj[:, 1, 1] .+
-        opr.sus[:, 1, 2] .* susAdj[:, 2, 1] .+ opr.sus[:, 1, 3] .* susAdj[:, 3, 1]
+    susCel = reinterpret(SMatrix{3, 3, Complex{T}, 9}, vec(permutedims(opr.sus, (2, 3, 1))))
+    susDet = det.(susCel)
     if any(iszero, susDet)
         throw(ArgumentError("The susceptibility tensor is singular in $(count(iszero, susDet)) of the $(length(susDet)) cells of this volume, and a singular cell has no inverse. Divide by a susceptibility that is invertible in every cell, or solve with the scattering operator instead."))
     end
-    return SusOpr(susAdj ./ susDet, opr.cvol, opr.adjMod)
+    susInv = reshape(reinterpret(Complex{T}, inv.(susCel)), 3, 3, :)
+    return SusOpr(permutedims(susInv, (3, 1, 2)), opr.cvol, opr.adjMod)
 end
 
 #= The one operator whose inverse is not a solve: a susceptibility is diagonal
