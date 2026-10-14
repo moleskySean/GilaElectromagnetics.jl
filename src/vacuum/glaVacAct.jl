@@ -254,18 +254,7 @@ function mulBrn!(mixInf::GlaExtInf, bId::Integer, prdVec::AbstractArray{<:Comple
 	return nothing
 end
 @kernel function mulKer!(prdVec::AbstractArray{<:Complex, 4}, vecMod::AbstractArray{<:Complex, 4}, orgVec::AbstractArray{<:Complex, 4}, dirSym::NTuple{3, Float32})
-    # Linear index
-    itr = @index(Global)
-    
-    # Convert linear index to 3D coordinates
-    sze = size(prdVec)
-    itrZ, rem = divrem(itr-1, sze[1]*sze[2])
-    itrY, itrX = divrem(rem, sze[1])
-
-    # Convert to 1-based indexing
-    itrX += 1
-    itrY += 1 
-    itrZ += 1
+    itrX, itrY, itrZ = @index(Global, NTuple)
 
     # vecMod follows ii, jj, kk, ij, ik, jk storage format
     # i vector direction

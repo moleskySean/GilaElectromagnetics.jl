@@ -16,26 +16,9 @@ function genPrt!(actVec::AbstractArray{<:Complex, 4}, cmpInf::GlaKerOpt, mixInf:
     return orgVec
 end
 @kernel function genPrtKer!(stp::NTuple{3,Integer}, off::NTuple{3,Integer}, dirItr::Integer, parItr::Integer, actVec::AbstractArray{<:Complex,4}, orgVec::AbstractArray{<:Complex,5})
-    # get the global linear index
-    itr = @index(Global)
-
-    # pull out the 3D dimensions of orgVec
-    dims = size(orgVec)
-    maxX, maxY = dims[1], dims[2]
-    # (we don't actually need maxZ explicitly for the conversion)
-
-    # convert to zero‑based and then to 3D coords
-    idx = itr - 1
-    itrX = (idx % maxX) + 1
-    itrY = ((idx ÷ maxX) % maxY) + 1
-    itrZ = (idx ÷ (maxX * maxY)) + 1
-
-    @inbounds begin
-        srcX = (itrX - 1) * stp[1] + off[1] + 1
-        srcY = (itrY - 1) * stp[2] + off[2] + 1
-        srcZ = (itrZ - 1) * stp[3] + off[3] + 1
-        orgVec[itrX, itrY, itrZ, dirItr, parItr] = actVec[srcX, srcY, srcZ, dirItr]
-    end
+    itr = @index(Global, NTuple)
+    srcItr = (itr .- 1) .* stp .+ off .+ 1
+    @inbounds orgVec[itr..., dirItr, parItr] = actVec[srcItr..., dirItr]
 end
 
 #=
@@ -50,29 +33,13 @@ function sptBrn!(prgVec::AbstractArray{<:Complex, 5}, sptDir::Integer, phzVec::A
     return nothing
 end
 @kernel function sptKer!(sptDir::Integer, phzVec::AbstractVector{<:Complex}, parItr::Integer, orgVec::AbstractArray{<:Complex, 5}, prgVec::AbstractArray{<:Complex, 5})
-    # linear index
-    itr = @index(Global)
-
-    # dimensions
-    dims = size(orgVec)
-    maxX, maxY = dims[1], dims[2]
-
-    # convert to 3D indices
-    idx  = itr - 1
-    itrX = (idx % maxX) + 1
-    itrY = ((idx ÷ maxX) % maxY) + 1
-    itrZ = (idx ÷ (maxX * maxY)) + 1
-
+    itr = @index(Global, NTuple)
     @inbounds begin
-        # pick the correct phase coefficient
-        phz = sptDir == 1 ? phzVec[itrX] :
-              sptDir == 2 ? phzVec[itrY] :
-                            phzVec[itrZ]
-
+        phz = phzVec[itr[sptDir]]
         # apply it to all three Fourier‐branch slots
-        prgVec[itrX, itrY, itrZ, 1, parItr] = phz * orgVec[itrX, itrY, itrZ, 1, parItr]
-        prgVec[itrX, itrY, itrZ, 2, parItr] = phz * orgVec[itrX, itrY, itrZ, 2, parItr]
-        prgVec[itrX, itrY, itrZ, 3, parItr] = phz * orgVec[itrX, itrY, itrZ, 3, parItr]
+        prgVec[itr..., 1, parItr] = phz * orgVec[itr..., 1, parItr]
+        prgVec[itr..., 2, parItr] = phz * orgVec[itr..., 2, parItr]
+        prgVec[itr..., 3, parItr] = phz * orgVec[itr..., 3, parItr]
     end
 end
 #=
@@ -105,49 +72,19 @@ function sptBrn!(prgVecEve::AbstractArray{<:Complex,5}, prgVecOdd::AbstractArray
     return nothing
 end
 @kernel function sptBrnExt!(ovrRng::NTuple{3,UnitRange{Int}}, stdRng::NTuple{3,UnitRange{Int}}, ovrOff::NTuple{3,Int}, dirSpt::Int, dirItr::Int, parItr::Int, phzVec::AbstractVector{<:Complex}, orgVec::AbstractArray{<:Complex,5}, eveVec::AbstractArray{<:Complex,5}, oddVec::AbstractArray{<:Complex,5})
-    # linear global index
-    itr = @index(Global)
-
-    # dims for 3D conversion
-    dims = size(eveVec)
-    maxX, maxY = dims[1], dims[2]
-
-    # convert to 3D coords
-    idx = itr - 1
-    gX = (idx % maxX) + 1
-    gY = ((idx ÷ maxX) % maxY) + 1
-    gZ = (idx ÷ (maxX * maxY)) + 1
-
+    itr = @index(Global, NTuple)
     @inbounds begin
-        # pick the phase factor
-        phz = dirSpt == 1 ? phzVec[gX] :
-              dirSpt == 2 ? phzVec[gY] :
-                            phzVec[gZ]
-
+        phz = phzVec[itr[dirSpt]]
         # is it in the spill‑over region?
-        if (gX in ovrRng[1]) && (gY in ovrRng[2]) && (gZ in ovrRng[3])
-            # compute the other index
-            sX = gX + ovrOff[1]
-            sY = gY + ovrOff[2]
-            sZ = gZ + ovrOff[3]
-
-            # even
-            eveVec[gX,gY,gZ,dirItr,parItr] =
-            orgVec[gX,gY,gZ,dirItr,parItr] +
-            orgVec[sX,sY,sZ,dirItr,parItr]
-
-            # odd
-            oddVec[gX,gY,gZ,dirItr,parItr] =
-            phz * (orgVec[gX,gY,gZ,dirItr,parItr] -
-                    orgVec[sX,sY,sZ,dirItr,parItr])
-
+        if all(map(in, itr, ovrRng))
+            # the other index
+            sprItr = itr .+ ovrOff
+            eveVec[itr..., dirItr, parItr] = orgVec[itr..., dirItr, parItr] + orgVec[sprItr..., dirItr, parItr]
+            oddVec[itr..., dirItr, parItr] = phz * (orgVec[itr..., dirItr, parItr] - orgVec[sprItr..., dirItr, parItr])
         # else if it's in the standard region
-        elseif (gX in stdRng[1]) && (gY in stdRng[2]) && (gZ in stdRng[3])
-            eveVec[gX,gY,gZ,dirItr,parItr] =
-            orgVec[gX,gY,gZ,dirItr,parItr]
-
-            oddVec[gX,gY,gZ,dirItr,parItr] =
-            phz * orgVec[gX,gY,gZ,dirItr,parItr]
+        elseif all(map(in, itr, stdRng))
+            eveVec[itr..., dirItr, parItr] = orgVec[itr..., dirItr, parItr]
+            oddVec[itr..., dirItr, parItr] = phz * orgVec[itr..., dirItr, parItr]
         # else: skip (they're already zero)
         end
     end
@@ -170,31 +107,11 @@ function mrgBrn!(orgVec::AbstractArray{<:Complex,5}, mrgDir::Integer, parNumTrg:
     return nothing
 end
 @kernel function mrgKer!(mrgDir::Integer, phzVec::AbstractVector{<:Complex}, dirItr::Integer, prtItr::Integer, orgVec::AbstractArray{<:Complex,5}, prgVec::AbstractArray{<:Complex,5})
-    # linear index
-    itr = @index(Global)
-
-    # dims for conversion
-    dims = size(orgVec)
-    maxX, maxY = dims[1], dims[2]
-    idx = itr - 1
-
-    # decompose into 3D coords
-    itrX = (idx % maxX) + 1
-    itrY = ((idx ÷ maxX) % maxY) + 1
-    itrZ = (idx ÷ (maxX * maxY)) + 1
-
+    itr = @index(Global, NTuple)
     @inbounds begin
-        # select phase factor
-        ph = mrgDir == 1 ? phzVec[itrX] :
-             mrgDir == 2 ? phzVec[itrY] :
-                           phzVec[itrZ]
-
+        ph = phzVec[itr[mrgDir]]
         # merge branches in place
-        orgVec[itrX, itrY, itrZ, dirItr, prtItr] =
-          (
-            orgVec[itrX, itrY, itrZ, dirItr, prtItr] +
-            conj(ph) * prgVec[itrX, itrY, itrZ, dirItr, prtItr]
-          ) / 2
+        orgVec[itr..., dirItr, prtItr] = (orgVec[itr..., dirItr, prtItr] + conj(ph) * prgVec[itr..., dirItr, prtItr]) / 2
     end
 end
 #=
@@ -226,51 +143,16 @@ function mrgBrn!(mrgVec::AbstractArray{<:Complex,5}, mrgDir::Integer, parNumTrg:
     return nothing
 end
 @kernel function mrgKerGnl!(topStop::Integer, offSet::Integer, mrgDir::Integer, dirItr::Integer, prtItr::Integer, phzVec::AbstractVector{<:Complex}, eveVec::AbstractArray{<:Complex,5}, oddVec::AbstractArray{<:Complex,5}, mrgVec::AbstractArray{<:Complex,5})
-    # linear index of this work‑item
-    itr = @index(Global)
-
-    # 3D dims for the merged vector
-    dims = size(mrgVec)
-    maxX, maxY = dims[1], dims[2]
-
-    # convert to 3D coords
-    idx  = itr - 1
-    itrX = (idx % maxX) + 1
-    itrY = ((idx ÷ maxX) % maxY) + 1
-    itrZ = (idx ÷ (maxX * maxY)) + 1
-
-    # which coordinate along the merge axis?
-    gCoord = mrgDir == 1 ? itrX :
-             mrgDir == 2 ? itrY : itrZ
-
+    itr = @index(Global, NTuple)
+    top = itr[mrgDir] <= topStop
     # map global→input coords (for accessing eve/odd)
-    inX = mrgDir == 1 ?
-          (gCoord <= topStop ? itrX : itrX - offSet) : itrX
-    inY = mrgDir == 2 ?
-          (gCoord <= topStop ? itrY : itrY - offSet) : itrY
-    inZ = mrgDir == 3 ?
-          (gCoord <= topStop ? itrZ : itrZ - offSet) : itrZ
-
-    # select the phase factor
-    ph = mrgDir == 1 ? phzVec[inX] :
-         mrgDir == 2 ? phzVec[inY] :
-                       phzVec[inZ]
-
+    inp = top ? itr : ntuple(dir -> dir == mrgDir ? itr[dir] - offSet : itr[dir], 3)
+    ph = phzVec[inp[mrgDir]]
     @inbounds begin
-        if gCoord <= topStop
-            # top half merge
-            mrgVec[itrX, itrY, itrZ, dirItr, prtItr] =
-              (
-                eveVec[inX, inY, inZ, dirItr, prtItr] +
-                conj(ph) * oddVec[inX, inY, inZ, dirItr, prtItr]
-              ) / 2
+        if top
+            mrgVec[itr..., dirItr, prtItr] = (eveVec[inp..., dirItr, prtItr] + conj(ph) * oddVec[inp..., dirItr, prtItr]) / 2
         else
-            # bottom half merge
-            mrgVec[itrX, itrY, itrZ, dirItr, prtItr] =
-              (
-                eveVec[inX, inY, inZ, dirItr, prtItr] -
-                conj(ph) * oddVec[inX, inY, inZ, dirItr, prtItr]
-              ) / 2
+            mrgVec[itr..., dirItr, prtItr] = (eveVec[inp..., dirItr, prtItr] - conj(ph) * oddVec[inp..., dirItr, prtItr]) / 2
         end
     end
 end
@@ -292,25 +174,9 @@ function mrgPrt!(mixInf::GlaExtInf, cmpInf::GlaKerOpt, parNum::Integer, prtVec::
     return mrgVec
 end
 @kernel function mrgPrtKer!(stp::NTuple{3,Integer}, off::NTuple{3,Integer}, dirItr::Integer, parItr::Integer, mrgVec::AbstractArray{<:Complex,4}, prtVec::AbstractArray{<:Complex,5})
-    # get the global linear index
-    itr = @index(Global)
-
-    # pull out the 3D dimensions of prtVec
-    dims = size(prtVec)
-    maxX, maxY = dims[1], dims[2]
-
-    # convert to zero-based and then to 3D coords
-    idx = itr - 1
-    itrX = (idx % maxX) + 1
-    itrY = ((idx ÷ maxX) % maxY) + 1
-    itrZ = (idx ÷ (maxX * maxY)) + 1
-
-    @inbounds begin
-        trgX = (itrX - 1) * stp[1] + off[1] + 1
-        trgY = (itrY - 1) * stp[2] + off[2] + 1
-        trgZ = (itrZ - 1) * stp[3] + off[3] + 1
-        mrgVec[trgX, trgY, trgZ, dirItr] = prtVec[itrX, itrY, itrZ, dirItr, parItr]
-    end
+    itr = @index(Global, NTuple)
+    trgItr = (itr .- 1) .* stp .+ off .+ 1
+    @inbounds mrgVec[trgItr..., dirItr] = prtVec[itr..., dirItr, parItr]
 end
 
 #=
