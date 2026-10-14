@@ -13,13 +13,13 @@ function egoOpr!(egoMem::GlaVacOprMem, actVec::AbstractArray{<:Complex})
     if (srcCelTot..., 3) != size(actVec)
         throw(ArgumentError("Size of input vector does not match size of source volume. Required data layout is (srcCelX, srcCelY, srcCelZ, 3)."))
     end
-    return egoBrn!(egoMem, 0, 0, actVec, egoMem.cmpInf)
+    return egoBrn!(egoMem, 0, 0, actVec)
 end
 
 # Support functions for operator action
 include("glaVacActSup.jl")
 
-function egoBrn!(egoMem::GlaVacOprMem, lvl::Integer, bId::Integer, actVec::AbstractArray{<:Complex}, cmpInf::GlaKerOpt)
+function egoBrn!(egoMem::GlaVacOprMem, lvl::Integer, bId::Integer, actVec::AbstractArray{<:Complex})
     # generate branch pair to initiate operator
     # size of circulant vector
     brnSze = div.(egoMem.mixInf.trgCel .+ egoMem.mixInf.srcCel, 2)
@@ -31,7 +31,7 @@ function egoBrn!(egoMem::GlaVacOprMem, lvl::Integer, bId::Integer, actVec::Abstr
     if lvl == 0 && sum(egoMem.mixInf.srcCel .!= size(actVec)[1:3]) > 0 
         # reshape current vector 
         # orgVec and actVec share the same underlying data
-        orgVec = genPrt!(actVec, cmpInf, egoMem.mixInf, parNumSrc)
+        orgVec = genPrt!(actVec, egoMem.mixInf, parNumSrc)
     elseif lvl == 0
         orgVec = reshape(actVec, egoMem.mixInf.srcCel..., 3, parNumSrc)
     else
@@ -42,7 +42,7 @@ function egoBrn!(egoMem::GlaVacOprMem, lvl::Integer, bId::Integer, actVec::Abstr
     if lvl > 0
         # forward FFT
         # possibility of changing vector size accounted for in FFT plans
-        fwdFFT!(egoMem, lvl, orgVec, cmpInf)
+        fwdFFT!(egoMem, lvl, orgVec)
     end 
     # split branch
     if lvl < length(egoMem.dimInf)  
@@ -50,7 +50,7 @@ function egoBrn!(egoMem::GlaVacOprMem, lvl::Integer, bId::Integer, actVec::Abstr
         if size(orgVec)[lvl + 1] == brnSze[lvl + 1]
             prgVec = similar(orgVec)
             # split branch, includes phase operation and stream sync
-            sptBrn!(prgVec, lvl + 1, egoMem.phzInf[lvl+1], parNumSrc, orgVec, egoMem.cmpInf)
+            sptBrn!(prgVec, lvl + 1, egoMem.phzInf[lvl+1], parNumSrc, orgVec)
             # rename vectors for consistent convention with general branching
             prgVecEve = orgVec 
             prgVecOdd = prgVec
@@ -62,20 +62,20 @@ function egoBrn!(egoMem::GlaVacOprMem, lvl::Integer, bId::Integer, actVec::Abstr
             # allocate progeny vectors
             prgVecEve = similar(orgVec, prgSze..., 3, parNumSrc)
             prgVecOdd = similar(orgVec, prgSze..., 3, parNumSrc)
-            synchronize(cmpInf.dev)
+            synchronize(egoMem.cmpInf.dev)
             # memory previously associated with orgVec is freed internally
             sptBrn!(prgVecEve, prgVecOdd, lvl + 1, egoMem.phzInf[lvl+1],
-                egoMem.mixInf, parNumSrc, orgVec, egoMem.cmpInf)
+                egoMem.mixInf, parNumSrc, orgVec)
         end
     end
     # branch until depth of block structure
     if lvl < length(egoMem.dimInf)
         # execute split branches
-        eveVec, oddVec = egoBrnExe!(egoMem, prgVecEve, prgVecOdd, lvl, bId, cmpInf)
+        eveVec, oddVec = egoBrnExe!(egoMem, prgVecEve, prgVecOdd, lvl, bId)
         # check if size of vector must change on merge
         if size(eveVec)[lvl + 1] == egoMem.mixInf.trgCel[lvl + 1]
             # merge branches, includes phase operation and stream sync
-			mrgBrn!(eveVec, lvl + 1, parNumTrg, egoMem.phzInf[lvl + 1], oddVec, egoMem.cmpInf)
+			mrgBrn!(eveVec, lvl + 1, parNumTrg, egoMem.phzInf[lvl + 1], oddVec)
             # rename eveVec to match return name used elsewhere
             retVec = eveVec
         # merge and resize
@@ -89,18 +89,18 @@ function egoBrn!(egoMem::GlaVacOprMem, lvl::Integer, bId::Integer, actVec::Abstr
             retVec = similar(eveVec, mrgSze..., 3, parNumTrg)
             # merge branches, even and odd vectors are freed, stream synced 
 			mrgBrn!(retVec, lvl + 1, parNumTrg, 
-				egoMem.phzInf[lvl + 1], eveVec, oddVec, egoMem.cmpInf)
+				egoMem.phzInf[lvl + 1], eveVec, oddVec)
         end
     else
         retVec = similar(orgVec, brnSze..., 3, parNumTrg)
         fill!(retVec, zero(eltype(retVec)))
-        synchronize(cmpInf.dev)
+        synchronize(egoMem.cmpInf.dev)
         # multiply by Toeplitz vector, sequentially: every source partition adds into the same target slice
         for trgItr in eachindex(1:parNumTrg) 
             for srcItr in eachindex(1:parNumSrc) 
                 mulBrn!(egoMem.mixInf, bId, selectdim(retVec, 5, trgItr),
                 view(egoMem.egoFur[bId + 1], :, :, :, :, srcItr, trgItr), 
-                selectdim(orgVec, 5, srcItr), egoMem.cmpInf)
+                selectdim(orgVec, 5, srcItr))
             end
         end
         # free orgVec
@@ -110,43 +110,43 @@ function egoBrn!(egoMem::GlaVacOprMem, lvl::Integer, bId::Integer, actVec::Abstr
     if lvl > 0
         # inverse FFT
         # possibility of changing vector size accounted for in FFT plans
-        invFFT!(egoMem, lvl, retVec, cmpInf)
+        invFFT!(egoMem, lvl, retVec)
     end
     # terminate task and return control to previous level 
-    synchronize(cmpInf.dev)
+    synchronize(egoMem.cmpInf.dev)
     # zero level return
     if lvl == 0
         # check if there are partitions that need to be merged
         if parNumTrg == 1
             return reshape(retVec, egoMem.mixInf.trgCel..., 3)
         else
-            return mrgPrt!(egoMem.mixInf, egoMem.cmpInf, parNumTrg, retVec)
+            return mrgPrt!(egoMem.mixInf, parNumTrg, retVec)
         end
     end
     return retVec
 end
 
-function fwdFFT!(egoMem::GlaVacOprMem, lvl::Int, actVec::AbstractArray{<:Complex}, cmpInf::GlaKerOpt)
+function fwdFFT!(egoMem::GlaVacOprMem, lvl::Int, actVec::AbstractArray{<:Complex})
     # forward FFT
     egoMem.fftPlnFwd[lvl] * actVec
     # wait for completion of FFT
-    synchronize(cmpInf.dev)
+    synchronize(egoMem.cmpInf.dev)
 end
 
-function invFFT!(egoMem::GlaVacOprMem, lvl::Int, actVec::AbstractArray{<:Complex}, cmpInf::GlaKerOpt)
+function invFFT!(egoMem::GlaVacOprMem, lvl::Int, actVec::AbstractArray{<:Complex})
     # inverse FFT
     egoMem.fftPlnRev[lvl] * actVec
     # wait for completion of FFT
-    synchronize(cmpInf.dev)
+    synchronize(egoMem.cmpInf.dev)
 end
 
-function egoBrnExe!(egoMem::GlaVacOprMem, prgVecEve::AbstractArray{<:Complex}, prgVecOdd::AbstractArray{<:Complex}, lvl::Int, bId::Int, cmpInf::GlaKerOpt)
+function egoBrnExe!(egoMem::GlaVacOprMem, prgVecEve::AbstractArray{<:Complex}, prgVecOdd::AbstractArray{<:Complex}, lvl::Int, bId::Int)
     # Sequential: tasks sharing an FFTW plan segfault on its scratch space
-    eveVec = egoBrn!(egoMem, lvl + 1, bId, prgVecEve, cmpInf)
+    eveVec = egoBrn!(egoMem, lvl + 1, bId, prgVecEve)
     if lvl < length(egoMem.dimInf) - 1
-        synchronize(cmpInf.dev)
+        synchronize(egoMem.cmpInf.dev)
     end
-    oddVec = egoBrn!(egoMem, lvl + 1, nxtBrnId(length(egoMem.dimInf), lvl, bId), prgVecOdd, cmpInf)
+    oddVec = egoBrn!(egoMem, lvl + 1, nxtBrnId(length(egoMem.dimInf), lvl, bId), prgVecOdd)
     return eveVec, oddVec
 end
 
@@ -169,10 +169,10 @@ function _octRng(mixInf::GlaExtInf, brnSze, egoSze, dir::Int, brnOdd::Bool, rev:
 end
 
 # The Hadamard product of a branch with its Green function, forward and reverse in each direction
-function mulBrn!(mixInf::GlaExtInf, bId::Integer, prdVec::AbstractArray{<:Complex, 4}, vecMod::AbstractArray{<:Complex, 4}, orgVec::AbstractArray{<:Complex, 4}, cmpInf::GlaKerOpt)
+function mulBrn!(mixInf::GlaExtInf, bId::Integer, prdVec::AbstractArray{<:Complex, 4}, vecMod::AbstractArray{<:Complex, 4}, orgVec::AbstractArray{<:Complex, 4})
     brnSze = (mixInf.trgCel .+ mixInf.srcCel) .÷ 2
     egoSze = size(vecMod)[1:3]
-    krn = mulKer!(cmpInf.dev)
+    krn = mulKer!(get_backend(prdVec))
     for oct in 0:7
         rngs = ntuple(dir -> _octRng(mixInf, brnSze, egoSze, dir, isodd(bId >> (3 - dir)), isodd(oct >> (dir - 1))), 3)
         modRng, vecRng, sgn = getindex.(rngs, 1), getindex.(rngs, 2), getindex.(rngs, 3)
