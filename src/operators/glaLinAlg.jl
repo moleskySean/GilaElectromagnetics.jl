@@ -92,7 +92,8 @@ Both arrays are flat vectors or, over a single volume, `(cel..., 3)` tensors, of
 eltype `Complex{T}`: mixed precision throws rather than converting. `out` is not
 read when `β` is zero, and the operator is not applied when `α` is zero.
 """
-function LinearAlgebra.mul!(out::AbstractVector{Complex{T}}, opr::AbstractGlaOpr{T}, inp::AbstractVector{Complex{T}}, α::Number, β::Number) where T<:AbstractFloat
+function LinearAlgebra.mul!(out::AbstractVector, opr::AbstractGlaOpr{T}, inp::AbstractVector, α::Number, β::Number) where T<:AbstractFloat
+    eltype(out) == eltype(inp) == eltype(opr) || _prcErr(opr, out, inp)
     if length(inp) != size(opr, 2) || length(out) != size(opr, 1)
         throw(ArgumentError("An input of length $(length(inp)) and an output of length $(length(out)) do not fit this operator, which maps $(size(opr, 2)) degrees of freedom to $(size(opr, 1))."))
     end
@@ -105,11 +106,11 @@ function LinearAlgebra.mul!(out::AbstractVector{Complex{T}}, opr::AbstractGlaOpr
     iszero(β) ? (out .= α .* tmp) : (out .= α .* tmp .+ β .* out)
     return out
 end
-LinearAlgebra.mul!(out::AbstractArray{Complex{T}, 4}, opr::AbstractGlaOpr{T}, inp::AbstractArray{Complex{T}, 4}, α::Number, β::Number) where T<:AbstractFloat =
+LinearAlgebra.mul!(out::AbstractArray{<:Any, 4}, opr::AbstractGlaOpr, inp::AbstractArray{<:Any, 4}, α::Number, β::Number) =
     (mul!(vec(out), opr, vec(inp), α, β); out)
 
-# A matrix goes column by column, as in the * method
-function LinearAlgebra.mul!(out::AbstractMatrix{Complex{T}}, opr::AbstractGlaOpr{T}, inp::AbstractMatrix{Complex{T}}, α::Number, β::Number) where T<:AbstractFloat
+# A matrix goes column by column
+function LinearAlgebra.mul!(out::AbstractMatrix, opr::AbstractGlaOpr, inp::AbstractMatrix, α::Number, β::Number)
     for (outCol, inpCol) in zip(eachcol(out), eachcol(inp))
         mul!(outCol, opr, inpCol, α, β)
     end
@@ -123,12 +124,6 @@ function _prcErr(opr::AbstractGlaOpr, args...)
     throw(ArgumentError("The operator eltype is $(eltype(opr)) and the argument eltype is $argTyp. Convert the data with $(eltype(opr)).(v), or the operator with $nam{$(real(eltype(first(args))))}(opr)."))
 end
 mulAct!(opr::AbstractGlaOpr, act::AbstractVector) = _prcErr(opr, act)
-LinearAlgebra.mul!(out::AbstractVector, opr::AbstractGlaOpr, inp::AbstractVector, α::Number, β::Number) = _prcErr(opr, out, inp)
-LinearAlgebra.mul!(out::AbstractArray{<:Number, 4}, opr::AbstractGlaOpr, inp::AbstractArray{<:Number, 4}, α::Number, β::Number) = _prcErr(opr, out, inp)
-LinearAlgebra.mul!(out::AbstractMatrix, opr::AbstractGlaOpr, inp::AbstractMatrix, α::Number, β::Number) = _prcErr(opr, out, inp)
-Base.:*(opr::AbstractGlaOpr, inp::AbstractVector) = _prcErr(opr, inp)
-Base.:*(opr::AbstractGlaOpr, inp::AbstractArray{<:Number, 4}) = _prcErr(opr, inp)
-Base.:*(opr::AbstractGlaOpr, inp::AbstractMatrix) = _prcErr(opr, inp)
 
 """
     *(opr::AbstractGlaOpr, inp)
@@ -138,20 +133,15 @@ Apply an operator to a vector, a `(cel..., 3)` tensor, or a matrix of columns.
 The result takes the form of the input, which is left untouched at the cost of
 one copy. The eltype must be the `Complex{T}` of `opr`.
 """
-function Base.:*(opr::AbstractGlaOpr{T}, inp::AbstractVector{Complex{T}}) where T<:AbstractFloat
+function Base.:*(opr::AbstractGlaOpr, inp::AbstractVector)
+    eltype(inp) == eltype(opr) || _prcErr(opr, inp)
     if length(inp) != size(opr, 2)
         throw(ArgumentError("An input of length $(length(inp)) does not fit this operator, which takes $(size(opr, 2)) degrees of freedom."))
     end
     return mulAct!(opr, _devCpy(opr, inp))
 end
-Base.:*(opr::AbstractGlaOpr{T}, inp::AbstractArray{Complex{T}, 4}) where T<:AbstractFloat = reshape(opr * vec(inp), glaSze(opr, 1))
-function Base.:*(opr::AbstractGlaOpr{T}, inp::AbstractMatrix{Complex{T}}) where T<:AbstractFloat
-    out = similar(inp, size(opr, 1), size(inp, 2))
-    for (outCol, inpCol) in zip(eachcol(out), eachcol(inp))
-        mul!(outCol, opr, inpCol)
-    end
-    return out
-end
+Base.:*(opr::AbstractGlaOpr, inp::AbstractArray{<:Any, 4}) = reshape(opr * vec(inp), glaSze(opr, 1))
+Base.:*(opr::AbstractGlaOpr, inp::AbstractMatrix) = mul!(similar(inp, size(opr, 1), size(inp, 2)), opr, inp)
 
 #= A field carries its tiling, so it goes through the methods that check it and
 apply the normalization, and only the combine happens here. As in the vector
