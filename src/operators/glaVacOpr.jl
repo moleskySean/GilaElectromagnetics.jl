@@ -226,9 +226,6 @@ function GlaOprVac{T}(trgVol::GlaVol, srcVol::GlaVol;
     mem = GlaVacOprMem(opt, trgVol, srcVol; shpCch, prxWrn, hrmPrt)
     return GlaOprVac{T}(mem, innMsk, outMsk)
 end
-GlaOprVac(trgVol::GlaVol, srcVol::GlaVol; dev::Backend=CPU(), prxWrn::Bool=true, frqPhz=1.0+0.0im,
-    genPrc=Float64, qssApx::Bool=false, shpCch::Bool=false, hrmPrt::Union{Nothing,Symbol}=nothing, blc=nothing) =
-    GlaOprVac{dflPrc}(trgVol, srcVol; dev, prxWrn, frqPhz, genPrc, qssApx, shpCch, hrmPrt, blc)
 
 """
     GlaOprVac(mem::GlaVacOprMem)
@@ -237,12 +234,10 @@ Wrap prepared operator memory, unmasked.
 """
 GlaOprVac(mem::GlaVacOprMem) = GlaOprVac(mem, ntuple(_ -> 0:0, 3), ntuple(_ -> 0:0, 3))
 
-GlaOprVac{T}(vol::GlaVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false,
-    shpCch::Bool=false, hrmPrt::Union{Nothing,Symbol}=nothing, blc=nothing) where T<:AbstractFloat =
-    GlaOprVac{T}(vol, vol; dev, frqPhz, genPrc, qssApx, shpCch, hrmPrt, blc)
-GlaOprVac(vol::GlaVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false,
-    shpCch::Bool=false, hrmPrt::Union{Nothing,Symbol}=nothing, blc=nothing) =
-    GlaOprVac{dflPrc}(vol, vol; dev, frqPhz, genPrc, qssApx, shpCch, hrmPrt, blc)
+GlaOprVac{T}(vol::GlaVol; kw...) where T<:AbstractFloat = GlaOprVac{T}(vol, vol; kw...)
+
+# A constructor called without a precision stores in dflPrc
+GlaOprVac(args...; kw...) = GlaOprVac{dflPrc}(args...; kw...)
 
 """
     GlaOprVac{T}(opr::GlaOprVac)
@@ -254,18 +249,14 @@ GlaOprVac{T}(opr::GlaOprVac) where T<:AbstractFloat =
     GlaOprVac{T}(GlaVacOprMem{T}(opr.mem), opr.srcMsk, opr.trgMsk)
 
 """
-    AsyGlaOprVac{T}(vol::GlaVol; dev, frqPhz, genPrc, qssApx, shpCch, blc)
+    AsyGlaOprVac{T}(vol::GlaVol; kwargs...)
 
 The anti-Hermitian part of the self vacuum operator of `vol`, the radiative part
 that enters the fluctuation-dissipation theorem. Keywords as for `GlaOprVac`.
 """
-function AsyGlaOprVac{T}(vol::GlaVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64,
-    qssApx::Bool=false, shpCch::Bool=false, blc=nothing) where T<:AbstractFloat
-    opt = GlaKerOpt{T}(frqPhz, genPrc, qssApx, false, dev, blc)
-    return AsyGlaOprVac{T}(GlaVacOprMem(opt, vol, vol; shpCch, hrmPrt=:asy))
-end
-AsyGlaOprVac(vol::GlaVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false,
-    shpCch::Bool=false, blc=nothing) = AsyGlaOprVac{dflPrc}(vol; dev, frqPhz, genPrc, qssApx, shpCch, blc)
+AsyGlaOprVac{T}(vol::GlaVol; kw...) where T<:AbstractFloat =
+    AsyGlaOprVac{T}(GlaOprVac{T}(vol; kw..., hrmPrt=:asy).mem)
+AsyGlaOprVac(args...; kw...) = AsyGlaOprVac{dflPrc}(args...; kw...)
 
 """
     AsyGlaOprVac{T}(opr::AsyGlaOprVac)
@@ -294,17 +285,13 @@ function AsyGlaOprVac(opr::GlaOprVac{T}) where T<:AbstractFloat
 end
 
 """
-    SymGlaOprVac{T}(vol::GlaVol; dev, frqPhz, genPrc, qssApx, shpCch, blc)
+    SymGlaOprVac{T}(vol::GlaVol; kwargs...)
 
 The Hermitian part of the self vacuum operator of `vol`. Keywords as for `GlaOprVac`.
 """
-function SymGlaOprVac{T}(vol::GlaVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64,
-    qssApx::Bool=false, shpCch::Bool=false, blc=nothing) where T<:AbstractFloat
-    opt = GlaKerOpt{T}(frqPhz, genPrc, qssApx, false, dev, blc)
-    return SymGlaOprVac{T}(GlaVacOprMem(opt, vol, vol; shpCch, hrmPrt=:sym))
-end
-SymGlaOprVac(vol::GlaVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false,
-    shpCch::Bool=false, blc=nothing) = SymGlaOprVac{dflPrc}(vol; dev, frqPhz, genPrc, qssApx, shpCch, blc)
+SymGlaOprVac{T}(vol::GlaVol; kw...) where T<:AbstractFloat =
+    SymGlaOprVac{T}(GlaOprVac{T}(vol; kw..., hrmPrt=:sym).mem)
+SymGlaOprVac(args...; kw...) = SymGlaOprVac{dflPrc}(args...; kw...)
 
 """
     SymGlaOprVac{T}(opr::SymGlaOprVac)
@@ -355,8 +342,7 @@ _cntChk(trgReg::GlaVol, srcReg::GlaVol) =
     all(max.(_lwrEdg(trgReg), _lwrEdg(srcReg)) .<= min.(_uprEdg(trgReg), _uprEdg(srcReg)))
 
 # The cross-scale contact block, computed on the finer of the two meshes
-function _sndBlk(::Type{T}, trgReg::GlaVol, srcReg::GlaVol; dev::Backend, frqPhz, genPrc,
-    qssApx::Bool, shpCch::Bool, hrmPrt, blc) where T<:AbstractFloat
+function _sndBlk(::Type{T}, trgReg::GlaVol, srcReg::GlaVol; frqPhz, genPrc, blc, kw...) where T<:AbstractFloat
     sclFin = min.(trgReg.scl, srcReg.scl)
     trgRat = ntuple(dir -> Int(trgReg.scl[dir] // sclFin[dir]), 3)
     srcRat = ntuple(dir -> Int(srcReg.scl[dir] // sclFin[dir]), 3)
@@ -364,22 +350,21 @@ function _sndBlk(::Type{T}, trgReg::GlaVol, srcReg::GlaVol; dev::Backend, frqPhz
     srcFin = GlaVol(Tuple(srcReg.cel .* srcRat), sclFin, srcReg.org)
     # a periodic pair's block is the fine pair's, equal cells
     blc === nothing || (blc = merge(blc, (; blk = _blcCmp([trgFin, srcFin], Complex{genPrc}(frqPhz), blc)[(1, 2)])))
-    innOpr = GlaOprVac{T}(trgFin, srcFin; dev, frqPhz, genPrc, qssApx, shpCch, hrmPrt, blc, prxWrn=false)
+    innOpr = GlaOprVac{T}(trgFin, srcFin; frqPhz, genPrc, blc, kw..., prxWrn=false)
     return GlaSndOprVac{T}(innOpr, trgRat, srcRat,
         _nrmWgt(trgReg, srcReg) / prod(trgRat))
 end
 
 function _cmpBlk(::Type{T}, trgReg::GlaVol, srcReg::GlaVol, isSlf::Bool,
-    slfCmp::Bool, trgIdx::Integer, srcIdx::Integer; dev::Backend, frqPhz, genPrc,
-    qssApx::Bool, shpCch::Bool, hrmPrt, blc) where T<:AbstractFloat
-    isSlf && return GlaOprVac{T}(trgReg; dev, frqPhz, genPrc, qssApx, shpCch, hrmPrt, blc)
+    slfCmp::Bool, trgIdx::Integer, srcIdx::Integer; blc, kw...) where T<:AbstractFloat
+    isSlf && return GlaOprVac{T}(trgReg; blc, kw...)
     if !slfCmp && _ovrLap(trgReg, srcReg)
         throw(ArgumentError("Target region $trgIdx spans $(_lwrEdg(trgReg)) to $(_uprEdg(trgReg)) and source region $srcIdx spans $(_lwrEdg(srcReg)) to $(_uprEdg(srcReg)), so the two overlap. A composite operator between two bodies needs the bodies to be disjoint."))
     end
     # periodic images put every cross-scale pair in contact
     trgReg.scl != srcReg.scl && (blc !== nothing || _cntChk(trgReg, srcReg)) &&
-        return _sndBlk(T, trgReg, srcReg; dev, frqPhz, genPrc, qssApx, shpCch, hrmPrt, blc)
-    opr = GlaOprVac{T}(trgReg, srcReg; dev, frqPhz, genPrc, qssApx, shpCch, hrmPrt, blc, prxWrn=false)
+        return _sndBlk(T, trgReg, srcReg; blc, kw...)
+    opr = GlaOprVac{T}(trgReg, srcReg; blc, kw..., prxWrn=false)
     nrm = _nrmWgt(trgReg, srcReg)
     # A real scalar on the Fourier coefficients survives adjoint! untouched
     nrm != 1 && map!(fur -> T(nrm) .* fur, opr.mem.egoFur)
@@ -428,16 +413,8 @@ function GlaCmpOprVac{T}(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol;
     end
     return GlaCmpOprVac{T}(trgCvl, srcCvl, blkMat)
 end
-GlaCmpOprVac(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im,
-    genPrc=Float64, qssApx::Bool=false, shpCch::Bool=false, hrmPrt::Union{Nothing,Symbol}=nothing, blc=nothing) =
-    GlaCmpOprVac{dflPrc}(trgCvl, srcCvl; dev, frqPhz, genPrc, qssApx, shpCch, hrmPrt, blc)
-
-GlaCmpOprVac{T}(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64,
-    qssApx::Bool=false, shpCch::Bool=false, hrmPrt::Union{Nothing,Symbol}=nothing, blc=nothing) where T<:AbstractFloat =
-    GlaCmpOprVac{T}(cvol, cvol; dev, frqPhz, genPrc, qssApx, shpCch, hrmPrt, blc)
-GlaCmpOprVac(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false,
-    shpCch::Bool=false, hrmPrt::Union{Nothing,Symbol}=nothing, blc=nothing) =
-    GlaCmpOprVac{dflPrc}(cvol, cvol; dev, frqPhz, genPrc, qssApx, shpCch, hrmPrt, blc)
+GlaCmpOprVac{T}(cvol::GlaCmpVol; kw...) where T<:AbstractFloat = GlaCmpOprVac{T}(cvol, cvol; kw...)
+GlaCmpOprVac(args...; kw...) = GlaCmpOprVac{dflPrc}(args...; kw...)
 
 """
     GlaOprVac{T}(cvol::GlaCmpVol; kwargs...)
@@ -446,19 +423,9 @@ GlaCmpOprVac(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float
 Same as `GlaCmpOprVac`: a composite volume needs a block matrix rather than one
 circulant, so the result is a `GlaCmpOprVac`.
 """
-GlaOprVac{T}(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false,
-    shpCch::Bool=false, blc=nothing) where T<:AbstractFloat =
-    GlaCmpOprVac{T}(cvol; dev, frqPhz, genPrc, qssApx, shpCch, blc)
-GlaOprVac(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false,
-    shpCch::Bool=false, blc=nothing) = GlaCmpOprVac{dflPrc}(cvol; dev, frqPhz, genPrc, qssApx, shpCch, blc)
-
-GlaOprVac{T}(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol;
-    dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false,
-    shpCch::Bool=false) where T<:AbstractFloat =
-    GlaCmpOprVac{T}(trgCvl, srcCvl; dev, frqPhz, genPrc, qssApx, shpCch)
-GlaOprVac(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64,
-    qssApx::Bool=false, shpCch::Bool=false) =
-    GlaCmpOprVac{dflPrc}(trgCvl, srcCvl; dev, frqPhz, genPrc, qssApx, shpCch)
+GlaOprVac{T}(cvol::GlaCmpVol; kw...) where T<:AbstractFloat = GlaCmpOprVac{T}(cvol; kw...)
+GlaOprVac{T}(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol; kw...) where T<:AbstractFloat =
+    GlaCmpOprVac{T}(trgCvl, srcCvl; kw...)
 
 #= Sign picked up by each stored tensor component when the real space kernel is
 reflected in the directions flagged in dirRfl. Storage order is xx, yy, zz, xy,
@@ -529,26 +496,25 @@ function _hrmOpr(opr::GlaCmpOprVac{T}, isAsy::Bool) where T<:AbstractFloat
 end
 
 """
-    AsyGlaCmpOprVac{T}(cvol::GlaCmpVol; dev=CPU(), frqPhz=1.0+0.0im, blc=nothing)
+    AsyGlaCmpOprVac{T}(cvol::GlaCmpVol; kwargs...)
 
 The anti-Hermitian part of the self vacuum operator of `cvol`, built from the
-volume rather than from a full operator.
+volume rather than from a full operator. Keywords as for `GlaCmpOprVac`.
 """
 # Val(:raw) because every block already holds the part, taken before its transform
-AsyGlaCmpOprVac{T}(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, blc=nothing) where T<:AbstractFloat =
-    AsyGlaCmpOprVac{T}(GlaCmpOprVac{T}(cvol; dev, frqPhz, blc, hrmPrt=:asy), Val(:raw))
-AsyGlaCmpOprVac(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, blc=nothing) =
-    AsyGlaCmpOprVac{dflPrc}(cvol; dev, frqPhz, blc)
+AsyGlaCmpOprVac{T}(cvol::GlaCmpVol; kw...) where T<:AbstractFloat =
+    AsyGlaCmpOprVac{T}(GlaCmpOprVac{T}(cvol; kw..., hrmPrt=:asy), Val(:raw))
+AsyGlaCmpOprVac(args...; kw...) = AsyGlaCmpOprVac{dflPrc}(args...; kw...)
 
 """
-    SymGlaCmpOprVac{T}(cvol::GlaCmpVol; dev=CPU(), frqPhz=1.0+0.0im, blc=nothing)
+    SymGlaCmpOprVac{T}(cvol::GlaCmpVol; kwargs...)
 
 The Hermitian part of the self vacuum operator of `cvol`, built from the volume.
+Keywords as for `GlaCmpOprVac`.
 """
-SymGlaCmpOprVac{T}(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, blc=nothing) where T<:AbstractFloat =
-    SymGlaCmpOprVac{T}(GlaCmpOprVac{T}(cvol; dev, frqPhz, blc, hrmPrt=:sym), Val(:raw))
-SymGlaCmpOprVac(cvol::GlaCmpVol; dev::Backend=CPU(), frqPhz=1.0+0.0im, blc=nothing) =
-    SymGlaCmpOprVac{dflPrc}(cvol; dev, frqPhz, blc)
+SymGlaCmpOprVac{T}(cvol::GlaCmpVol; kw...) where T<:AbstractFloat =
+    SymGlaCmpOprVac{T}(GlaCmpOprVac{T}(cvol; kw..., hrmPrt=:sym), Val(:raw))
+SymGlaCmpOprVac(args...; kw...) = SymGlaCmpOprVac{dflPrc}(args...; kw...)
 
 """
     asym(opr::GlaCmpOprVac)
@@ -594,24 +560,28 @@ isquasistatic(opr::Union{GlaOprVac, AsyGlaOprVac, SymGlaOprVac}) = opr.mem.cmpIn
 
 Whether `opr` maps a volume to itself.
 """
-isselfoperator(opr::GlaOprVac) = (opr.mem.srcVol == opr.mem.trgVol) && all(==(0:0), opr.srcMsk) && all(==(0:0), opr.trgMsk)
-isselfoperator(::Union{AsyGlaOprVac, SymGlaOprVac}) = true # Both are always self operators
+isselfoperator(opr::AbstractGlaOpr) = _relKnd(opr) === :self
 
 """
     isexternaloperator(opr::AbstractGlaOpr)
 
 Whether `opr` maps between two volumes that share no interior.
 """
-isexternaloperator(opr::GlaOprVac) = opr.mem.srcVol != opr.mem.trgVol && all(==(0:0), opr.srcMsk) && all(==(0:0), opr.trgMsk)
-isexternaloperator(::Union{AsyGlaOprVac, SymGlaOprVac}) = false # Both are always self operators
+isexternaloperator(opr::AbstractGlaOpr) = _relKnd(opr) === :external
 
 """
     isoverlappingoperator(opr::AbstractGlaOpr)
 
 Whether `opr` maps between two distinct volumes that share interior, built on their union and masked.
 """
-isoverlappingoperator(::AbstractGlaVacOpr) = false # Only the masked routes overlap
-isoverlappingoperator(opr::GlaOprVac) = !(isselfoperator(opr) || isexternaloperator(opr))
+isoverlappingoperator(opr::AbstractGlaOpr) = _relKnd(opr) === :overlapping
+
+# How the target and source of an operator relate: :self, :external or :overlapping
+_relKnd(opr::GlaOprVac) = !(all(==(0:0), opr.srcMsk) && all(==(0:0), opr.trgMsk)) ? :overlapping :
+    opr.mem.srcVol == opr.mem.trgVol ? :self : :external
+_relKnd(::Union{AsyGlaOprVac, SymGlaOprVac, AsyGlaCmpOprVac, SymGlaCmpOprVac}) = :self
+_relKnd(::GlaSndOprVac) = :external
+_relKnd(opr::GlaCmpOprVac) = opr.trgCvl == opr.srcCvl ? :self : :external
 
 """
     get_backend(opr::AbstractGlaOpr)
@@ -623,12 +593,6 @@ KernelAbstractions.get_backend(opr::Union{GlaOprVac, AsyGlaOprVac, SymGlaOprVac}
 isadjoint(opr::GlaSndOprVac) = isadjoint(opr.opr)
 isadjoint(opr::GlaCmpOprVac) = all(isadjoint, opr.blkMat)
 isadjoint(::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}) = false
-isselfoperator(opr::GlaSndOprVac) = false
-isselfoperator(opr::GlaCmpOprVac) = opr.trgCvl == opr.srcCvl
-isselfoperator(::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}) = true
-isexternaloperator(opr::GlaSndOprVac) = true
-isexternaloperator(opr::GlaCmpOprVac) = !isselfoperator(opr)
-isexternaloperator(::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}) = false
 KernelAbstractions.get_backend(opr::Union{GlaSndOprVac, AsyGlaCmpOprVac, SymGlaCmpOprVac}) = get_backend(opr.opr)
 KernelAbstractions.get_backend(opr::GlaCmpOprVac) = get_backend(first(opr.blkMat))
 isquasistatic(opr::GlaSndOprVac) = isquasistatic(opr.opr)
@@ -754,38 +718,23 @@ giving a field on `trgVol`. The √ΔV normalization contributes the scalar
 `sqrt(ΔV_trg / ΔV_src)`. Overlapping (masked) operators take arrays, not fields.
 """
 function Base.:*(opr::GlaOprVac{T}, fld::GlaFld{T}) where T<:AbstractFloat
-    srcVol = opr.mem.srcVol
     if isoverlappingoperator(opr)
         throw(ArgumentError("This operator is built on the union of its two volumes and reads its input through a mask, so it does not take a field. Apply it to a plain array of the masked size instead."))
     end
-    if nregions(fld.cvol) != 1 || regions(fld.cvol)[1] != srcVol
-        throw(ArgumentError("The field does not live on the source volume of the operator, which is a ($(join(srcVol.cel, "×"))) cell volume of ($(join(srcVol.scl, "×")))λ³ cells."))
-    end
+    _chkFld(opr, fld)
     outDat = opr * fld.dat
-    nrm = sqrt(Float64(prod(opr.mem.trgVol.scl) // prod(srcVol.scl)))
+    nrm = _nrmWgt(opr.mem.trgVol, opr.mem.srcVol)
     nrm != 1 && rmul!(outDat, nrm)
-    return GlaFld(outDat, GlaCmpVol(opr.mem.trgVol))
+    return GlaFld(outDat, _trgCvl(opr))
 end
 
-"""
-    *(opr::GlaCmpOprVac, fld::GlaFld)
-
-Apply a composite operator to a field on its source tiling, giving a field on
-its target tiling.
-"""
-function Base.:*(opr::GlaCmpOprVac{T}, fld::GlaFld{T}) where T<:AbstractFloat
-    if fld.cvol != opr.srcCvl
-        throw(ArgumentError("The field lives on a different composite volume than the source volume of the operator. An operator only applies to fields on the tiling it was built for."))
-    end
-    return GlaFld(opr * fld.dat, opr.trgCvl)
-end
-
-"""
-    *(opr::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}, fld::GlaFld)
-
-Apply a Hermitian or anti-Hermitian part to a field on its tiling.
-"""
-Base.:*(opr::Union{AsyGlaCmpOprVac{T}, SymGlaCmpOprVac{T}}, fld::GlaFld{T}) where T<:AbstractFloat = opr.opr * fld
+# The tilings a vacuum operator reads from and writes to; a plain volume is a tiling of one region
+_srcCvl(opr::Union{GlaOprVac, AsyGlaOprVac, SymGlaOprVac}) = GlaCmpVol(opr.mem.srcVol)
+_trgCvl(opr::Union{GlaOprVac, AsyGlaOprVac, SymGlaOprVac}) = GlaCmpVol(opr.mem.trgVol)
+_srcCvl(opr::GlaCmpOprVac) = opr.srcCvl
+_trgCvl(opr::GlaCmpOprVac) = opr.trgCvl
+_srcCvl(opr::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}) = _srcCvl(opr.opr)
+_trgCvl(opr::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}) = _trgCvl(opr.opr)
 
 """
     adjoint!(opr::AbstractGlaOpr)

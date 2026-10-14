@@ -16,17 +16,9 @@ _strKnd(::SctOpr{T, <:InvSctOpr{T, <:GlaCmpOprVac}}) where T<:AbstractFloat = "c
 _strKnd(::GlaOpr{T, <:SctOpr{T, <:InvSctOpr{T, <:GlaCmpOprVac}}}) where T<:AbstractFloat = "composite G₀(I - XG₀)⁻¹"
 
 _srcVol(opr::Union{GlaOprVac, AsyGlaOprVac, SymGlaOprVac}) = opr.mem.srcVol
-_srcVol(opr::InvSctOpr) = _srcVol(opr.oprVac)
-_srcVol(opr::SctOpr) = _srcVol(opr.invSctOpr)
-_srcVol(opr::GlaOpr) = _srcVol(opr.sctOpr)
+_srcVol(opr::AnySctOpr) = _srcVol(GlaOprVac(opr))
 _trgVol(opr::Union{GlaOprVac, AsyGlaOprVac, SymGlaOprVac}) = opr.mem.trgVol
-_trgVol(opr::InvSctOpr) = _trgVol(opr.oprVac)
-_trgVol(opr::SctOpr) = _trgVol(opr.invSctOpr)
-_trgVol(opr::GlaOpr) = _trgVol(opr.sctOpr)
-
-# self, external or overlapping, lowercase to match the compact and block forms
-_relKnd(opr::AbstractGlaOpr) = isselfoperator(opr) ? "self" :
-    isexternaloperator(opr) ? "external" : "overlapping"
+_trgVol(opr::AnySctOpr) = _trgVol(GlaOprVac(opr))
 
 # A byte count as MiB or GiB, one decimal place
 _szStr(bytes::Integer) = bytes >= 2^30 ? "$(round(bytes / 2^30, digits=1)) GiB" :
@@ -124,7 +116,7 @@ function _dimStr(opr::Union{GlaOprVac, AsyGlaOprVac, SymGlaOprVac})
     isselfoperator(opr) && return join(_srcVol(opr).cel, "×")
     return join(_srcVol(opr).cel, "×") * " → " * join(_trgVol(opr).cel, "×")
 end
-_dimStr(opr::Union{InvSctOpr, SctOpr, GlaOpr}) = _dimStr(GlaOprVac(opr))
+_dimStr(opr::AnySctOpr) = _dimStr(GlaOprVac(opr))
 _dimStr(opr::SusOpr) = "$(size(opr, 2)) dof"
 
 function _dimStr(opr::GlaCmpOprVac)

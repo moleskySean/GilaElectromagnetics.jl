@@ -19,11 +19,6 @@ mutable struct InvSctOpr{T<:AbstractFloat, O<:AbstractGlaVacOpr{T}} <: AbstractG
     end
 end
 
-# The tiling the currents of a vacuum operator live on
-_srcCvl(oprVac::AbstractGlaVacOpr) = GlaCmpVol(oprVac.mem.srcVol)
-
-_srcCvl(opr::GlaCmpOprVac) = opr.srcCvl
-
 InvSctOpr(oprVac::AbstractGlaVacOpr{T}, sus) where T<:AbstractFloat = InvSctOpr{T}(oprVac, sus)
 
 """
@@ -51,6 +46,9 @@ const InverseScatteringOperator = InvSctOpr
 const ScatteringOperator = SctOpr
 const GreenOperator = GlaOpr
 
+# The scattering operators, which answer for the vacuum operator inside them
+const AnySctOpr = Union{InvSctOpr, SctOpr, GlaOpr}
+
 """
     GlaOprVac(opr::Union{InvSctOpr, SctOpr, GlaOpr})
 
@@ -70,15 +68,10 @@ GlaOprVac(opr::AbstractGlaVacOpr) = opr
 The inverse scattering operator (I - XG₀), with `sus` in any array form `SusOpr`
 takes, on the source volume. Other keywords go to `GlaOprVac`.
 """
-InvSctOpr{T}(trgVol::GlaVol, srcVol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), kwargs...) where T<:AbstractFloat =
-    InvSctOpr{T}(GlaOprVac{T}(trgVol, srcVol; dev, kwargs...), sus)
-InvSctOpr(trgVol::GlaVol, srcVol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), kwargs...) =
-    InvSctOpr{dflPrc}(trgVol, srcVol, sus; dev, kwargs...)
-
-InvSctOpr{T}(vol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), kwargs...) where T<:AbstractFloat =
-    InvSctOpr{T}(vol, vol, sus; dev, kwargs...)
-InvSctOpr(vol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), kwargs...) =
-    InvSctOpr{dflPrc}(vol, vol, sus; dev, kwargs...)
+InvSctOpr{T}(trgVol::GlaVol, srcVol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), kw...) where T<:AbstractFloat =
+    InvSctOpr{T}(GlaOprVac{T}(trgVol, srcVol; dev, kw...), sus)
+InvSctOpr{T}(vol::GlaVol, sus::AbstractArray{<:Number}; kw...) where T<:AbstractFloat = InvSctOpr{T}(vol, vol, sus; kw...)
+InvSctOpr(args...; kw...) = InvSctOpr{dflPrc}(args...; kw...)
 
 """
     InvSctOpr{T}(opr::InvSctOpr)
@@ -104,27 +97,18 @@ InvSctOpr(opr::GlaOpr) = InvSctOpr(opr.sctOpr)
 The scattering operator (I - XG₀)⁻¹, applied by solving with `slv`. `sus` as for
 `InvSctOpr`; other keywords go to `GlaOprVac`.
 """
-SctOpr{T}(vol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), slv::GlaSlv=GCRODRSolver(), kwargs...) where T<:AbstractFloat =
-    SctOpr{T}(vol, vol, sus; dev, slv, kwargs...)
-SctOpr(vol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), slv::GlaSlv=GCRODRSolver(), kwargs...) =
-    SctOpr{dflPrc}(vol, vol, sus; dev, slv, kwargs...)
-
-function SctOpr{T}(trgVol::GlaVol, srcVol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), slv::GlaSlv=GCRODRSolver(), kwargs...) where T<:AbstractFloat
-    invSctOpr = InvSctOpr{T}(trgVol, srcVol, sus; dev, kwargs...)
-    return SctOpr{T}(invSctOpr, slv)
-end
-SctOpr(trgVol::GlaVol, srcVol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), slv::GlaSlv=GCRODRSolver(), kwargs...) =
-    SctOpr{dflPrc}(trgVol, srcVol, sus; dev, slv, kwargs...)
+SctOpr{T}(vol::GlaVol, sus::AbstractArray{<:Number}; kw...) where T<:AbstractFloat = SctOpr{T}(vol, vol, sus; kw...)
+SctOpr{T}(trgVol::GlaVol, srcVol::GlaVol, sus::AbstractArray{<:Number}; slv::GlaSlv=GCRODRSolver(), kw...) where T<:AbstractFloat =
+    SctOpr{T}(InvSctOpr{T}(trgVol, srcVol, sus; kw...), slv)
+SctOpr(args...; kw...) = SctOpr{dflPrc}(args...; kw...)
 
 """
     SctOpr(opr::GlaOprVac, sus::AbstractArray{<:Number}; slv::GlaSlv=GCRODRSolver())
 
 The scattering operator over an existing vacuum operator, which it shares.
 """
-function SctOpr(opr::GlaOprVac{T}, sus::AbstractArray{<:Number}; slv::GlaSlv=GCRODRSolver()) where T<:AbstractFloat
-    invSctOpr = InvSctOpr{T}(opr, sus)
-    return SctOpr{T}(invSctOpr, slv)
-end
+SctOpr(opr::GlaOprVac{T}, sus::AbstractArray{<:Number}; slv::GlaSlv=GCRODRSolver()) where T<:AbstractFloat =
+    SctOpr{T}(InvSctOpr{T}(opr, sus), slv)
 
 """
     SctOpr{T}(opr::SctOpr)
@@ -147,24 +131,18 @@ SctOpr(opr::GlaOpr) = opr.sctOpr
 
 The full Green operator G₀(I - XG₀)⁻¹. Arguments as for `SctOpr`.
 """
-GlaOpr{T}(vol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), slv::GlaSlv=GCRODRSolver(), kwargs...) where T<:AbstractFloat =
-    GlaOpr{T}(vol, vol, sus; dev, slv, kwargs...)
-GlaOpr(vol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), slv::GlaSlv=GCRODRSolver(), kwargs...) =
-    GlaOpr{dflPrc}(vol, vol, sus; dev, slv, kwargs...)
-
-function GlaOpr{T}(trgVol::GlaVol, srcVol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), slv::GlaSlv=GCRODRSolver(), kwargs...) where T<:AbstractFloat
-    sctOpr = SctOpr{T}(trgVol, srcVol, sus; dev, slv, kwargs...)
-    return GlaOpr{T}(sctOpr)
-end
-GlaOpr(trgVol::GlaVol, srcVol::GlaVol, sus::AbstractArray{<:Number}; dev::Backend=get_backend(sus), slv::GlaSlv=GCRODRSolver(), kwargs...) =
-    GlaOpr{dflPrc}(trgVol, srcVol, sus; dev, slv, kwargs...)
+GlaOpr{T}(vol::GlaVol, sus::AbstractArray{<:Number}; kw...) where T<:AbstractFloat = GlaOpr{T}(SctOpr{T}(vol, sus; kw...))
+GlaOpr{T}(trgVol::GlaVol, srcVol::GlaVol, sus::AbstractArray{<:Number}; kw...) where T<:AbstractFloat =
+    GlaOpr{T}(SctOpr{T}(trgVol, srcVol, sus; kw...))
+GlaOpr(args...; kw...) = GlaOpr{dflPrc}(args...; kw...)
 
 """
-    GlaOpr(opr::GlaOprVac, sus::AbstractArray{<:Number}; slv::GlaSlv=GCRODRSolver())
+    GlaOpr(opr::Union{GlaOprVac, GlaCmpOprVac}, sus; slv::GlaSlv=GCRODRSolver())
 
-The full Green operator over an existing vacuum operator, which it shares.
+The full Green operator over an existing vacuum operator, which it shares. `sus` as
+for `SctOpr` over the same operator.
 """
-GlaOpr(opr::GlaOprVac, sus::AbstractArray{<:Number}; slv::GlaSlv=GCRODRSolver()) = GlaOpr(SctOpr(opr, sus; slv=slv))
+GlaOpr(opr::Union{GlaOprVac, GlaCmpOprVac}, sus; kw...) = GlaOpr(SctOpr(opr, sus; kw...))
 
 """
     GlaOpr{T}(opr::GlaOpr)
@@ -183,10 +161,8 @@ The inverse scattering operator (I - XG₀) over a composite volume, with `sus` 
 any form `SusOpr` takes and `dev` defaulting as there. X and the √ΔV normalization
 are both diagonal, so they commute. Other keywords go to `GlaCmpOprVac`.
 """
-InvSctOpr{T}(cvol::GlaCmpVol, sus; dev::Backend=susDev(sus), kwargs...) where T<:AbstractFloat =
-    InvSctOpr{T}(GlaCmpOprVac{T}(cvol; dev, kwargs...), sus)
-InvSctOpr(cvol::GlaCmpVol, sus; dev::Backend=susDev(sus), kwargs...) =
-    InvSctOpr{dflPrc}(cvol, sus; dev, kwargs...)
+InvSctOpr{T}(cvol::GlaCmpVol, sus; dev::Backend=susDev(sus), kw...) where T<:AbstractFloat =
+    InvSctOpr{T}(GlaCmpOprVac{T}(cvol; dev, kw...), sus)
 
 """
     SctOpr{T}(cvol::GlaCmpVol, sus; dev, slv=GCRODRSolver(), kwargs...)
@@ -194,10 +170,8 @@ InvSctOpr(cvol::GlaCmpVol, sus; dev::Backend=susDev(sus), kwargs...) =
 The scattering operator (I - XG₀)⁻¹ over a composite volume. Arguments as for
 `InvSctOpr(cvol, sus)`.
 """
-SctOpr{T}(cvol::GlaCmpVol, sus; dev::Backend=susDev(sus), slv::GlaSlv=GCRODRSolver(), kwargs...) where T<:AbstractFloat =
-    SctOpr{T}(InvSctOpr{T}(cvol, sus; dev, kwargs...), slv)
-SctOpr(cvol::GlaCmpVol, sus; dev::Backend=susDev(sus), slv::GlaSlv=GCRODRSolver(), kwargs...) =
-    SctOpr{dflPrc}(cvol, sus; dev, slv, kwargs...)
+SctOpr{T}(cvol::GlaCmpVol, sus; slv::GlaSlv=GCRODRSolver(), kw...) where T<:AbstractFloat =
+    SctOpr{T}(InvSctOpr{T}(cvol, sus; kw...), slv)
 
 """
     SctOpr(opr::GlaCmpOprVac, sus; slv::GlaSlv=GCRODRSolver())
@@ -213,46 +187,23 @@ SctOpr(opr::GlaCmpOprVac{T}, sus; slv::GlaSlv=GCRODRSolver()) where T<:AbstractF
 The full Green operator G₀(I - XG₀)⁻¹ over a composite volume. Arguments as for
 `SctOpr(cvol, sus)`.
 """
-GlaOpr{T}(cvol::GlaCmpVol, sus; dev::Backend=susDev(sus), slv::GlaSlv=GCRODRSolver(), kwargs...) where T<:AbstractFloat =
-    GlaOpr{T}(SctOpr{T}(cvol, sus; dev, slv, kwargs...))
-GlaOpr(cvol::GlaCmpVol, sus; dev::Backend=susDev(sus), slv::GlaSlv=GCRODRSolver(), kwargs...) =
-    GlaOpr{dflPrc}(cvol, sus; dev, slv, kwargs...)
-
-"""
-    GlaOpr(opr::GlaCmpOprVac, sus; slv::GlaSlv=GCRODRSolver())
-
-The full Green operator over an existing self composite operator, which it shares.
-"""
-GlaOpr(opr::GlaCmpOprVac{T}, sus; slv::GlaSlv=GCRODRSolver()) where T<:AbstractFloat =
-    GlaOpr{T}(SctOpr(opr, sus; slv=slv))
+GlaOpr{T}(cvol::GlaCmpVol, sus; kw...) where T<:AbstractFloat = GlaOpr{T}(SctOpr{T}(cvol, sus; kw...))
 
 Adapt.@adapt_structure InvSctOpr
 Adapt.@adapt_structure SctOpr
 Adapt.@adapt_structure GlaOpr
 
-isadjoint(opr::InvSctOpr) = isadjoint(opr.oprVac)
-isadjoint(opr::SctOpr) = isadjoint(opr.invSctOpr)
-isadjoint(opr::GlaOpr) = isadjoint(opr.sctOpr)
-
-isquasistatic(opr::InvSctOpr) = isquasistatic(opr.oprVac)
-isquasistatic(opr::SctOpr) = isquasistatic(opr.invSctOpr)
-isquasistatic(opr::GlaOpr) = isquasistatic(opr.sctOpr)
-
-isselfoperator(opr::InvSctOpr) = isselfoperator(opr.oprVac)
-isselfoperator(opr::SctOpr) = isselfoperator(opr.invSctOpr)
-isselfoperator(opr::GlaOpr) = isselfoperator(opr.sctOpr)
-
-isexternaloperator(opr::InvSctOpr) = isexternaloperator(opr.oprVac)
-isexternaloperator(opr::SctOpr) = isexternaloperator(opr.invSctOpr)
-isexternaloperator(opr::GlaOpr) = isexternaloperator(opr.sctOpr)
-
-isoverlappingoperator(opr::InvSctOpr) = isoverlappingoperator(opr.oprVac)
-isoverlappingoperator(opr::SctOpr) = isoverlappingoperator(opr.invSctOpr)
-isoverlappingoperator(opr::GlaOpr) = isoverlappingoperator(opr.sctOpr)
-
-KernelAbstractions.get_backend(opr::InvSctOpr) = get_backend(opr.oprVac)
-KernelAbstractions.get_backend(opr::SctOpr) = get_backend(opr.invSctOpr)
-KernelAbstractions.get_backend(opr::GlaOpr) = get_backend(opr.sctOpr)
+isadjoint(opr::AnySctOpr) = isadjoint(GlaOprVac(opr))
+isquasistatic(opr::AnySctOpr) = isquasistatic(GlaOprVac(opr))
+_relKnd(opr::AnySctOpr) = _relKnd(GlaOprVac(opr))
+KernelAbstractions.get_backend(opr::AnySctOpr) = get_backend(GlaOprVac(opr))
+glaSze(opr::AnySctOpr) = glaSze(GlaOprVac(opr))
+glaSze(opr::AnySctOpr, dim::Int) = glaSze(GlaOprVac(opr), dim)
+Base.size(opr::AnySctOpr) = size(GlaOprVac(opr))
+Base.size(opr::AnySctOpr, dim::Int) = size(GlaOprVac(opr), dim)
+_srcCvl(opr::AnySctOpr) = _srcCvl(GlaOprVac(opr))
+# X lives on the source tiling, so (I - XG₀) and its inverse stay there
+_trgCvl(opr::Union{InvSctOpr, SctOpr}) = _srcCvl(opr)
 
 """
     setSus!(opr::Union{InvSctOpr, SctOpr, GlaOpr}, sus)
@@ -266,15 +217,7 @@ function setSus!(opr::InvSctOpr{T}, sus) where T<:AbstractFloat
     return opr
 end
 
-function setSus!(opr::SctOpr, sus)
-    setSus!(opr.invSctOpr, sus)
-    return opr
-end
-
-function setSus!(opr::GlaOpr, sus)
-    setSus!(opr.sctOpr, sus)
-    return opr
-end
+setSus!(opr::Union{SctOpr, GlaOpr}, sus) = (setSus!(InvSctOpr(opr), sus); opr)
 
 slv(opr::InvSctOpr) = slv(opr.oprVac)
 slv(opr::SctOpr) = opr.slv
@@ -288,21 +231,7 @@ copied, so an `adjoint!` on either is seen by both. `setSus!` replaces it, and a
 earlier handle keeps the old one.
 """
 sus(opr::InvSctOpr) = opr.sus
-sus(opr::SctOpr) = sus(opr.invSctOpr)
-sus(opr::GlaOpr) = sus(opr.sctOpr)
-
-glaSze(opr::InvSctOpr) = glaSze(opr.oprVac)
-glaSze(opr::SctOpr) = glaSze(opr.invSctOpr)
-glaSze(opr::GlaOpr) = glaSze(opr.sctOpr)
-
-glaSze(opr::InvSctOpr, dim::Int) = glaSze(opr.oprVac, dim)
-glaSze(opr::SctOpr, dim::Int) = glaSze(opr.invSctOpr, dim)
-glaSze(opr::GlaOpr, dim::Int) = glaSze(opr.sctOpr, dim)
-
-Base.size(opr::InvSctOpr) = size(opr.oprVac)
-Base.size(opr::SctOpr) = size(opr.invSctOpr)
-Base.size(opr::GlaOpr) = size(opr.sctOpr)
-Base.size(opr::Union{InvSctOpr, SctOpr, GlaOpr}, i::Int) = size(opr)[i]
+sus(opr::Union{SctOpr, GlaOpr}) = sus(InvSctOpr(opr))
 
 #= (I - XG₀), in place on the input. In adjoint mode the vacuum operator is
 already the adjoint and the susceptibility already the conjugate transpose,
@@ -348,42 +277,6 @@ function invMul!(w, opr::GlaOpr, v, α, β)
         invSct * solve(invSct.oprVac, v, slv(invSct))
     iszero(β) && return w .= α .* out
     return axpby!(α, out, β, w)
-end
-
-#= The tiling a scattering operator reads its input on, checked against the
-field. A plain vacuum operator carries a single volume, which is a tiling of one
-region. =#
-function _chkSctFld(oprVac::GlaCmpOprVac, fld::GlaFld)
-    fld.cvol == oprVac.srcCvl || throw(ArgumentError("The field lives on a different composite volume than the operator. An operator only applies to fields on the tiling it was built for."))
-    return oprVac.srcCvl
-end
-
-function _chkSctFld(oprVac::AbstractGlaVacOpr, fld::GlaFld)
-    srcVol = oprVac.mem.srcVol
-    if nregions(fld.cvol) != 1 || regions(fld.cvol)[1] != srcVol
-        throw(ArgumentError("The field does not live on the source volume of the operator, which is a ($(join(srcVol.cel, "×"))) cell volume of ($(join(srcVol.scl, "×")))λ³ cells."))
-    end
-    return fld.cvol
-end
-
-"""
-    *(opr::InvSctOpr, fld::GlaFld)
-
-Apply an inverse scattering operator to a field on its tiling.
-"""
-function Base.:*(opr::InvSctOpr{T}, fld::GlaFld{T}) where T<:AbstractFloat
-    cvol = _chkSctFld(opr.oprVac, fld)
-    return GlaFld(opr * fld.dat, cvol)
-end
-
-"""
-    *(opr::SctOpr, fld::GlaFld)
-
-Apply a scattering operator to a field on its tiling, by an iterative solve.
-"""
-function Base.:*(opr::SctOpr{T}, fld::GlaFld{T}) where T<:AbstractFloat
-    cvol = _chkSctFld(opr.invSctOpr.oprVac, fld)
-    return GlaFld(solve(opr.invSctOpr, fld.dat, opr.slv), cvol)
 end
 
 #= The full operator on a field is the vacuum operator after the solve, the two

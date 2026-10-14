@@ -198,6 +198,20 @@ its G₀ half, with the default solver rather than its own; a `SctOpr` and a
 LinearAlgebra.ldiv!(out, opr::AbstractGlaOpr, inp) = invMul!(out, opr, inp, one(eltype(opr)), zero(eltype(opr)))
 Base.:\(opr::AbstractGlaOpr, inp::AbstractVector) = ldiv!(similar(inp, size(opr, 2)), opr, inp)
 
+# An operator only applies to fields on the tiling it was built for
+_chkFld(opr::AbstractGlaOpr, fld::GlaFld) = fld.cvol == _srcCvl(opr) ||
+    throw(ArgumentError("The field does not live on the source tiling of the operator. An operator only applies to fields on the tiling it was built for."))
+
+"""
+    *(opr::AbstractGlaOpr, fld::GlaFld)
+
+Apply `opr` to a field on its source tiling, giving a field on its target tiling.
+"""
+function Base.:*(opr::AbstractGlaOpr{T}, fld::GlaFld{T}) where T<:AbstractFloat
+    _chkFld(opr, fld)
+    return GlaFld(opr * fld.dat, _trgCvl(opr))
+end
+
 """
     \\(opr::AbstractGlaOpr, fld::GlaFld)
     ldiv!(out::GlaFld, opr::AbstractGlaOpr, inp::GlaFld)
@@ -208,11 +222,11 @@ An iterative solve with `slv(opr)`, as for a vector. The solve runs on the flat
 data, since a solver's matrix-shaped `similar` has no `GlaFld` answer.
 """
 function Base.:\(opr::AbstractGlaOpr{T}, fld::GlaFld{T}) where T<:AbstractFloat
-    cvol = _chkSctFld(GlaOprVac(opr), fld)
-    return GlaFld(opr \ fld.dat, cvol)
+    _chkFld(opr, fld)
+    return GlaFld(opr \ fld.dat, fld.cvol)
 end
 function LinearAlgebra.ldiv!(out::GlaFld{T}, opr::AbstractGlaOpr{T}, inp::GlaFld{T}) where T<:AbstractFloat
-    _chkSctFld(GlaOprVac(opr), inp)
+    _chkFld(opr, inp)
     ldiv!(out.dat, opr, inp.dat)
     return out
 end

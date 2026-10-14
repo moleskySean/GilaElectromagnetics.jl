@@ -124,10 +124,8 @@ that name a cell grid only fit a tiling of one region.
 """
 SusOpr{T}(cvol::GlaCmpVol, sus; dev::Backend=susDev(sus)) where T<:AbstractFloat =
     SusOpr(_susDat(T, cvol, sus, dev), cvol, false)
-SusOpr{T}(vol::GlaVol, sus; dev::Backend=susDev(sus)) where T<:AbstractFloat =
-    SusOpr{T}(GlaCmpVol(vol), sus; dev=dev)
-SusOpr(vol::Union{GlaVol, GlaCmpVol}, sus; dev::Backend=susDev(sus)) =
-    SusOpr{dflPrc}(vol, sus; dev=dev)
+SusOpr{T}(vol::GlaVol, sus; kw...) where T<:AbstractFloat = SusOpr{T}(GlaCmpVol(vol), sus; kw...)
+SusOpr(args...; kw...) = SusOpr{dflPrc}(args...; kw...)
 
 """
     SusOpr{T}(opr::SusOpr)
@@ -144,11 +142,7 @@ isadjoint(opr::SusOpr) = opr.adjMod
 
 isquasistatic(::SusOpr) = false
 
-isselfoperator(::SusOpr) = true # A susceptibility never leaves its own cell
-
-isexternaloperator(::SusOpr) = false
-
-isoverlappingoperator(::SusOpr) = false
+_relKnd(::SusOpr) = :self # A susceptibility never leaves its own cell
 
 KernelAbstractions.get_backend(opr::SusOpr) = get_backend(opr.sus)
 
@@ -239,20 +233,8 @@ isvarying(::SusOpr) = false
 
 #= A susceptibility carries no normalization factor of its own: it is
 dimensionless and diagonal in position, so it commutes with the √ΔV of GlaFld. =#
-function _chkSusFld(opr::SusOpr, fld::GlaFld)
-    if fld.cvol != opr.cvol
-        throw(ArgumentError("The field lives on a different composite volume than the susceptibility. A susceptibility only applies to fields on the tiling it was built for."))
-    end
-    return opr.cvol
-end
-function Base.:*(opr::SusOpr{T}, fld::GlaFld{T}) where T<:AbstractFloat
-    cvol = _chkSusFld(opr, fld)
-    return GlaFld(opr * fld.dat, cvol)
-end
-function Base.:\(opr::SusOpr{T}, fld::GlaFld{T}) where T<:AbstractFloat
-    cvol = _chkSusFld(opr, fld)
-    return GlaFld(opr \ fld.dat, cvol)
-end
+_srcCvl(opr::SusOpr) = opr.cvol
+_trgCvl(opr::SusOpr) = opr.cvol
 
 #= As with GlaVacOprMem, this hook is the generic serializer's extension point
 (struct fields, array elements, and the top level via serialize(io::IO, x)'s own
