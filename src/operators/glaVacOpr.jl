@@ -97,14 +97,8 @@ GlaCmpOprVac(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol, blkMat::AbstractMatrix{<:Abst
 Convert the storage precision of every block to `T`, without regenerating any Fourier coefficients.
 """
 GlaCmpOprVac{T}(opr::GlaCmpOprVac{T}) where T<:AbstractFloat = opr
-function GlaCmpOprVac{T}(opr::GlaCmpOprVac) where T<:AbstractFloat
-    blkMat = Matrix{AbstractGlaOpr{T}}(undef, size(opr.blkMat))
-    for idx in eachindex(opr.blkMat)
-        blk = opr.blkMat[idx]
-        blkMat[idx] = Base.typename(typeof(blk)).wrapper{T}(blk)
-    end
-    return GlaCmpOprVac{T}(opr.trgCvl, opr.srcCvl, blkMat)
-end
+GlaCmpOprVac{T}(opr::GlaCmpOprVac) where T<:AbstractFloat =
+    GlaCmpOprVac{T}(opr.trgCvl, opr.srcCvl, map(blk -> Base.typename(typeof(blk)).wrapper{T}(blk), opr.blkMat))
 
 const CompositeVacuumGreenOperator = GlaCmpOprVac
 
@@ -488,11 +482,7 @@ function _hrmOpr(opr::GlaCmpOprVac{T}, isAsy::Bool) where T<:AbstractFloat
     end
     any(blk -> blk isa GlaOprVac && blk.mem.cmpInf.blc !== nothing, opr.blkMat) &&
         throw(ArgumentError("The Hermitian parts of a Bloch operator come from the volume: $nam(cvol; blc)."))
-    blkMat = Matrix{AbstractGlaOpr{T}}(undef, size(opr.blkMat))
-    for idx in eachindex(opr.blkMat)
-        blkMat[idx] = _hrmBlk(opr.blkMat[idx], isAsy)
-    end
-    return GlaCmpOprVac{T}(opr.trgCvl, opr.srcCvl, blkMat)
+    return GlaCmpOprVac{T}(opr.trgCvl, opr.srcCvl, map(blk -> _hrmBlk(blk, isAsy), opr.blkMat))
 end
 
 """
@@ -764,12 +754,7 @@ adjoint!(opr::Union{AsyGlaOprVac, SymGlaOprVac}) = opr # These operators are Her
 adjoint!(opr::GlaSndOprVac) =
     GlaSndOprVac(adjoint!(opr.opr), opr.srcRat, opr.trgRat, conj(opr.wgt))
 
-function adjoint!(opr::GlaCmpOprVac{T}) where T<:AbstractFloat
-    adjMat = Matrix{AbstractGlaOpr{T}}(undef, reverse(size(opr.blkMat)))
-    for trgIdx in axes(opr.blkMat, 1), srcIdx in axes(opr.blkMat, 2)
-        adjMat[srcIdx, trgIdx] = adjoint!(opr.blkMat[trgIdx, srcIdx])
-    end
-    return GlaCmpOprVac{T}(opr.srcCvl, opr.trgCvl, adjMat)
-end
+adjoint!(opr::GlaCmpOprVac{T}) where T<:AbstractFloat =
+    GlaCmpOprVac{T}(opr.srcCvl, opr.trgCvl, permutedims(map(adjoint!, opr.blkMat)))
 # Both parts are Hermitian (self-adjoint)
 adjoint!(opr::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}) = opr
