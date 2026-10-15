@@ -114,13 +114,13 @@ end
 #= The inverse actions the solve route through, against the operator they invert:
 the factored ones are the easy place to invert the wrong half. =#
 @testset "inverse action" begin
-    invMulAdj! = GilaElectromagnetics.GilaOperators.invMulAdj!
+    _witAdj = GilaElectromagnetics.GilaOperators._witAdj
     for opr in (_invScts(), _scts(), _glas())
         inp = randn(ComplexF64, size(opr, 2))
         @test opr * (opr \ inp) ≈ inp rtol=1e-6
 
         out = zeros(ComplexF64, length(inp))
-        invMulAdj!(out, opr, inp, one(ComplexF64), zero(ComplexF64))
+        _witAdj(adjOpr -> ldiv!(out, adjOpr, inp), opr)
         @test adjoint(opr) * out ≈ inp rtol=1e-6
         @test !isadjoint(opr)
     end

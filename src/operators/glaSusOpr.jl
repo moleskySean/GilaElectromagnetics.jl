@@ -202,11 +202,7 @@ end
 
 #= The one operator whose inverse is not a solve: a susceptibility is diagonal
 in position, so the inverse action is the pointwise one. =#
-function invMul!(w, opr::SusOpr, v, α, β)
-    out = mulAct!(_invSus(opr), _devCpy(opr, v))
-    iszero(β) && return w .= α .* out
-    return axpby!(α, out, β, w)
-end
+_invAct(opr::SusOpr, v) = mulAct!(_invSus(opr), _devCpy(opr, v))
 isvarying(::SusOpr) = false
 
 #= A susceptibility carries no normalization factor of its own: it is

@@ -144,13 +144,8 @@ function _witAdj(f, opr::AbstractGlaOpr)
     return out
 end
 
-# A zero β never reads the output, which may hold anything
-function invMul!(w, opr::AbstractGlaOpr, v, α, β)
-    iszero(β) && return w .= α .* solve(opr, v, slv(opr))
-    return axpby!(α, solve(opr, v, slv(opr)), β, w)
-end
-
-invMulAdj!(w, opr::AbstractGlaOpr, v, α, β) = _witAdj(adjOpr -> invMul!(w, adjOpr, v, α, β), opr)
+# opr \ v as a new flat vector: a Krylov solve unless the operator has a direct inverse
+_invAct(opr::AbstractGlaOpr, v) = solve(opr, v, slv(opr))
 
 """
     \\(opr::AbstractGlaOpr, inp::AbstractVector)
@@ -161,7 +156,7 @@ solves G₀ itself, which is indefinite and slow to converge. A `GlaOpr` solves 
 its G₀ half, with the default solver rather than its own; a `SctOpr` and a
 `SusOpr` need no solve.
 """
-LinearAlgebra.ldiv!(out, opr::AbstractGlaOpr, inp) = invMul!(out, opr, inp, one(eltype(opr)), zero(eltype(opr)))
+LinearAlgebra.ldiv!(out, opr::AbstractGlaOpr, inp) = (out .= _invAct(opr, inp))
 Base.:\(opr::AbstractGlaOpr, inp::AbstractVector) = ldiv!(similar(inp, size(opr, 2)), opr, inp)
 
 # An operator only applies to fields on the tiling it was built on

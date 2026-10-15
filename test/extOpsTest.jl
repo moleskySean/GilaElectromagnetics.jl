@@ -1,6 +1,6 @@
 # glaMatFreExtOps tests
 # Uses the (2,2,2) builders from tstHlp.jl
-import GilaElectromagnetics.GilaOperators: invMul!, invMulAdj!
+import GilaElectromagnetics.GilaOperators: _witAdj
 
 # Each wrapper is a closure over mul! and adjoint!, so one operator apiece covers it
 @testset "matrix-free wrappers" begin
@@ -26,21 +26,21 @@ import GilaElectromagnetics.GilaOperators: invMul!, invMulAdj!
     @test Matrix(LinearMap(_g0s())) ≈ dnsMat(_g0s())
 end
 
-@testset "invMul! and invMulAdj!" begin
+@testset "ldiv! and the adjoint solve" begin
     v = rand(ComplexF64, size(_invScts(), 2))
 
-    # SctOpr: invMul! solves sctOpr * w = v → checks opr*w ≈ v
+    # SctOpr: ldiv! solves sctOpr * w = v → checks opr*w ≈ v
     sct = _scts()
     w   = zeros(ComplexF64, length(v))
-    invMul!(w, sct, v, one(ComplexF64), zero(ComplexF64))
+    ldiv!(w, sct, v)
     @test sct * w ≈ v
 
     # Neither inverse path leaves its operator adjoint
     sct2 = _scts()
-    invMulAdj!(zeros(ComplexF64, length(v)), sct2, v, one(ComplexF64), zero(ComplexF64))
+    _witAdj(adjOpr -> ldiv!(zeros(ComplexF64, length(v)), adjOpr, v), sct2)
     @test !isadjoint(sct2)
 
     gla = _glas()
-    invMul!(zeros(ComplexF64, length(v)), gla, v, one(ComplexF64), zero(ComplexF64))
+    ldiv!(zeros(ComplexF64, length(v)), gla, v)
     @test !isadjoint(gla)
 end

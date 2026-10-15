@@ -263,20 +263,15 @@ function adjoint!(opr::GlaOpr)
     return opr
 end
 
-function invMul!(w, opr::SctOpr, v, α, β)
-    iszero(β) && return w .= α .* (opr.invSctOpr * v)
-    return axpby!(α, opr.invSctOpr * v, β, w)
-end
+_invAct(opr::SctOpr, v) = opr.invSctOpr * v
 # The inverse action is a matvec, so it is an admissible preconditioner
 isvarying(::SctOpr) = false
 #= The inverse of G₀(I - XG₀)⁻¹ is (I - XG₀)G₀⁻¹, so only the vacuum half is
 solved for. The two halves swap in adjoint mode, as they do in mulAct!. =#
-function invMul!(w, opr::GlaOpr, v, α, β)
+function _invAct(opr::GlaOpr, v)
     invSct = opr.sctOpr.invSctOpr
-    out = isadjoint(opr) ? solve(invSct.oprVac, invSct * v, slv(invSct)) :
+    return isadjoint(opr) ? solve(invSct.oprVac, invSct * v, slv(invSct)) :
         invSct * solve(invSct.oprVac, v, slv(invSct))
-    iszero(β) && return w .= α .* out
-    return axpby!(α, out, β, w)
 end
 
 #= The full operator on a field is the vacuum operator after the solve, the two

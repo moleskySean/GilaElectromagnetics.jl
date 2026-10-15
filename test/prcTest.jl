@@ -3,7 +3,7 @@
 correctly rounded image of the fp64 one and every accuracy bound below is a
 statement about that single rounding, not about fp32 arithmetic in the build. =#
 using Test, GilaElectromagnetics, LinearAlgebra, LinearMaps, Serialization
-import GilaElectromagnetics.GilaOperators: setSus!, invMul!, invMulAdj!
+import GilaElectromagnetics.GilaOperators: setSus!, _witAdj
 import GilaElectromagnetics.GilaSolvers: slvPrm
 
 const prcVol   = mkVol((4,4,4))
@@ -297,11 +297,11 @@ end
     glaRef = GlaOpr(_g0(), prcSus64; slv=prcRef)
     @test LinearMap(gla) * copy(b64) ≈ LinearMap(glaRef) * copy(b64) rtol=1e-7
     w, wRef = zeros(ComplexF64, 192), zeros(ComplexF64, 192)
-    invMul!(w, gla, copy(b64), one(ComplexF64), zero(ComplexF64))
-    invMul!(wRef, glaRef, copy(b64), one(ComplexF64), zero(ComplexF64))
+    ldiv!(w, gla, copy(b64))
+    ldiv!(wRef, glaRef, copy(b64))
     @test frbErr(w, wRef) < 1e-7
-    invMulAdj!(w, gla, copy(b64), one(ComplexF64), zero(ComplexF64))
-    invMulAdj!(wRef, glaRef, copy(b64), one(ComplexF64), zero(ComplexF64))
+    _witAdj(adjOpr -> ldiv!(w, adjOpr, copy(b64)), gla)
+    _witAdj(adjOpr -> ldiv!(wRef, adjOpr, copy(b64)), glaRef)
     @test frbErr(w, wRef) < 1e-7
     @test !isadjoint(gla)
 
