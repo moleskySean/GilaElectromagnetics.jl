@@ -88,12 +88,10 @@ end
     @test_throws ErrorException GlaExtInf(vCoarse, vFine)
 end
 
-#= Known bug: an odd-cell volume against an even one is regenerated with a cell
-size that no longer shares a grid with the other. Flip to a passing build when
-the regeneration is fixed. =#
+# The branching algorithm needs an even sum of target and source cells in every direction
 @testset "Odd and even volume pair" begin
     vOdd, vEve = mkVol((3,3,3)), mkVol((4,4,4); org=extOrg)
-    @test_logs (:warn, r"regenerated") (@test_throws ErrorException GlaOprVac{Float64}(vOdd, vEve))
+    @test_throws ArgumentError GlaOprVac{Float64}(vOdd, vEve)
 end
 
 @testset "GlaVol show" begin

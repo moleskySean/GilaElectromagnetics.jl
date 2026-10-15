@@ -12,14 +12,12 @@ handling grid layouts, and computing volume interactions.
 - `GlaExtInf`: Information for mapping between general source and target volumes
 
 # Functions
-- `genVolEve`: Regenerate a volume with an even number of cells
-- `genEveExtInf`: Generate mixed information for source and target volumes
 - `genCntVol`: Create contact volume for self Green function calculations
 - `sepGrd`: Create grid of spanning separations for a pair of volumes
 - `crcIndClc`: Calculate circulant index for self Green function vector
 """
 
-export GlaVol, GlaExtInf, genVolEve, genEveExtInf, genCntVol, sepGrd, crcIndClc, uniVol, prxGap, prxChk
+export GlaVol, GlaExtInf, genCntVol, sepGrd, crcIndClc, uniVol, prxGap, prxChk
 export GlaCmpVol, CompositeVolume, refine, regions, nregions, coordinates, cellvolumes, finest
 
 """
@@ -112,48 +110,6 @@ end
 Base.union(vols::GlaVol...) = reduce(uniVol, vols)
 
 """
-    genVolEve(glaVol::GlaVol)
-
-Regenerate a volume with an even number of cells.
-
-# Arguments
-- `glaVol::GlaVol`: The volume to regenerate
-
-# Returns
-- `GlaVol`: The regenerated volume with an even number of cells
-
-# Notes
-- If the volume already has an even number of cells in all dimensions, it is returned unchanged
-- If any dimension has an odd number of cells, the volume is regenerated with one additional cell
-  in those dimensions and the cell sizes are adjusted accordingly
-"""
-function genVolEve(glaVol::GlaVol)
-    # check that the number of cells in each Cartesian dimension is even
-    celParVec = iseven.(glaVol.cel)
-    # number of cells is odd in some direction
-    if any(celParVec .== false)
-        # warn user that the volume is being regenerated.
-        @warn "A volume has been regenerated to have an even number of cells---the size of a cell has changed. The sum of the number of source and target cells must be even for the algorithm to function."
-        # determine dimensions where cells will be scaled. 
-        parVec = .!celParVec
-        # adjust number of cells
-        newCelNum = glaVol.cel .+ parVec
-        # adjust size of cells
-        newCelScl = map(//, numerator.(glaVol.scl) .* glaVol.cel, 
-            denominator.(glaVol.scl) .* newCelNum)  
-        # adjust grid scale
-        oldGrdScl = Rational.(step.(glaVol.grd)) 
-        newGrdScl = map(//, numerator.(oldGrdScl) .* glaVol.cel, 
-            denominator.(oldGrdScl) .* newCelNum)
-        # regenerate volume
-        return GlaVol(Tuple(newCelNum), newCelScl, glaVol.org, newGrdScl)
-    # otherwise, everything is fine
-    else
-        return glaVol
-    end
-end
-
-"""
     GlaExtInf 
 
 Information for mapping between general source and target volumes.
@@ -222,44 +178,12 @@ function GlaExtInf(trgVol::GlaVol, srcVol::GlaVol)::GlaExtInf
         trgPar, srcPar)
 end
 
-"""
-    genEveExtInf(trgVol::GlaVol, srcVol::GlaVol)
-
-Generate mixed information for source and target volumes, regenerating the volumes if necessary.
-
-# Arguments
-- `trgVol::GlaVol`: Target volume
-- `srcVol::GlaVol`: Source volume
-
-# Returns
-- `GlaExtInf`: The transfer information
-
-# Notes
-- If the sum of cells in source and target volumes is odd, both volumes are regenerated
-  to have an even number of cells
-
-# Throws
-- `ArgumentError`: If any dimension has an odd sum of target and source cells per partition
-"""
-function genEveExtInf(trgVol::GlaVol, srcVol::GlaVol)
-    # ensure that sum number of cells is even, regenerate if not
-    if sum(mod.(trgVol.cel .+ srcVol.cel, 2)) != 0
-        # regenerate target volume so that number of cells is even
-        trgVol = genVolEve(trgVol)
-        # regenerate source volume so that number of cells is even
-        srcVol = genVolEve(srcVol)
-    end
-    # useful information for aligning source and target volumes
-    mixInf = GlaExtInf(trgVol, srcVol)
-    chkParExtInf(mixInf) # Make sure we have an even sum of cells per partition
-    return mixInf
-end
-
 #=
 The branching Fourier algorithm needs an even sum of target and source cells in
 every dimension. For a cross-scale pair the counts that matter are the ones per
 partition, not the ones of the full volumes. Having an odd sum of cells would
 normally give incorrect results without throw an error, so here we throw.
+Returns mixInf when it passes.
 =#
 function chkParExtInf(mixInf::GlaExtInf)
     celSum = mixInf.trgCel .+ mixInf.srcCel
@@ -267,7 +191,7 @@ function chkParExtInf(mixInf::GlaExtInf)
         badDir = findall(isodd.(celSum))
         throw(ArgumentError("Cells per partition sum to an odd number in dimension(s) $(badDir): target $(mixInf.trgCel) plus source $(mixInf.srcCel) gives $(celSum), with $(mixInf.trgDiv) target and $(mixInf.srcDiv) grid divisions. Adjust the cell counts of the volumes, or the refinement factor between them, so that every dimension sums to an even number."))
     end
-    return nothing
+    return mixInf
 end
 
 """

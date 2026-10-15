@@ -7,7 +7,7 @@ import VkFFT
 using LinearAlgebra
 using Serialization
 using ..GilaVolumes
-using ..GilaVolumes: _ovrLap, _lwrEdg
+using ..GilaVolumes: _ovrLap, _lwrEdg, chkParExtInf
 
 """
     GlaVacOprMem{T<:AbstractFloat}
@@ -38,7 +38,7 @@ Operator memory around precomputed Fourier coefficients `egoFur`, which must be
 finite. One volume gives the self construction.
 """
 function GlaVacOprMem(cmpInf::GlaKerOpt{T}, egoFur::AbstractVector{<:AbstractArray{Complex{T}}}, trgVol::GlaVol, srcVol::GlaVol=trgVol) where T<:AbstractFloat
-    mixInf = genEveExtInf(trgVol, srcVol)
+    mixInf = chkParExtInf(GlaExtInf(trgVol, srcVol))
     all(fur -> all(isfinite, fur), egoFur) || throw(ArgumentError("Fourier information contains non-numeric values."))
     return glaOprPrp(egoFur, trgVol, srcVol, mixInf, cmpInf)
 end
@@ -62,7 +62,7 @@ self construction.
 function GlaVacOprMem(cmpInf::GlaKerOpt{T}, trgVol::GlaVol, srcVol::GlaVol=trgVol; shpCch::Bool = false, prxWrn::Bool = true, hrmPrt::Union{Nothing,Symbol} = nothing, blk = nothing) where T<:AbstractFloat
     hrmPrt ∈ (nothing, :sym, :asy) || throw(ArgumentError("hrmPrt is :sym, :asy or nothing, got $(repr(hrmPrt))."))
     prxWrn && prxChk(cmpInf.frqPhz, trgVol, srcVol)
-    mixInf = genEveExtInf(trgVol, srcVol)
+    mixInf = chkParExtInf(GlaExtInf(trgVol, srcVol))
     # a Bloch kernel is not complex symmetric: genEgoSlf! takes its parts H and A from the fill
     cmpInf.blc === nothing || (cmpInf.blc = merge(cmpInf.blc, (; hrmPrt)))
 
@@ -99,7 +99,7 @@ function GlaVacOprMem(cmpInf::GlaKerOpt{T}, trgVol::GlaVol, srcVol::GlaVol=trgVo
     # row and column entries are symmetric or anti-symmetric, except along a periodic axis
     symDir(dir) = mixInf.trgCel[dir] == mixInf.srcCel[dir] && all(mixInf.srcDiv .== 1) && all(mixInf.trgDiv .== 1) &&
         trgVol.org[dir] == srcVol.org[dir] && (cmpInf.blc === nothing || dir ∉ cmpInf.blc.ax)
-    # number of unique elements in each direction of a branch; genVolEve enforces an even number of cells
+    # number of unique elements in each direction of a branch; chkParExtInf enforces an even number of cells
     truInf = [symDir(dir) ? max(mixInf.trgCel[dir] ÷ 2 + 1, 2) : totCelCrc[dir] ÷ 2 for dir in 1:3]
     # Fourier transform of the circulant and even/odd branch extraction on the
     # backend selected by cmpInf
@@ -247,7 +247,7 @@ end
 
 # Memory preparation sub-protocol
 function glaOprPrp(egoFur::AbstractVector{<:AbstractArray{Complex{T}}}, trgVol::GlaVol, srcVol::GlaVol, mixInf::GlaExtInf, cmpInf::GlaKerOpt{T}) where T<:AbstractFloat
-    # source and target cell counts sum to an even number, see genVolEve
+    # source and target cell counts sum to an even number, see chkParExtInf
     brnSze = div.(mixInf.trgCel .+ mixInf.srcCel, 2)
     (; srcCel, trgCel, srcDiv, trgDiv) = mixInf
     # the vector goes from source to target size one direction at a time

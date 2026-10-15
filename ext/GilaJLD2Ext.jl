@@ -10,7 +10,7 @@ module GilaJLD2Ext
 
 using GilaElectromagnetics
 using GilaElectromagnetics.GilaVacuum: glaOprPrp
-using GilaElectromagnetics.GilaVolumes: genEveExtInf
+using GilaElectromagnetics.GilaVolumes: GlaExtInf
 using DoubleFloats: Double64
 using KernelAbstractions: CPU
 import JLD2
@@ -51,10 +51,10 @@ function JLD2.wconvert(::Type{MemDsk{T}}, mem::GlaVacOprMem{T}) where T<:Abstrac
 end
 
 #= mixInf is a pure function of the two volumes---GlaVacOprMem's own constructor
-computes it as genEveExtInf(trgVol, srcVol)---so it never reaches the disk, and
+computes it as GlaExtInf(trgVol, srcVol)---so it never reaches the disk, and
 neither do the CartesianIndices it holds. =#
 JLD2.rconvert(::Type{<:GlaVacOprMem{T}}, dsk::MemDsk{T}) where T<:AbstractFloat =
-    glaOprPrp(dsk.egoFur, dsk.trgVol, dsk.srcVol, genEveExtInf(dsk.trgVol, dsk.srcVol),
+    glaOprPrp(dsk.egoFur, dsk.trgVol, dsk.srcVol, GlaExtInf(dsk.trgVol, dsk.srcVol),
         GlaKerOpt{T}(dsk.frqPhz, _symPrc(dsk.genPrc), dsk.qssApx, dsk.adjMod, CPU(), dsk.blc))
 
 JLD2.writeas(::Type{<:SusOpr{T, A}}) where {T<:AbstractFloat, A} = SusDsk{T, ndims(A)}
