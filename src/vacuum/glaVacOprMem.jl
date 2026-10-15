@@ -247,36 +247,18 @@ end
 
 # Memory preparation sub-protocol
 function glaOprPrp(egoFur::AbstractVector{<:AbstractArray{Complex{T}}}, trgVol::GlaVol, srcVol::GlaVol, mixInf::GlaExtInf, cmpInf::GlaKerOpt{T}) where T<:AbstractFloat
-    # number of embedding levels---dimensionality of ambient space
-    lvls = 3
-    # operator dimensions---unique vector information does not typically 
-    # match operator size for distinct source and target volumes
-    # sum of source and target volumes being divisible by 2 is guaranteed by 
-    # genVolEve in GlaVacOprMem
+    # source and target cell counts sum to an even number, see genVolEve
     brnSze = div.(mixInf.trgCel .+ mixInf.srcCel, 2)
-    phzInf = Array{AbstractVector{Complex{T}}}(undef, lvls)
-    # Fourier transform plans
-    fftPlnFwd = Array{AbstractFFTs.Plan}(undef, lvls)
-    fftPlnRev = Array{AbstractFFTs.Plan}(undef, lvls)
-    adjFftPlnFwd = Array{AbstractFFTs.Plan}(undef, lvls)
-    adjFftPlnRev = Array{AbstractFFTs.Plan}(undef, lvls)
     (; srcCel, trgCel, srcDiv, trgDiv) = mixInf
-    # initialize Fourier transform plans
-    for dir ∈ 1:lvls
-        # size of vector changes throughout application for external Green 
-        vecSzeFwd = ntuple(x -> x <= dir ? brnSze[x] : srcCel[x], 3)
-        vecSzeRev = ntuple(x -> x > dir ? trgCel[x] : brnSze[x], 3)
-        fwdSze = (vecSzeFwd..., lvls, prod(srcDiv))
-        revSze = (vecSzeRev..., lvls, prod(trgDiv))
-        fftPlnFwd[dir], fftPlnRev[dir], adjFftPlnFwd[dir], adjFftPlnRev[dir] = fftPlnGen(fwdSze, revSze, dir, cmpInf)
+    # the vector goes from source to target size one direction at a time
+    plnDir = map(1:3) do dir # 3 here is the number of directions (x, y, z)
+        fwdSze = (ntuple(x -> x <= dir ? brnSze[x] : srcCel[x], 3)..., 3, prod(srcDiv))
+        revSze = (ntuple(x -> x > dir ? trgCel[x] : brnSze[x], 3)..., 3, prod(trgDiv))
+        fftPlnGen(fwdSze, revSze, dir, cmpInf)
     end
-    # phase transformations (internal for block Toeplitz transformations)
-    for itr ∈ 1:lvls
-        # allows calculation odd coefficient numbers
-        phzInfHst = Complex{T}.([cispi(-k / brnSze[itr]) for k ∈ 0:(brnSze[itr] - 1)])
-        phzInf[itr] = similar(first(egoFur), brnSze[itr])
-        copyto!(phzInf[itr], phzInfHst)
-    end
+    fftPlnFwd, fftPlnRev, adjFftPlnFwd, adjFftPlnRev = ntuple(i -> getindex.(plnDir, i), 4)
+    # phases of the even/odd branch split in each direction
+    phzInf = [copyto!(similar(first(egoFur), brnSze[dir]), Complex{T}.([cispi(-k / brnSze[dir]) for k ∈ 0:(brnSze[dir] - 1)])) for dir in 1:3]
     return GlaVacOprMem{T}(cmpInf, trgVol, srcVol, mixInf, brnSze, egoFur, fftPlnFwd, fftPlnRev, adjFftPlnFwd, adjFftPlnRev, phzInf)
 end
 
@@ -308,14 +290,8 @@ Convert the storage precision of a vacuum Green function operator memory to `T`,
 """
 GlaVacOprMem{T}(mem::GlaVacOprMem{T}) where T<:AbstractFloat = mem
 function GlaVacOprMem{T}(mem::GlaVacOprMem) where T<:AbstractFloat
-    egoFur = map(mem.egoFur) do fur
-        furCnv = similar(fur, Complex{T})
-        # broadcast, not copyto!, so that the eltype change also works on device
-        furCnv .= fur
-        furCnv
-    end
-    cmpInf = GlaKerOpt{T}(mem.cmpInf)
-    return glaOprPrp(egoFur, mem.trgVol, mem.srcVol, mem.mixInf, cmpInf)
+    egoFur = map(fur -> Complex{T}.(fur), mem.egoFur)
+    return glaOprPrp(egoFur, mem.trgVol, mem.srcVol, mem.mixInf, GlaKerOpt{T}(mem.cmpInf))
 end
 
 # deepcopy must regenerate FFTW plans rather than copying the raw C pointers.
