@@ -180,10 +180,8 @@ function genEgoExt!(egoCrcExt::AbstractArray{<:Complex,5}, trgVol::GlaVol, srcVo
         egoCrcCnt = Array{eltype(egoCrcExt)}(undef, 3, 3, (2 .* cntVol.cel)...)
         genEgoSlf!(egoCrcCnt, cntVol, cmpInf; shpCch = shpCch)
         @threads for posInd ∈ cntPos
-            egoCntOut!(cntVol, egoCrcCnt, view(egoCrcExt, :, :, posInd), posInd,
-                trgVol.scl, srcVol.scl, SVector(grdSel(posInd[1], trgVol.cel[1], 1,
-                sepGrdTrg, sepGrdSrc), grdSel(posInd[2], trgVol.cel[2], 2, sepGrdTrg,
-                sepGrdSrc), grdSel(posInd[3], trgVol.cel[3], 3, sepGrdTrg, sepGrdSrc)))
+            cntSep = ntuple(dir -> grdSep(posInd[dir], trgVol.cel[dir], dir, sepGrdTrg, sepGrdSrc), 3)
+            egoCntOut!(cntVol, egoCrcCnt, view(egoCrcExt, :, :, posInd), trgVol.scl, srcVol.scl, cntSep)
         end
     end
     return nothing
@@ -212,61 +210,24 @@ function egoToeCrc!(egoCrc::AbstractArray{<:Complex,2}, egoToe::AbstractArray{<:
     end
     return nothing
 end
-#=
-Compute Green function element for cells in contact. 
-=#
-function egoCntOut!(cntVol::GlaVol, egoCrcCnt::AbstractArray{<:Complex,5},
-    egoCrc::AbstractMatrix{<:Complex}, posInd::CartesianIndex{3}, 
-    sclTrg::NTuple{3,Number}, sclSrc::NTuple{3,Number}, 
-    sepVec::AbstractVector{<:AbstractFloat})
-    # safety zero local section of the Green function
+#= The Green function element between two cells in contact: the sum over the
+source cell of the contact cells tiling it, averaged over the target cell. sep is
+the exact separation of the two cell centers. =#
+function egoCntOut!(cntVol::GlaVol, egoCrcCnt::AbstractArray{<:Complex,5}, egoCrc::AbstractMatrix{<:Complex},
+    sclTrg::NTuple{3,Rational}, sclSrc::NTuple{3,Rational}, sep::NTuple{3,Rational})
     fill!(egoCrc, zero(eltype(egoCrc)))
-    # contact cell locations
-    srcCellLocs = [[1,1,1], 
-    [Int(sclSrc[dir] / cntVol.scl[dir]) for dir ∈ 1:3]]
-    trgCellSpan = [Int(sclTrg[dir] / cntVol.scl[dir]) for dir ∈ 1:3]
-    trgCellLocs = [[1,1,1], [1,1,1]]
-    sepCellSpan = [sepVec[dir] / Float64(cntVol.scl[dir]) for dir ∈ 1:3]
-    # positions of target cells
-    # lower cell boundaries
-    trgCellLocs[1] = Int.(round.(sepCellSpan + (srcCellLocs[2] ./ 2.0) - 
-        (trgCellSpan ./ 2.0))) + [1,1,1]
-    # upper cell boundaries
-    trgCellLocs[2] = Int.(round.(sepCellSpan + (srcCellLocs[2] ./ 2.0) + 
-        (trgCellSpan ./ 2.0)))
-    # shift cell locations into contact volume
-    for dir ∈ 1:3
-        if trgCellLocs[1][dir] < 1
-            # must update target cell lower bound last
-            for ind ∈ 1:2
-                srcCellLocs[ind][dir] = srcCellLocs[ind][dir] + 
-                    abs(trgCellLocs[1][dir]) + 1
-            end
-            # target cells
-            for ind ∈ 2:-1:1
-                trgCellLocs[ind][dir]  = trgCellLocs[ind][dir] + 
-                    abs(trgCellLocs[1][dir]) + 1
-            end
-        end
+    srcSpn = Int.(sclSrc .// cntVol.scl)
+    trgSpn = Int.(sclTrg .// cntVol.scl)
+    # first contact cell of the target, counted from the first of the source
+    trgLwr = Int.(sep .// cntVol.scl .+ (srcSpn .- trgSpn) .// 2) .+ 1
+    # shift both into the contact volume when the target starts below the source
+    off = max.(0, 1 .- trgLwr)
+    srcRng = map((spn, o) -> (1:spn) .+ o, srcSpn, off)
+    trgRng = map((lwr, spn, o) -> (lwr:(lwr + spn - 1)) .+ o, trgLwr, trgSpn, off)
+    for indSrc ∈ CartesianIndices(srcRng), indTrg ∈ CartesianIndices(trgRng)
+        egoCrc .+= view(egoCrcCnt, :, :, crcIndClc(cntVol, indTrg, indSrc))
     end
-    # loop over contact cells
-    for indSrc ∈ CartesianIndices((srcCellLocs[1][1]:srcCellLocs[2][1], 
-            srcCellLocs[1][2]:srcCellLocs[2][2], 
-            srcCellLocs[1][3]:srcCellLocs[2][3]))
-
-        for indTrg ∈ CartesianIndices((trgCellLocs[1][1]:trgCellLocs[2][1], 
-                trgCellLocs[1][2]:trgCellLocs[2][2],
-                trgCellLocs[1][3]:trgCellLocs[2][3]))
-
-            # add result to element calculation
-            egoCrc .+= view(egoCrcCnt, :, :,
-                crcIndClc(cntVol, indTrg, indSrc))
-        end
-    end
-    totTrgCells = (trgCellLocs[2][3] - trgCellLocs[1][3] + 1) * 
-        (trgCellLocs[2][2] - trgCellLocs[1][2] + 1) * 
-        (trgCellLocs[2][1] - trgCellLocs[1][1] + 1)
-    egoCrc ./= totTrgCells
+    egoCrc ./= length(CartesianIndices(trgRng))
     return nothing
 end
 
@@ -285,9 +246,6 @@ domain grids.
     end
     return srcGrd[dir][ind - indSpt]
 end
-@inline grdSel(ind::Integer, indSpt::Integer, dir::Integer,
-    trgGrd::AbstractVector{<:StepRange}, srcGrd::AbstractVector{<:StepRange}) =
-    Float64(grdSep(ind, indSpt, dir, trgGrd, srcGrd))
 #=
 Return a reference index relative to the embedding index of the Green function. 
 =#
