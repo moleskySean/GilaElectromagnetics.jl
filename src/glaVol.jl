@@ -603,10 +603,6 @@ Refine a single volume inside a box, returning a composite volume.
 """
 refine(vol::GlaVol, box; factor=2) = refine(GlaCmpVol(vol), box; factor)
 
-struct GlaCmpCrd
-    cvol::GlaCmpVol
-end
-
 """
     coordinates(cvol::GlaCmpVol)
 
@@ -623,26 +619,11 @@ vector components, so the iterator is a third as long as a field vector.
 - `cvol::GlaCmpVol`: The composite volume
 
 # Returns
-- An iterator of `Tuple{NTuple{3,Float64},Float64,Int}`
+- A generator of `Tuple{NTuple{3,Float64},Float64,Int}`
 """
-coordinates(cvol::GlaCmpVol) = GlaCmpCrd(cvol)
-
-Base.eltype(::Type{GlaCmpCrd}) = Tuple{NTuple{3,Float64},Float64,Int}
-Base.length(itr::GlaCmpCrd) = sum(prod(reg.cel) for reg in itr.cvol.regions)
-Base.IteratorSize(::Type{GlaCmpCrd}) = Base.HasLength()
-
-function Base.iterate(itr::GlaCmpCrd, stt::Tuple{Int,Int}=(1, 1))
-    regIdx, celIdx = stt
-    regs = itr.cvol.regions
-    regIdx > length(regs) && return nothing
-    reg = regs[regIdx]
-    if celIdx > prod(reg.cel)
-        return iterate(itr, (regIdx + 1, 1))
-    end
-    crtInd = CartesianIndices(Tuple(reg.cel))[celIdx]
-    pos = ntuple(dir -> Float64(reg.grd[dir][crtInd[dir]]), 3)
-    return ((pos, Float64(prod(reg.scl)), regIdx), (regIdx, celIdx + 1))
-end
+coordinates(cvol::GlaCmpVol) =
+    ((ntuple(dir -> Float64(reg.grd[dir][ind[dir]]), 3), Float64(prod(reg.scl)), idx)
+     for (idx, reg) in enumerate(cvol.regions) for ind in CartesianIndices(reg.cel))
 
 """
     cellvolumes(cvol::GlaCmpVol)

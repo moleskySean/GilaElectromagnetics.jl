@@ -26,7 +26,6 @@ end
     # One entry per cell, three per degree of freedom
     crd = collect(coordinates(cvol))
     @test length(crd) == prod(vol.cel)
-    @test length(coordinates(cvol)) == prod(vol.cel)
     @test length(cellvolumes(cvol)) == 3 * prod(vol.cel)
     @test all(trp -> trp[3] == 1, crd)
     domVol = Float64(prod(vol.cel .* vol.scl))
