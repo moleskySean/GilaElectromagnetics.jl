@@ -9,7 +9,7 @@ function genPrt!(actVec::AbstractArray{<:Complex, 4}, mixInf::GlaExtInf, parNum:
     ker = genPrtKer!(get_backend(actVec))
     for parItr in 1:parNum, dirItr in 1:3
         stp = Tuple(mixInf.srcDiv)
-        off = Tuple(mixInf.srcPar[parItr])
+        off = _parOff(mixInf.srcDiv, parItr)
         ker(stp, off, dirItr, parItr, actVec, orgVec; ndrange=maxItr)
     end
     memCln!(actVec)
@@ -166,7 +166,7 @@ function mrgPrt!(mixInf::GlaExtInf, parNum::Integer, prtVec::AbstractArray{<:Com
     ker = mrgPrtKer!(get_backend(prtVec))
     for parItr in 1:parNum, dirItr in 1:3
         stp = Tuple(mixInf.trgDiv)
-        off = Tuple(mixInf.trgPar[parItr])
+        off = _parOff(mixInf.trgDiv, parItr)
         ker(stp, off, dirItr, parItr, mrgVec, prtVec; ndrange=maxItr)
     end
     synchronize(get_backend(prtVec))

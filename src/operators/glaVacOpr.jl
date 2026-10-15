@@ -2,12 +2,12 @@
     GlaOprVac{T}
 
 The vacuum Green operator G₀, acting on `Complex{T}` data. `srcMsk` and `trgMsk`
-pick the two volumes out of their union when they overlap, and are `0:0` otherwise.
+pick the two volumes out of their union when they overlap, and are `nothing` otherwise.
 """
 struct GlaOprVac{T<:AbstractFloat} <: AbstractGlaVacOpr{T}
     mem::GlaVacOprMem{T}
-    srcMsk::NTuple{3, StepRange{Int64, Int64}}
-    trgMsk::NTuple{3, StepRange{Int64, Int64}}
+    srcMsk::Union{Nothing, NTuple{3, StepRange{Int64, Int64}}}
+    trgMsk::Union{Nothing, NTuple{3, StepRange{Int64, Int64}}}
 end
 
 GlaOprVac(mem::GlaVacOprMem{T}, srcMsk, trgMsk) where T<:AbstractFloat = GlaOprVac{T}(mem, srcMsk, trgMsk)
@@ -205,8 +205,7 @@ function GlaOprVac{T}(trgVol::GlaVol, srcVol::GlaVol;
     dev::Backend=CPU(), prxWrn::Bool=true, frqPhz=1.0+0.0im, genPrc=Float64,
     qssApx::Bool=false, shpCch::Bool=false, hrmPrt::Union{Nothing,Symbol}=nothing, blc=nothing, blk=nothing) where T<:AbstractFloat
     blc === nothing || trgVol == srcVol || blk !== nothing || throw(ArgumentError("A Bloch lattice is self volume only."))
-    innMsk = ntuple(_ -> 0:0, 3)
-    outMsk = ntuple(_ -> 0:0, 3)
+    innMsk = outMsk = nothing
     if trgVol != srcVol && _ovrLap(trgVol, srcVol)
         # Overlap: create the union volume and mask out the input/output regions
         vol = uniVol(trgVol, srcVol)
@@ -226,7 +225,7 @@ end
 
 Wrap prepared operator memory, unmasked.
 """
-GlaOprVac(mem::GlaVacOprMem) = GlaOprVac(mem, ntuple(_ -> 0:0, 3), ntuple(_ -> 0:0, 3))
+GlaOprVac(mem::GlaVacOprMem) = GlaOprVac(mem, nothing, nothing)
 
 GlaOprVac{T}(vol::GlaVol; kw...) where T<:AbstractFloat = GlaOprVac{T}(vol, vol; kw...)
 
@@ -567,7 +566,7 @@ Whether `opr` maps between two distinct volumes that share interior, built on th
 isoverlappingoperator(opr::AbstractGlaOpr) = _relKnd(opr) === :overlapping
 
 # How the target and source of an operator relate: :self, :external or :overlapping
-_relKnd(opr::GlaOprVac) = !(all(==(0:0), opr.srcMsk) && all(==(0:0), opr.trgMsk)) ? :overlapping :
+_relKnd(opr::GlaOprVac) = !isnothing(opr.srcMsk) ? :overlapping :
     opr.mem.srcVol == opr.mem.trgVol ? :self : :external
 _relKnd(::Union{AsyGlaOprVac, SymGlaOprVac, AsyGlaCmpOprVac, SymGlaCmpOprVac}) = :self
 _relKnd(::GlaSndOprVac) = :external
