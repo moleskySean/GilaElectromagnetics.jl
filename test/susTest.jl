@@ -126,6 +126,11 @@ end
     @test sus(opr).sus == sus(gyrInv).sus
     setSus!(opr, _sus2s)
     @test sus(opr).sus == sus(isoInv).sus
+    # The volume and vacuum operator constructors take every form SusOpr takes
+    for susVal in (0.5 + 0.05im, susGyr, pos -> susGyr)
+        @test sus(GlaOpr{Float64}(susVol, susVal)).sus == SusOpr{Float64}(susVol, susVal).sus
+        @test sus(SctOpr(oprVac, susVal)).sus == sus(InvSctOpr(oprVac, susVal)).sus
+    end
 end
 
 @testset "Susceptibility show" begin
