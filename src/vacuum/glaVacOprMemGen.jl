@@ -200,10 +200,10 @@ function egoToeCrc!(egoCrc::AbstractArray{<:Complex,2}, egoToe::AbstractArray{<:
         fill!(egoCrc, zero(eltype(egoCrc)))
     else
         # flip field under coordinate reflection
-        fi, fj, fk = ntuple(dir -> prd[dir] ? 1.0 : indFlp(posInd[dir], indSpt[dir]), 3)
+        fi, fj, fk = ntuple(dir -> prd[dir] || posInd[dir] <= indSpt[dir] ? 1.0 : -1.0, 3)
         # embedding
         egoCrc .= view(egoToe, :, :, ntuple(dir -> prd[dir] ?
-            mod(posInd[dir] - 1 + indSpt[dir], 2 * indSpt[dir]) : indSel(posInd[dir], indSpt[dir])[1], 3)...) .*
+            mod(posInd[dir] - 1 + indSpt[dir], 2 * indSpt[dir]) : indSel(posInd[dir], indSpt[dir]), 3)...) .*
             SMatrix{3,3,Float64}(1.0, (fj * fi), (fk * fi),
             (fi * fj), 1.0, (fk * fj),
             (fi * fk), (fj * fk), 1.0)
@@ -246,20 +246,5 @@ domain grids.
     end
     return srcGrd[dir][ind - indSpt]
 end
-#=
-Return a reference index relative to the embedding index of the Green function. 
-=#
-@inline function indSel(posInd::T, indSpt::R) where 
-    {T<:Union{CartesianIndex, Tuple{Vararg{Integer}}, Integer}, 
-    R<:Union{CartesianIndex, Tuple{Vararg{Integer}}, Integer}}
-        
-    return CartesianIndex(map((x, y) -> x <= y ? x : 
-        (x == y + 1 ? 2 * y - x + 1 : 2 * y - x + 2), 
-        Tuple(posInd), Tuple(indSpt)))
-end
-#=
-Flip dipole direction based on index values. 
-=#
-@inline function indFlp(posInd::Integer, indSpt::Integer)
-    return posInd <= indSpt ? 1.0 : -1.0
-end
+# Reference index relative to the embedding index of the Green function. This is the index (in the Toeplitz world) the circulant embedding reflects to.
+indSel(posInd::Integer, indSpt::Integer) = posInd <= indSpt ? posInd : posInd == indSpt + 1 ? indSpt : 2 * indSpt - posInd + 2
