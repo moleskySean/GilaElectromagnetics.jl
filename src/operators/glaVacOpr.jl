@@ -203,8 +203,8 @@ on their union and masked, so they must sit on a common grid.
 """
 function GlaOprVac{T}(trgVol::GlaVol, srcVol::GlaVol;
     dev::Backend=CPU(), prxWrn::Bool=true, frqPhz=1.0+0.0im, genPrc=Float64,
-    qssApx::Bool=false, shpCch::Bool=false, hrmPrt::Union{Nothing,Symbol}=nothing, blc=nothing) where T<:AbstractFloat
-    blc === nothing || trgVol == srcVol || haskey(blc, :blk) || throw(ArgumentError("A Bloch lattice is self volume only."))
+    qssApx::Bool=false, shpCch::Bool=false, hrmPrt::Union{Nothing,Symbol}=nothing, blc=nothing, blk=nothing) where T<:AbstractFloat
+    blc === nothing || trgVol == srcVol || blk !== nothing || throw(ArgumentError("A Bloch lattice is self volume only."))
     innMsk = ntuple(_ -> 0:0, 3)
     outMsk = ntuple(_ -> 0:0, 3)
     if trgVol != srcVol && _ovrLap(trgVol, srcVol)
@@ -217,7 +217,7 @@ function GlaOprVac{T}(trgVol::GlaVol, srcVol::GlaVol;
 
     # Create the memory structure with appropriate GPU/CPU options
     opt = GlaKerOpt{T}(frqPhz, genPrc, qssApx, false, dev, blc)
-    mem = GlaVacOprMem(opt, trgVol, srcVol; shpCch, prxWrn, hrmPrt)
+    mem = GlaVacOprMem(opt, trgVol, srcVol; shpCch, prxWrn, hrmPrt, blk)
     return GlaOprVac{T}(mem, innMsk, outMsk)
 end
 
@@ -336,15 +336,15 @@ _cntChk(trgReg::GlaVol, srcReg::GlaVol) =
     all(max.(_lwrEdg(trgReg), _lwrEdg(srcReg)) .<= min.(_uprEdg(trgReg), _uprEdg(srcReg)))
 
 # The cross-scale contact block, computed on the finer of the two meshes
-function _sndBlk(::Type{T}, trgReg::GlaVol, srcReg::GlaVol; frqPhz, genPrc, blc, kw...) where T<:AbstractFloat
+function _sndBlk(::Type{T}, trgReg::GlaVol, srcReg::GlaVol; frqPhz, genPrc, blc, blk = nothing, kw...) where T<:AbstractFloat
     sclFin = min.(trgReg.scl, srcReg.scl)
     trgRat = ntuple(dir -> Int(trgReg.scl[dir] // sclFin[dir]), 3)
     srcRat = ntuple(dir -> Int(srcReg.scl[dir] // sclFin[dir]), 3)
     trgFin = GlaVol(Tuple(trgReg.cel .* trgRat), sclFin, trgReg.org)
     srcFin = GlaVol(Tuple(srcReg.cel .* srcRat), sclFin, srcReg.org)
     # a periodic pair's block is the fine pair's, equal cells
-    blc === nothing || (blc = merge(blc, (; blk = _blcCmp([trgFin, srcFin], Complex{genPrc}(frqPhz), blc)[(1, 2)])))
-    innOpr = GlaOprVac{T}(trgFin, srcFin; frqPhz, genPrc, blc, kw..., prxWrn=false)
+    blc === nothing || (blk = _blcCmp([trgFin, srcFin], Complex{genPrc}(frqPhz), blc)[(1, 2)])
+    innOpr = GlaOprVac{T}(trgFin, srcFin; frqPhz, genPrc, blc, blk, kw..., prxWrn=false)
     return GlaSndOprVac{T}(innOpr, trgRat, srcRat,
         _nrmWgt(trgReg, srcReg) / prod(trgRat))
 end
@@ -401,9 +401,9 @@ function GlaCmpOprVac{T}(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol;
     end
     blkMat = Matrix{AbstractGlaOpr{T}}(undef, length(trgRegs), length(srcRegs))
     for trgIdx in eachindex(trgRegs), srcIdx in eachindex(srcRegs)
-        blkBlc = blc === nothing ? nothing : merge(blc, (; blk = blcBlk[(trgIdx, srcIdx)]))
+        blk = blc === nothing ? nothing : blcBlk[(trgIdx, srcIdx)]
         blkMat[trgIdx, srcIdx] = _cmpBlk(T, trgRegs[trgIdx], srcRegs[srcIdx],
-            slfCmp && trgIdx == srcIdx, slfCmp, trgIdx, srcIdx; dev, frqPhz, genPrc, qssApx, shpCch, hrmPrt, blc = blkBlc)
+            slfCmp && trgIdx == srcIdx, slfCmp, trgIdx, srcIdx; dev, frqPhz, genPrc, qssApx, shpCch, hrmPrt, blc, blk)
     end
     return GlaCmpOprVac{T}(trgCvl, srcCvl, blkMat)
 end

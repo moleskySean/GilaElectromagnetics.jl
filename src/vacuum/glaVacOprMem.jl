@@ -55,7 +55,7 @@ end
 include("glaVacOprMemGen.jl") # For genEgoCrc!
 
 """
-    GlaVacOprMem(cmpInf::GlaKerOpt{T}, trgVol::GlaVol, srcVol::GlaVol=trgVol; shpCch, prxWrn, hrmPrt)
+    GlaVacOprMem(cmpInf::GlaKerOpt{T}, trgVol::GlaVol, srcVol::GlaVol=trgVol; shpCch, prxWrn, hrmPrt, blk)
 
 Generate the Fourier coefficients and the operator memory. One volume gives the
 self construction.
@@ -66,8 +66,9 @@ self construction.
 - `prxWrn::Bool=true`: warn when separated volumes are closer than a third of a wavelength
 - `hrmPrt=nothing`: keep only the entry by entry real (`:sym`) or imaginary (`:asy`)
   part of the kernel, as `SymGlaOprVac` and `AsyGlaOprVac` do
+- `blk=nothing`: the Bloch block `(H, A)` blcCmp gave a pair of composite regions
 """
-function GlaVacOprMem(cmpInf::GlaKerOpt{T}, trgVol::GlaVol, srcVol::GlaVol=trgVol; shpCch::Bool = false, prxWrn::Bool = true, hrmPrt::Union{Nothing,Symbol} = nothing) where T<:AbstractFloat
+function GlaVacOprMem(cmpInf::GlaKerOpt{T}, trgVol::GlaVol, srcVol::GlaVol=trgVol; shpCch::Bool = false, prxWrn::Bool = true, hrmPrt::Union{Nothing,Symbol} = nothing, blk = nothing) where T<:AbstractFloat
     hrmPrt ∈ (nothing, :sym, :asy) || throw(ArgumentError("hrmPrt is :sym, :asy or nothing, got $(repr(hrmPrt))."))
     prxWrn && prxChk(frqPhz(cmpInf), trgVol, srcVol)
     mixInf = genEveExtInf(trgVol, srcVol)
@@ -84,9 +85,7 @@ function GlaVacOprMem(cmpInf::GlaKerOpt{T}, trgVol::GlaVol, srcVol::GlaVol=trgVo
     # the 3×3 tensor block contiguous per cell, so the fill keeps this layout
     genCpx = Complex{genPrc(cmpInf)}
     egoCrc = Array{genCpx}(undef, 3, 3, totCelCrc..., totParSrc, totParTrg)
-    genEgoCrc!(egoCrc, trgVol, srcVol, mixInf, cmpInf; shpCch = shpCch)
-    # a composite's Bloch block is used once, not kept
-    cmpInf.blc === nothing || (cmpInf.blc = Base.structdiff(cmpInf.blc, (; blk = 0)))
+    genEgoCrc!(egoCrc, trgVol, srcVol, mixInf, cmpInf; shpCch, blk)
     # verify that egoCrc contains numeric values
     if !all(isfinite, egoCrc)
         throw(ArgumentError("Computed circulant contains non-numeric values."))
@@ -321,15 +320,14 @@ Refill the Fourier data of a Bloch operator in place at the Bloch phases `θ`, r
 function setBlc!(mem::GlaVacOprMem, θ::Tuple, blk = nothing)
     opt = mem.cmpInf
     opt.blc === nothing && throw(ArgumentError("setBlc! needs an operator built with a Bloch lattice."))
-    opt.blc = blk === nothing ? merge(opt.blc, (; θ)) : merge(opt.blc, (; θ, blk))
+    opt.blc = merge(opt.blc, (; θ))
     totCelCrc = mem.mixInf.trgCel .+ mem.mixInf.srcCel
     egoCrc = Array{Complex{genPrc(opt)}}(undef, 3, 3, totCelCrc..., 1, 1)
-    genEgoCrc!(egoCrc, mem.trgVol, mem.srcVol, mem.mixInf, opt)
+    genEgoCrc!(egoCrc, mem.trgVol, mem.srcVol, mem.mixInf, opt; blk)
     egoCrcCmp = Array{Complex{genPrc(opt)}}(undef, totCelCrc..., 6, 1, 1)
     gthEgoCmp!(egoCrcCmp, egoCrc)
     egoFur = genEgoFur(egoCrcCmp, collect(size(first(mem.egoFur))[1:3]), opt)
     foreach((dst, src) -> dst .= adjMod(opt) ? conj.(src) : src, mem.egoFur, egoFur)
-    opt.blc = Base.structdiff(opt.blc, (; blk = 0))
     return mem
 end
 

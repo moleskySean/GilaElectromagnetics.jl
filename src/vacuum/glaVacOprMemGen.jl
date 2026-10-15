@@ -1,13 +1,13 @@
 include("integrals/glaVacIntMom.jl") # near-field moments and contact block
 include("integrals/glaVacIntFar.jl") # far-field expansion and block fills
 
-function genEgoCrc!(egoCrc::AbstractArray{<:Complex}, trgVol::GlaVol, srcVol::GlaVol, mixInf::GlaExtInf, cmpInf::GlaKerOpt; shpCch::Bool = false)
+function genEgoCrc!(egoCrc::AbstractArray{<:Complex}, trgVol::GlaVol, srcVol::GlaVol, mixInf::GlaExtInf, cmpInf::GlaKerOpt; shpCch::Bool = false, blk = nothing)
     # self green function case
     if srcVol == trgVol
-        return genEgoSlf!(selectdim(selectdim(egoCrc, 7, 1), 6, 1), trgVol, cmpInf; shpCch = shpCch)
+        return genEgoSlf!(selectdim(selectdim(egoCrc, 7, 1), 6, 1), trgVol, cmpInf; shpCch, blk)
     end
     # a Bloch pair of a composite: the block blcCmp gave, in this layout
-    cmpInf.blc === nothing || return view(egoCrc, :, :, :, :, :, 1, 1) .= blcKer(cmpInf.blc, cmpInf.blc.blk...)
+    cmpInf.blc === nothing || return view(egoCrc, :, :, :, :, :, 1, 1) .= blcKer(cmpInf.blc, blk...)
     # external green function case
     # total number of target and source partitions
     totParTrg = prod(mixInf.trgDiv)
@@ -46,20 +46,20 @@ Calculate circulant vector of the Green function on a single domain: the contact
 closed-form moments, every pair two or more cells apart from the far-field expansion, then the
 identity term and the circulant embedding. Under qssApx the same two blocks are taken at zero
 frequency, giving S = f^2 G, and the single 1/f^2 at the end keeps that identity exact. With a
-Bloch lattice one blcFil call, or the block blcCmp gave a composite region (blc.blk), is the
+Bloch lattice one blcFil call, or the block blk = (H, A) blcCmp gave a composite region, is the
 whole block, identity term included.
 =#
 # The Bloch kernel hrmPrt asks for: H, A or G = H + iA
 blcKer(blc, H, A) = blc.hrmPrt === :sym ? H : blc.hrmPrt === :asy ? A : H .+ im .* A
 
 function genEgoSlf!(egoCrc::AbstractArray{<:Complex,5}, slfVol::GlaVol, cmpInf::GlaKerOpt;
-    shpCch::Bool = false)
+    shpCch::Bool = false, blk = nothing)
 
     prc = real(eltype(egoCrc))
     blc = cmpInf.blc
     stp = ntuple(dir -> Int(step(slfVol.grd[dir]) // slfVol.scl[dir]), 3)
-    if blc !== nothing && haskey(blc, :blk)
-        egoToe = blcKer(blc, blc.blk...)
+    if blk !== nothing
+        egoToe = blcKer(blc, blk...)
     elseif blc !== nothing
         frq = Complex{prc}(frqPhz(cmpInf))
         # one BlcSet per frequency and unit cell, kept for setBlc!
