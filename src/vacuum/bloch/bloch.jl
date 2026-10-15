@@ -24,7 +24,7 @@ module Bloch
 
 using LinearAlgebra, SpecialFunctions, DoubleFloats, QuadGK
 using Base.ScopedValues
-using ...GilaVolumes
+using ..GilaElectromagnetics: GlaVol, coordinates, regions, sepGrd
 using SpecialFunctions: gamma
 
 export blcTns, blcSet, blcFil, blcCmp, blcTwc, blcCrt, BlcSet

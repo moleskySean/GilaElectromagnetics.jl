@@ -2,7 +2,7 @@
 # The susceptibility is diagonal, so it commutes with the √ΔV normalization and
 # the inverse scattering operator in the normalized basis is x - X .* (G̃ * x),
 # with X entry by entry on the flat degree of freedom layout.
-import GilaElectromagnetics.GilaOperators: setSus!
+import GilaElectromagnetics: setSus!
 
 sctChi(pos) = (0.5 + 0.1im) * (1 + 0.4 * sin(2pi * pos[1]) * cos(2pi * pos[2]))
 sctCur(pos) = (exp(2im * pi * pos[3]), 0.5 * exp(2im * pi * pos[1]), 0)

@@ -2,7 +2,7 @@
 module GilaSciMLOperatorsExt
 
 using GilaElectromagnetics
-using GilaElectromagnetics.GilaOperators: _witAdj
+using GilaElectromagnetics: _witAdj
 using LinearAlgebra: mul!, ldiv!
 import SciMLOperators: FunctionOperator
 

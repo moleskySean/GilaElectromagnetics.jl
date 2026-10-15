@@ -6,8 +6,6 @@ using KernelAbstractions
 import VkFFT
 using LinearAlgebra
 using Serialization
-using ..GilaVolumes
-using ..GilaVolumes: _ovrLap, _lwrEdg, _parOff, chkParExtInf
 
 """
     GlaVacOprMem{T<:AbstractFloat}

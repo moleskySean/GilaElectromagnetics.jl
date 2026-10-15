@@ -1,7 +1,7 @@
 # Susceptibility operator tests, isotropic and anisotropic
-import GilaElectromagnetics.GilaOperators: setSus!
+import GilaElectromagnetics: setSus!
 # StaticArrays is a dependency of the package, not of the test environment
-const SusSMt = GilaElectromagnetics.GilaVacuum.SMatrix{3, 3, ComplexF64}
+const SusSMt = GilaElectromagnetics.SMatrix{3, 3, ComplexF64}
 
 const susVol = mkVol((2,2,2))
 const susCvl = GlaCmpVol(susVol)

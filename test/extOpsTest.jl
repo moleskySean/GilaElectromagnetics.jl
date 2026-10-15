@@ -1,6 +1,6 @@
 # glaMatFreExtOps tests
 # Uses the (2,2,2) builders from tstHlp.jl
-import GilaElectromagnetics.GilaOperators: _witAdj
+import GilaElectromagnetics: _witAdj
 
 # Each wrapper is a closure over mul! and adjoint!, so one operator apiece covers it
 @testset "matrix-free wrappers" begin

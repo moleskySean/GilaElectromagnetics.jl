@@ -2,7 +2,7 @@
 sub-geometry constructor and the exact even-moment polynomial live here rather
 than in src: parMom never needs a sub-geometry name, only these tests do. =#
 using Test, GilaElectromagnetics, DoubleFloats
-const GVM = GilaElectromagnetics.GilaVacuum
+const GVM = GilaElectromagnetics
 
 # the 15 canonical ways two axis-aligned rectangular panels can touch
 function canPnl(cod::AbstractString, a::T, b::T, c::T) where {T}

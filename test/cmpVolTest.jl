@@ -1,5 +1,5 @@
 # GlaCmpVol (composite volume) geometry tests
-import GilaElectromagnetics.GilaVolumes: _lwrEdg, _uprEdg, _ovrLap
+import GilaElectromagnetics: _lwrEdg, _uprEdg, _ovrLap
 
 # Base region for the carving tests: 8 cells of 1/16 λ per side, centered on the
 # origin, so it spans -1/4 to 1/4 in every dimension.

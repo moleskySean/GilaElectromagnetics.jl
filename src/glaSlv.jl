@@ -1,32 +1,6 @@
-"""
-    GilaSolvers
-
-This module provides iterative solvers for linear systems of equations in the Gila package.
-It includes implementations of GMRES and BiCGStab methods, with support for both CPU and GPU computations.
-
-# Types
-- `GlaSlv`: Abstract base type for all solvers
-- `GMRESSolver`: Generalized Minimal Residual Method solver
-- `GCRODRSolver`: GCRO with deflated restarting, a GMRES that recycles a subspace
-- `RcySpc`: The subspace a `GCRODRSolver` carries between solves
-- `BiCGStabSolver`: BiConjugate Gradient Stabilized Method solver
-- `MixPrcRfn`: Mixed precision iterative refinement, with a pluggable inner solver
-- `SlvLog`: A record of one solve, filled in place by `solve`
-
-# Functions
-- `solve`: Solve a linear system using the specified solver
-- `isvarying`: Whether a preconditioner is a fixed linear map across applications
-"""
-module GilaSolvers
-
 using LinearAlgebra
 using Adapt
 using KernelAbstractions: get_backend
-using ..GilaTypes
-using ..GilaTypes: isadjoint
-
-export GMRESSolver, GCRODRSolver, RcySpc, BiCGStabSolver, MixPrcRfn, SlvLog, solve, isvarying
-export MixedPrecisionRefinement
 
 """
     isvarying(preCon)
@@ -1142,5 +1116,3 @@ function lstSqrHss(hss::AbstractMatrix{T}, inp::AbstractVector{T}) where T
 
     return inp
 end
-
-end # module

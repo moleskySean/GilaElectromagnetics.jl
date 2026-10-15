@@ -373,7 +373,7 @@ function _prxCmpChk(trgRegs, srcRegs)
 end
 
 # blcCmp's blocks of every ordered region pair of a periodic composite of periods L
-_blcCmp(regs, frq, blc) = first(GilaVacuum.Bloch.blcCmp(regs, frq, blc.ax, blc.L, blc.θ))
+_blcCmp(regs, frq, blc) = first(Bloch.blcCmp(regs, frq, blc.ax, blc.L, blc.θ))
 
 """
     GlaCmpOprVac{T}(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol; kwargs...)
@@ -622,7 +622,7 @@ setBlc!(opr::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}, θ::Tuple) = (setBlc!(opr.
 The solver `opr` uses for `\\` and for applying (I - XG₀)⁻¹; a default
 `GCRODRSolver()` for vacuum operators.
 """
-slv(::AbstractGlaVacOpr) = GilaSolvers.GCRODRSolver() # Default solver
+slv(::AbstractGlaVacOpr) = GCRODRSolver() # Default solver
 
 """
     glaSze(opr::AbstractGlaOpr)

@@ -1,6 +1,5 @@
 using KernelAbstractions
 using KernelAbstractions: supports_float64
-using ..GilaTypes
 
 """
     GlaKerOpt{T<:AbstractFloat, B<:KernelAbstractions.Backend}

@@ -2,7 +2,7 @@
 tensor, the depolarization sum rule, tracelessness away from the origin, the point-dipole far field,
 definiteness, and the 1/f^2 that carries the whole frequency dependence. =#
 using Test, GilaElectromagnetics, DoubleFloats, LinearAlgebra
-const GVQ = GilaElectromagnetics.GilaVacuum
+const GVQ = GilaElectromagnetics
 
 # cell shapes as full edge lengths; S sees the cell only through its aspect ratio
 const qssCub = (1//1, 1//1, 1//1)

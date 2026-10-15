@@ -1,5 +1,5 @@
-# GilaSolvers tests
-import GilaElectromagnetics.GilaSolvers: slvPrm
+# Solver tests
+import GilaElectromagnetics: slvPrm
 
 @testset "Solver constructors" begin
     gmr = GMRESSolver()
@@ -112,7 +112,7 @@ end
 
     H_ref  = copy(H)
     rhs_ref = copy(rhs)
-    GilaElectromagnetics.GilaSolvers.lstSqrHss(H, rhs)
+    GilaElectromagnetics.lstSqrHss(H, rhs)
     y_test = rhs[1:n]
 
     # Reference: dense least squares via QR

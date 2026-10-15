@@ -1,24 +1,12 @@
-module GilaVolumes
-import ..GilaTypes: _shwRow
-"""
-    GilaVolumes
-
-This module provides memory structures for representing and manipulating spatial volumes
-in the Gila package. It includes functionality for creating and managing cuboid volumes,
-handling grid layouts, and computing volume interactions.
-
-# Types
-- `GlaVol`: Basic spatial memory structure for a rectangular prism volume
-- `GlaExtInf`: Information for mapping between general source and target volumes
-
-# Functions
-- `genCntVol`: Create contact volume for self Green function calculations
-- `sepGrd`: Create grid of spanning separations for a pair of volumes
-- `crcIndClc`: Calculate circulant index for self Green function vector
-"""
-
-export GlaVol, GlaExtInf, genCntVol, sepGrd, crcIndClc, uniVol, prxGap, prxChk
-export GlaCmpVol, CompositeVolume, refine, regions, nregions, coordinates, cellvolumes, finest
+# One labelled row of a multi-line show; a multi-line val re-indents to align.
+# Shared by GlaVol and the operator show.
+function _shwRow(io::IO, lbl::AbstractString, val::AbstractString)
+    lines = split(val, '\n')
+    print(io, "\n  ", rpad(lbl, 14), "  ", lines[1])
+    for line in lines[2:end]
+        print(io, "\n", " "^18, line)
+    end
+end
 
 """
     GlaVol
@@ -75,7 +63,7 @@ _sclStr(scl::NTuple{3,Rational}) = allequal(scl) ? "$(first(scl)) λ" : join(scl
 _ratStr(r::Rational) = isinteger(r) ? string(numerator(r)) : string(r)
 
 #= A volume's cell grid and physical extent, joined by sep. Shared with the
-"volume" row of an operator's show in GilaOperators. =#
+"volume" row of an operator's show. =#
 _volDesc(vol::GlaVol, sep::AbstractString) = string(join(vol.cel, "×"), " cells of ",
     _sclStr(vol.scl), sep, join(vol.scl .* vol.cel, " × "), " λ³ at (",
     join(_ratStr.(vol.org), ", "), ")")
@@ -694,5 +682,3 @@ function cellvolumes(cvol::GlaCmpVol)
     end
     return celVol
 end
-
-end # module

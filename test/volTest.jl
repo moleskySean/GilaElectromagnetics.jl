@@ -1,5 +1,5 @@
-# GilaVolumes tests
-import GilaElectromagnetics.GilaVolumes: GlaExtInf, uniVol
+# Volume tests
+import GilaElectromagnetics: GlaExtInf, uniVol
 
 @testset "GlaVol construction" begin
     for dim in [(2,2,2), (4,4,4), (6,6,6), (8,8,8), (6,4,8), (8,2,10)]

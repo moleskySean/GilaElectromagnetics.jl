@@ -3,8 +3,8 @@
 # at the finest cell size of the tiling. A composite target row is the mean of
 # the fine rows it covers, a composite source column injects unit density into
 # the fine cells it covers, and the √ΔV basis puts sqrt(ΔVᵢ/ΔVⱼ) on block (i, j).
-import GilaElectromagnetics.GilaVolumes: _lwrEdg
-import GilaElectromagnetics.GilaOperators: _nrmWgt
+import GilaElectromagnetics: _lwrEdg
+import GilaElectromagnetics: _nrmWgt
 
 # The smallest tiling this file uses: one region of 2×2×2 cells of 1/16 λ
 const smlVol = GlaVol((2, 2, 2), scl16, stdOrg)

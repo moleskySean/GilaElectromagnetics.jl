@@ -2,7 +2,7 @@
 module GilaLinearMapsExt
 
 using GilaElectromagnetics
-using GilaElectromagnetics.GilaOperators: _witAdj
+using GilaElectromagnetics: _witAdj
 using LinearAlgebra: mul!
 import LinearMaps
 import LinearMaps: LinearMap

@@ -1,33 +1,6 @@
-"""
-    GilaFields
-
-This module provides the field type that lives on a volume, plain or composite.
-
-# Types
-- `GlaFld`: A vector of current density coefficients over a `GlaCmpVol`, or over
-  a `GlaVol` taken as a tiling of one region
-
-# Type Aliases
-- `MultiScaleField`: Alias for `GlaFld`
-
-# Functions
-- `zerofield`: Allocate a zero field over a composite volume
-- `discretize!`: Fill a field from a function of position
-- `regionview`: View the block of one region as a 4-tensor
-- `eachregion`: Iterate over the region views of a field
-- `regrid`: Read a field off as densities on a uniform grid
-"""
-module GilaFields
-
-using ..GilaVolumes
-using ..GilaTypes
 using LinearAlgebra
 using Adapt
 using KernelAbstractions
-
-import ..GilaVolumes: _lwrEdg, _uprEdg, _dofOff
-
-export GlaFld, MultiScaleField, zerofield, discretize!, regionview, eachregion, regrid
 
 """
     GlaFld{T}
@@ -379,5 +352,3 @@ function regrid(fld::GlaFld, scl::NTuple{3,Rational}=finest(fld.cvol))
     end
     return out
 end
-
-end # module

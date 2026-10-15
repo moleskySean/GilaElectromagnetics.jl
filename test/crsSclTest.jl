@@ -3,7 +3,7 @@
 # volume, aggregated with the maps of the pulse basis: a coarse target row is the
 # mean of the eight fine target rows it covers, and a coarse source column
 # injects unit current density into those same eight cells.
-import GilaElectromagnetics.GilaVolumes: uniVol
+import GilaElectromagnetics: uniVol
 
 const _xsSep    = (1//2, 0//1, 0//1)
 

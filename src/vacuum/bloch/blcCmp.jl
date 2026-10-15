@@ -5,8 +5,7 @@
 # c = (target lower corner - source lower corner)/g (integer on the gcd lattice), applied per axis (three 1D convolutions with
 # positive integer weights, so no cancellation of its own). Periodic offsets reduce by the twist G(m + P e_i) = e^{-iθ_i} G(m),
 # open negative offsets by the reflection G_ab(-m_o) = σ_a σ_b G_ab(m_o), σ = -1 on axis o. H and AH are linear in G: same sums.
-const GVo = GilaVolumes
-import ..GilaVacuum as GVa
+import ..GilaElectromagnetics as GVa
 const LAMBOX = 8
 
 # region: a GlaVol; periods L (λ) on the axes ax
@@ -64,7 +63,7 @@ function cmpBlk(regs, f::Complex{T}, ax::NTuple{D,Int}, L::NTuple{D,<:Rational},
             N = rt.cel[i]
             return (isper(i) ? collect(-(N - 1):(N - 1)) : collect(0:(N - 1))) .* rat(rt, i)
         end
-        gT = GVo.sepGrd(rt, rs, 0); gS = GVo.sepGrd(rt, rs, 1); n = rt.cel[i] + rs.cel[i]
+        gT = GVa.sepGrd(rt, rs, 0); gS = GVa.sepGrd(rt, rs, 1); n = rt.cel[i] + rs.cel[i]
         [ind == rt.cel[i] + 1 ? typemin(Int) : Int((QI(GVa.grdSep(ind, rt.cel[i], i, gT, gS)) - (QI(rt.scl[i]) - QI(rs.scl[i])) / 2) / g[i]) for ind in 1:n]
     end
     prs = [(t, s) for t in eachindex(regs), s in eachindex(regs)]

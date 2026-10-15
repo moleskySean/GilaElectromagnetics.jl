@@ -1,5 +1,5 @@
-# GilaOperators tests
-import GilaElectromagnetics.GilaOperators: mskRng, setSus!
+# Operator tests
+import GilaElectromagnetics: mskRng, setSus!
 
 const oprOvrOrg = ntuple(i -> Rational(4) * stdScl[i] // 2, 3)
 const oprVolOvr = GlaVol((4,4,4), stdScl, oprOvrOrg)

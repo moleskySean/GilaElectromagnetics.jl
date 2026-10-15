@@ -2,7 +2,7 @@
 module GilaLinearOperatorsExt
 
 using GilaElectromagnetics
-using GilaElectromagnetics.GilaOperators: _witAdj
+using GilaElectromagnetics: _witAdj
 using LinearAlgebra: mul!
 import LinearOperators
 import LinearOperators: LinearOperator

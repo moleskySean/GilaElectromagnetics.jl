@@ -1,7 +1,7 @@
 #= The far-field expansion against the 220-bit references of test/ref/far.txt, its own a
 posteriori certificate, and the k-series it falls back on where neither expansion converges. =#
 using Test, GilaElectromagnetics
-const GVF = GilaElectromagnetics.GilaVacuum
+const GVF = GilaElectromagnetics
 const farQI = Rational{BigInt}
 
 farSql(w) = ntuple(dir -> (p = split(split(w, ',')[dir], "//");

@@ -1,5 +1,3 @@
-using ..GilaVolumes
-
 #=
 restructure input vector to match partitioned Green function data
 =#

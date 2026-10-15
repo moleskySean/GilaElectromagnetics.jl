@@ -1,7 +1,7 @@
 using Test, Random, GilaElectromagnetics, LinearAlgebra
 using LinearMaps, LinearOperators, SciMLOperators, Serialization
-import GilaElectromagnetics.GilaVacuum: egoOpr!
-import GilaElectromagnetics.GilaTypes: dflPrc
+import GilaElectromagnetics: egoOpr!
+import GilaElectromagnetics: dflPrc
 
 # Pkg.test() runs core, Pkg.test(test_args = ["gpu", ...]) the named groups and "all" every group
 const tstGrp = [

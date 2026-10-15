@@ -3,8 +3,8 @@
 correctly rounded image of the fp64 one and every accuracy bound below is a
 statement about that single rounding, not about fp32 arithmetic in the build. =#
 using Test, GilaElectromagnetics, LinearAlgebra, LinearMaps, Serialization
-import GilaElectromagnetics.GilaOperators: setSus!, _witAdj
-import GilaElectromagnetics.GilaSolvers: slvPrm
+import GilaElectromagnetics: setSus!, _witAdj
+import GilaElectromagnetics: slvPrm
 
 const prcVol   = mkVol((4,4,4))
 const prcTrg   = mkVol((4,4,4); org=extOrg)
@@ -180,7 +180,7 @@ end
         @test_throws ArgumentError opr32 * zeros(ComplexF64, 192, 2)
         @test_throws ArgumentError opr32 * fld64
         @test_throws ArgumentError mul!(fld64, opr32, fld32, 1.0, 0.0)
-        @test_throws ArgumentError GilaElectromagnetics.GilaOperators.mulAct!(opr32, v64)
+        @test_throws ArgumentError GilaElectromagnetics.mulAct!(opr32, v64)
     end
 end
 
