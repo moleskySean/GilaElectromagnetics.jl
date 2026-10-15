@@ -77,7 +77,6 @@ function GlaVacOprMem(cmpInf::GlaKerOpt{T}, trgVol::GlaVol, srcVol::GlaVol=trgVo
     genCpx = Complex{genPrc(cmpInf)}
     egoCrc = Array{genCpx}(undef, 3, 3, totCelCrc..., totParSrc, totParTrg)
     genEgoCrc!(egoCrc, trgVol, srcVol, mixInf, cmpInf; shpCch, blk)
-    # verify that egoCrc contains numeric values
     if !all(isfinite, egoCrc)
         throw(ArgumentError("Computed circulant contains non-numeric values."))
     end
@@ -105,7 +104,7 @@ function GlaVacOprMem(cmpInf::GlaKerOpt{T}, trgVol::GlaVol, srcVol::GlaVol=trgVo
     # Fourier transform of the circulant and even/odd branch extraction on the
     # backend selected by cmpInf
     egoFur = genEgoFur(egoCrcCmp, truInf, cmpInf)
-    return GlaVacOprMem(cmpInf, egoFur, trgVol, srcVol)
+    return glaOprPrp(egoFur, trgVol, srcVol, mixInf, cmpInf)
 end
 
 # (row, col) position in the 3×3 tensor block of each of the six unique
@@ -167,10 +166,6 @@ function genEgoFur(egoCrcCmp::Array{<:Complex,6}, truInf::AbstractVector{<:Integ
     finally
         FFTW.set_num_threads(fftwThr)
     end
-    # verify integrity of Fourier transform data
-    if !all(isfinite, egoCrcCmp)
-        throw(ArgumentError("Fourier transform of circulant contains non-numeric values."))
-    end
     # final Fourier coefficients for a given branch
     egoFur = Array{Array{Complex{T}}}(undef, 8)
     # only one eighth of the green function is unique; the eight branch
@@ -201,10 +196,6 @@ function genEgoFur(egoCrcCmp::Array{<:Complex,6}, truInf::AbstractVector{<:Integ
     if sizeof(egoCrcCmp) <= 3 * (devMem(dev) ÷ 4)
         egoFurPrp = adapt(dev, egoCrcCmp)
         VkFFT.plan_fft!(egoFurPrp, 1:3) * egoFurPrp
-        # verify integrity of Fourier transform data
-        if !all(isfinite, egoFurPrp)
-            throw(ArgumentError("Fourier transform of circulant contains non-numeric values."))
-        end
         for eoItr ∈ 0:7
             extEgoBrn!(egoFur[eoItr + 1], egoFurPrp, eoItr)
         end
@@ -220,10 +211,6 @@ function genEgoFur(egoCrcCmp::Array{<:Complex,6}, truInf::AbstractVector{<:Integ
             trgItr = div(parItr, totParSrc) + 1
             copyto!(slbDev, 1, egoCrcVec, 1 + parItr * slbLen, slbLen)
             slbPln * slbDev
-            # verify integrity of Fourier transform data
-            if !all(isfinite, slbDev)
-                throw(ArgumentError("Fourier transform of circulant contains non-numeric values."))
-            end
             for eoItr ∈ 0:7
                 extEgoBrn!(view(egoFur[eoItr + 1], :, :, :, :, srcItr, trgItr), slbDev, eoItr)
             end
