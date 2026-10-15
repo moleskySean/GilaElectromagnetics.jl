@@ -74,7 +74,7 @@ end
     @test union(v1, v2, v3) == reduce(uniVol, [v1, v2, v3])
     # Incommensurate scales throw
     vBad = GlaVol((4,4,4), (1//48, 1//48, 1//48), extOrg)
-    @test_throws AssertionError uniVol(v1, vBad)
+    @test_throws ArgumentError uniVol(v1, vBad)
 end
 
 @testset "GlaExtInf error cases" begin

@@ -96,14 +96,14 @@ function uniVol(vol1::GlaVol, vol2::GlaVol)
     sclMin = min.(vol1.scl, vol2.scl)
     sclMax = max.(vol1.scl, vol2.scl)
     sclRat = sclMax .// sclMin
-    @assert all(isinteger.(sclRat)) "Volumes must share a common scale grid for overlap handling"
+    all(isinteger, sclRat) || throw(ArgumentError("Volumes must share a common scale grid for overlap handling"))
     scl = sclMin # Pick the finer scale as the common scale
 
     minEdg = min.(_lwrEdg(vol1), _lwrEdg(vol2))
     maxEdg = max.(_uprEdg(vol1), _uprEdg(vol2))
 
     cel = (maxEdg .- minEdg) .// scl
-    @assert all(isinteger.(cel)) "Computed union volume cell counts must be integers"
+    all(isinteger, cel) || throw(ArgumentError("Computed union volume cell counts must be integers"))
     cel = numerator.(cel)
     org = minEdg .+ (cel .* scl .// 2)
     return GlaVol(cel, scl, org)
@@ -569,13 +569,11 @@ end
 
 _facTup(factor::Integer) = ntuple(_ -> Int(factor), 3)
 _facTup(factor::NTuple{3,Integer}) = Int.(factor)
-_facTup(factor) = throw(ArgumentError("A refinement factor must be an Integer or an NTuple{3,Integer}, got $(typeof(factor))."))
 
 # Corners of the region to refine
 _boxBnd(box::GlaVol) = (_lwrEdg(box), _uprEdg(box))
 _boxBnd(box::Tuple{NTuple{3,Rational},NTuple{3,Rational}}) =
     (box[1] .- (box[2] .// 2), box[1] .+ (box[2] .// 2))
-_boxBnd(box) = throw(ArgumentError("A refinement box must be a GlaVol or a tuple (org, dims) of rational center and side lengths, got $(typeof(box))."))
 
 #= Cell index bounds of a box inside a region, half open and zero based. The
 bounds grow outward to cell boundaries and then to even cell indices, keeping 
@@ -671,10 +669,10 @@ You may refine a volume multiple times, even in nested a fashion.
 
 # Throws
 - `ArgumentError`: If `snap` is not `:outward`, if any refinement factor is less
-  than 1, if `box` is not a supported type, or if the resulting tiling violates
-  an invariant of `GlaCmpVol`
+  than 1, or if the resulting tiling violates an invariant of `GlaCmpVol`
 """
-function refine(cvol::GlaCmpVol, box; factor=2, snap::Symbol=:outward)
+function refine(cvol::GlaCmpVol, box::Union{GlaVol, Tuple{NTuple{3,Rational},NTuple{3,Rational}}};
+    factor::Union{Integer, NTuple{3,Integer}}=2, snap::Symbol=:outward)
     if snap !== :outward
         throw(ArgumentError("Unknown snapping mode :$(snap). Only :outward is implemented."))
     end

@@ -168,11 +168,11 @@ function mskRng(subVol::GlaVol, vol::GlaVol)
     stpVol = Rational.(step.(vol.grd))
     stpSub = Rational.(step.(subVol.grd))
     stpRat = stpSub .// stpVol
-    @assert all(isinteger.(stpRat)) "Volumes must share a common scale grid for masking"
+    all(isinteger, stpRat) || throw(ArgumentError("Volumes must share a common scale grid for masking"))
     stpRat = numerator.(stpRat)
 
     off = (first.(subVol.grd) .- first.(vol.grd)) .// stpVol # Offset between volumes
-    @assert all(isinteger.(off)) "Sub-volume must align with volume grid for masking"
+    all(isinteger, off) || throw(ArgumentError("Sub-volume must align with volume grid for masking"))
     off = numerator.(off)
     idxBeg = 1 .+ off # 1-based indexing
     idxEnd = idxBeg .+ ((subVol.cel .- 1) .* stpRat)

@@ -170,8 +170,8 @@ end
     @test_throws ArgumentError refine(GlaCmpVol(vol), box; snap=:inward)
     @test_throws ArgumentError refine(GlaCmpVol(vol), box; factor=0)
     @test_throws ArgumentError refine(GlaCmpVol(vol), box; factor=(2, 0, 2))
-    @test_throws ArgumentError refine(GlaCmpVol(vol), box; factor=2.0)
-    @test_throws ArgumentError refine(GlaCmpVol(vol), (0.0, 1.0))
+    @test_throws TypeError refine(GlaCmpVol(vol), box; factor=2.0)
+    @test_throws MethodError refine(GlaCmpVol(vol), (0.0, 1.0))
 end
 
 @testset "GlaCmpVol constructor errors" begin
