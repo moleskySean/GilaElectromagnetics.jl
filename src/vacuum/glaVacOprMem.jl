@@ -312,35 +312,24 @@ function Adapt.adapt_structure(to, mem::GlaVacOprMem)
     return glaOprPrp(egoFur, mem.trgVol, mem.srcVol, mem.mixInf, cmpInf)
 end
 
-# As with deepcopy above, serialization must regenerate the FFTW plans rather
-# than write out the raw C pointers, which are only meaningful inside the
-# process that created them. Only the Fourier data, volumes, and kernel options
-# (and the Bloch lattice, not its per-frequency BlcSet cache) are written, and glaOprPrp rebuilds the plans on load.
+#= The stored form of an operator memory, shared by Serialization and the JLD2
+extension: the Fourier data on the host, the kernel options and the two volumes.
+The FFT plans are process-local C pointers and mixInf follows from the volumes,
+so glaOprPrp rebuilds both on load. The Bloch lattice is kept, its per-frequency
+BlcSet cache is not. =#
+_memDsk(mem::GlaVacOprMem) = (egoFur = map(fur -> adapt(CPU(), fur), mem.egoFur), frqPhz = mem.cmpInf.frqPhz,
+    genPrc = mem.cmpInf.genPrc, qssApx = mem.cmpInf.qssApx, adjMod = mem.cmpInf.adjMod, blc = mem.cmpInf.blc,
+    trgVol = mem.trgVol, srcVol = mem.srcVol)
+
+# An operator memory on the CPU from its stored form, at the precision of the stored Fourier data
+function _memLod(dsk, genPrc = dsk.genPrc)
+    opt = GlaKerOpt{real(eltype(first(dsk.egoFur)))}(dsk.frqPhz, genPrc, dsk.qssApx, dsk.adjMod, CPU(), dsk.blc)
+    return glaOprPrp(dsk.egoFur, dsk.trgVol, dsk.srcVol, GlaExtInf(dsk.trgVol, dsk.srcVol), opt)
+end
+
 function Serialization.serialize(s::AbstractSerializer, mem::GlaVacOprMem)
     # serialize_type needs the concrete GlaVacOprMem{T}, not the UnionAll
     Serialization.serialize_type(s, typeof(mem))
-    serialize(s, map(fur -> adapt(CPU(), fur), mem.egoFur))
-    serialize(s, mem.cmpInf.frqPhz)
-    serialize(s, mem.cmpInf.genPrc)
-    serialize(s, mem.cmpInf.qssApx)
-    serialize(s, mem.cmpInf.adjMod)
-    serialize(s, mem.cmpInf.blc)
-    serialize(s, mem.trgVol)
-    serialize(s, mem.srcVol)
-    serialize(s, mem.mixInf)
+    serialize(s, _memDsk(mem))
 end
-
-function Serialization.deserialize(s::AbstractSerializer, ::Type{<:GlaVacOprMem})
-    egoFur = deserialize(s)
-    frqPhz = deserialize(s)
-    genPrc = deserialize(s)
-    qssApx = deserialize(s)
-    adjMod = deserialize(s)
-    blc = deserialize(s)
-    trgVol = deserialize(s)
-    srcVol = deserialize(s)
-    mixInf = deserialize(s)
-    # storage precision is recovered from the written Fourier data
-    prc = real(eltype(first(egoFur)))
-    return glaOprPrp(egoFur, trgVol, srcVol, mixInf, GlaKerOpt{prc}(frqPhz, genPrc, qssApx, adjMod, CPU(), blc))
-end
+Serialization.deserialize(s::AbstractSerializer, ::Type{<:GlaVacOprMem}) = _memLod(deserialize(s))

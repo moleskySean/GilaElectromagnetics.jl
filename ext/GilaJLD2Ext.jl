@@ -9,13 +9,11 @@ back on the device. =#
 module GilaJLD2Ext
 
 using GilaElectromagnetics
-using GilaElectromagnetics.GilaVacuum: glaOprPrp
-using GilaElectromagnetics.GilaVolumes: GlaExtInf
+using GilaElectromagnetics.GilaVacuum: _memDsk, _memLod
 using DoubleFloats: Double64
-using KernelAbstractions: CPU
 import JLD2
 
-# The Fourier data, and what glaOprPrp needs to rebuild the plans around it
+# The stored form of _memDsk, with the generation precision named
 struct MemDsk{T<:AbstractFloat}
     egoFur::Vector{Array{Complex{T}, 6}}
     frqPhz::ComplexF64
@@ -45,17 +43,9 @@ _symPrc(genPrc::Symbol) = genPrc === :Float64 ? Float64 :
 
 JLD2.writeas(::Type{<:GlaVacOprMem{T}}) where T<:AbstractFloat = MemDsk{T}
 
-function JLD2.wconvert(::Type{MemDsk{T}}, mem::GlaVacOprMem{T}) where T<:AbstractFloat
-    return MemDsk{T}(collect(map(Array, mem.egoFur)), mem.cmpInf.frqPhz,
-        _prcSym(mem.cmpInf.genPrc), mem.cmpInf.qssApx, mem.cmpInf.adjMod, mem.cmpInf.blc, mem.trgVol, mem.srcVol)
-end
-
-#= mixInf is a pure function of the two volumes---GlaVacOprMem's own constructor
-computes it as GlaExtInf(trgVol, srcVol)---so it never reaches the disk, and
-neither do the CartesianIndices it holds. =#
-JLD2.rconvert(::Type{<:GlaVacOprMem{T}}, dsk::MemDsk{T}) where T<:AbstractFloat =
-    glaOprPrp(dsk.egoFur, dsk.trgVol, dsk.srcVol, GlaExtInf(dsk.trgVol, dsk.srcVol),
-        GlaKerOpt{T}(dsk.frqPhz, _symPrc(dsk.genPrc), dsk.qssApx, dsk.adjMod, CPU(), dsk.blc))
+JLD2.wconvert(::Type{MemDsk{T}}, mem::GlaVacOprMem{T}) where T<:AbstractFloat =
+    MemDsk{T}(merge(_memDsk(mem), (; genPrc = _prcSym(mem.cmpInf.genPrc)))...)
+JLD2.rconvert(::Type{<:GlaVacOprMem{T}}, dsk::MemDsk{T}) where T<:AbstractFloat = _memLod(dsk, _symPrc(dsk.genPrc))
 
 JLD2.writeas(::Type{<:SusOpr{T, A}}) where {T<:AbstractFloat, A} = SusDsk{T, ndims(A)}
 
