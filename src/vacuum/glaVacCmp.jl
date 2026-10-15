@@ -65,34 +65,6 @@ Copy of `opt` with storage precision `T`, on `dev`.
 GlaKerOpt{T}(opt::GlaKerOpt, dev::KernelAbstractions.Backend=opt.dev) where T<:AbstractFloat = GlaKerOpt{T}(opt.frqPhz, opt.genPrc, opt.qssApx, opt.adjMod, dev, opt.blc, opt.blcSet)
 
 """
-    frqPhz(opt::GlaKerOpt) -> ComplexF64
-
-Get the multiplicative scaling factor allowing for complex frequencies.
-"""
-frqPhz(opt::GlaKerOpt) = opt.frqPhz
-
-"""
-    genPrc(opt::GlaKerOpt)
-
-Get the generation precision.
-"""
-genPrc(opt::GlaKerOpt) = opt.genPrc
-
-"""
-    qssApx(opt::GlaKerOpt)
-
-Get the quasistatic approximation flag.
-"""
-qssApx(opt::GlaKerOpt) = opt.qssApx
-
-"""
-    adjMod(opt::GlaKerOpt)
-
-Get the adjoint mode flag.
-"""
-adjMod(opt::GlaKerOpt) = opt.adjMod
-
-"""
     devMem(dev::KernelAbstractions.Backend)
 
 Bytes free on `dev` for the Fourier stage of operator creation, `typemax(Int)`

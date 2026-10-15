@@ -600,7 +600,7 @@ setBlc!(opr::AbstractGlaVacOpr, θ::Tuple) = (setBlc!(opr.mem, θ); opr)
 # One blcCmp call for every block, one per sandwich for its fine pair; a block in adjoint mode holds the adjoint of its transposed pair
 function setBlc!(opr::GlaCmpOprVac, θ::Tuple)
     mem = first(opr.blkMat).mem
-    frq, blc = Complex{genPrc(mem.cmpInf)}(frqPhz(mem.cmpInf)), merge(mem.cmpInf.blc, (; θ))
+    frq, blc = Complex{mem.cmpInf.genPrc}(mem.cmpInf.frqPhz), merge(mem.cmpInf.blc, (; θ))
     blcBlk = _blcCmp(regions(opr.trgCvl), frq, blc)
     for idx in CartesianIndices(opr.blkMat)
         blk = opr.blkMat[idx]

@@ -14,7 +14,7 @@ using ..GilaVolumes: _ovrLap, _lwrEdg
 
 Everything a vacuum operator needs to act: the options `cmpInf`, the two volumes,
 the grid matching `mixInf`, the Fourier coefficients `egoFur` of the circulant
-kernel (generated at `genPrc(cmpInf)`, rounded once to `Complex{T}`), the FFT
+kernel (generated at `cmpInf.genPrc`, rounded once to `Complex{T}`), the FFT
 plans of the operator and of its adjoint, which `adjoint!` swaps, and the phases `phzInf` of the even/odd
 branch split at each level.
 """
@@ -61,7 +61,7 @@ self construction.
 """
 function GlaVacOprMem(cmpInf::GlaKerOpt{T}, trgVol::GlaVol, srcVol::GlaVol=trgVol; shpCch::Bool = false, prxWrn::Bool = true, hrmPrt::Union{Nothing,Symbol} = nothing, blk = nothing) where T<:AbstractFloat
     hrmPrt ∈ (nothing, :sym, :asy) || throw(ArgumentError("hrmPrt is :sym, :asy or nothing, got $(repr(hrmPrt))."))
-    prxWrn && prxChk(frqPhz(cmpInf), trgVol, srcVol)
+    prxWrn && prxChk(cmpInf.frqPhz, trgVol, srcVol)
     mixInf = genEveExtInf(trgVol, srcVol)
     # a Bloch kernel is not complex symmetric: genEgoSlf! takes its parts H and A from the fill
     cmpInf.blc === nothing || (cmpInf.blc = merge(cmpInf.blc, (; hrmPrt)))
@@ -74,7 +74,7 @@ function GlaVacOprMem(cmpInf::GlaKerOpt{T}, trgVol::GlaVol, srcVol::GlaVol=trgVo
 
     # memory for circulant green function vector. The integral kernels want
     # the 3×3 tensor block contiguous per cell, so the fill keeps this layout
-    genCpx = Complex{genPrc(cmpInf)}
+    genCpx = Complex{cmpInf.genPrc}
     egoCrc = Array{genCpx}(undef, 3, 3, totCelCrc..., totParSrc, totParTrg)
     genEgoCrc!(egoCrc, trgVol, srcVol, mixInf, cmpInf; shpCch, blk)
     if !all(isfinite, egoCrc)
@@ -262,7 +262,7 @@ function glaOprPrp(egoFur::AbstractVector{<:AbstractArray{Complex{T}}}, trgVol::
     return GlaVacOprMem{T}(cmpInf, trgVol, srcVol, mixInf, brnSze, egoFur, fftPlnFwd, fftPlnRev, adjFftPlnFwd, adjFftPlnRev, phzInf)
 end
 
-isadjoint(vacOprMem::GlaVacOprMem) = adjMod(vacOprMem.cmpInf)
+isadjoint(vacOprMem::GlaVacOprMem) = vacOprMem.cmpInf.adjMod
 
 """
     setBlc!(mem::GlaVacOprMem, θ::Tuple, blk = nothing)
@@ -274,12 +274,12 @@ function setBlc!(mem::GlaVacOprMem, θ::Tuple, blk = nothing)
     opt.blc === nothing && throw(ArgumentError("setBlc! needs an operator built with a Bloch lattice."))
     opt.blc = merge(opt.blc, (; θ))
     totCelCrc = mem.mixInf.trgCel .+ mem.mixInf.srcCel
-    egoCrc = Array{Complex{genPrc(opt)}}(undef, 3, 3, totCelCrc..., 1, 1)
+    egoCrc = Array{Complex{opt.genPrc}}(undef, 3, 3, totCelCrc..., 1, 1)
     genEgoCrc!(egoCrc, mem.trgVol, mem.srcVol, mem.mixInf, opt; blk)
-    egoCrcCmp = Array{Complex{genPrc(opt)}}(undef, totCelCrc..., 6, 1, 1)
+    egoCrcCmp = Array{Complex{opt.genPrc}}(undef, totCelCrc..., 6, 1, 1)
     gthEgoCmp!(egoCrcCmp, egoCrc)
     egoFur = genEgoFur(egoCrcCmp, collect(size(first(mem.egoFur))[1:3]), opt)
-    foreach((dst, src) -> dst .= adjMod(opt) ? conj.(src) : src, mem.egoFur, egoFur)
+    foreach((dst, src) -> dst .= opt.adjMod ? conj.(src) : src, mem.egoFur, egoFur)
     return mem
 end
 

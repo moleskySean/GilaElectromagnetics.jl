@@ -41,7 +41,7 @@ _sepRow(opr::Union{GlaOprVac, AsyGlaOprVac, SymGlaOprVac}) =
     "(" * join(_ratStr.(_trgVol(opr).org .- _srcVol(opr).org), ", ") * ")λ"
 
 _kerRow(opr::Union{GlaOprVac, AsyGlaOprVac, SymGlaOprVac}) =
-    "$(isquasistatic(opr) ? "quasistatic" : "full"), frequency $(frqPhz(opr.mem.cmpInf))"
+    "$(isquasistatic(opr) ? "quasistatic" : "full"), frequency $(opr.mem.cmpInf.frqPhz)"
 
 function _dofStr(opr::AbstractGlaOpr)
     m, n = size(opr)

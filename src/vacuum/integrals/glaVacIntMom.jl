@@ -1253,8 +1253,8 @@ function cntBlk!(egoToe::AbstractArray{<:Complex,5}, vol::GlaVol,
     cmpInf::GlaKerOpt)
 
     stp = ntuple(itr -> Rational(step(vol.grd[itr])), 3)
-    frq = ComplexDF64(frqPhz(cmpInf))
-    mom = cntMom(vol.scl, stp, serOrd(vol.scl, stp, frqPhz(cmpInf)))
+    frq = ComplexDF64(cmpInf.frqPhz)
+    mom = cntMom(vol.scl, stp, serOrd(vol.scl, stp, cmpInf.frqPhz))
     celInv = inv(prod(Double64.(vol.scl)))
     srfMat = zeros(MVector{36,ComplexDF64})
     egoCel = zeros(MMatrix{3,3,ComplexDF64})

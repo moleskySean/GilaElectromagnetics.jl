@@ -11,7 +11,7 @@ using .Bloch
 
 # Holds computational information (CPU vs GPU, etc.) for the Green function
 include("glaVacCmp.jl")
-export GlaKerOpt, dflPrc, frqPhz, genPrc, qssApx, adjMod
+export GlaKerOpt, dflPrc
 
 # Defines GlaVacOprMem, the struct holding the info to compute the Green function
 include("glaVacOprMem.jl")
