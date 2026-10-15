@@ -36,61 +36,20 @@ _volRow(opr::Union{GlaOprVac, AsyGlaOprVac, SymGlaOprVac}) = isselfoperator(opr)
     _volDesc(_srcVol(opr), "  →  ") : string(join(_srcVol(opr).cel, "×"), " cells of ",
     _sclStr(_srcVol(opr).scl), "  →  ", join(_trgVol(opr).cel, "×"), " cells of ", _sclStr(_trgVol(opr).scl))
 
-# The center separation of an external operator's two volumes, as already computed
-_sepRow(opr::Union{GlaOprVac, AsyGlaOprVac, SymGlaOprVac}) =
-    "(" * join(_ratStr.(_trgVol(opr).org .- _srcVol(opr).org), ", ") * ")λ"
-
-_kerRow(opr::Union{GlaOprVac, AsyGlaOprVac, SymGlaOprVac}) =
-    "$(isquasistatic(opr) ? "quasistatic" : "full"), frequency $(opr.mem.cmpInf.frqPhz)"
-
 function _dofStr(opr::AbstractGlaOpr)
     m, n = size(opr)
     return m == n ? "$n dof" : "$m × $n dof"
 end
 _stoRow(opr::AbstractGlaOpr) = "$(_dofStr(opr)), egoFur $(_szStr(_szBytes(opr)))"
 
-#= The rows of the vacuum family's block show. InvSctOpr, SctOpr and GlaOpr reach
-this through GlaOprVac(opr), which resolves to the plain or composite method
-depending on what they were built over, so no isa check is needed here. =#
-function _oprRow(opr::AbstractGlaOpr)
-    rows = [("volume", _volRow(opr))]
-    isexternaloperator(opr) && push!(rows, ("separation", _sepRow(opr)))
-    push!(rows, ("kernel", _kerRow(opr)))
-    push!(rows, ("storage", _stoRow(opr)))
-    return rows
-end
-
-#= The direction-1 component of a per-cell susceptibility vector, one entry per
-cell in coordinates(cvol) order. Exact for the uniform and per-cell isotropic
-cases; for a per-component diagonal vector it is a representative, not a mean. =#
-function _susCel(sus::AbstractVector, cvol::GlaCmpVol)
-    off = _dofOff(cvol)
-    cel = similar(sus, off[end] ÷ 3)
-    celOff = 0
-    for (i, reg) in enumerate(regions(cvol))
-        n = prod(reg.cel)
-        cel[celOff+1:celOff+n] .= view(sus, off[i]+1:off[i]+n)
-        celOff += n
-    end
-    return cel
-end
-
-# A one-line summary of a susceptibility: uniform, ranged, or anisotropic
-function _susSummary(x::SusOpr)
-    ndims(x.sus) == 3 && return "anisotropic, $(size(x.sus, 1)) cells"
-    cel = _susCel(Array(x.sus), x.cvol)
-    allequal(cel) && return "uniform χ = $(first(cel))"
-    lo, hi = extrema(abs, cel)
-    return "χ ∈ [$lo, $hi], $(count(!iszero, cel)) of $(length(cel)) cells nonzero"
-end
-
-_oprRow(opr::SusOpr) = [("volume", sprint(show, opr.cvol)),
-    ("susceptibility", _susSummary(opr)),
-    ("storage", "$(_dofStr(opr)), sus $(_szStr(sizeof(opr.sus)))")]
-
-_oprRow(opr::InvSctOpr) = push!(_oprRow(GlaOprVac(opr)), ("susceptibility", _susSummary(opr.sus)))
-_oprRow(opr::Union{SctOpr, GlaOpr}) =
-    push!(_oprRow(GlaOprVac(opr)), ("solver", string(nameof(typeof(slv(opr))))))
+#= The rows under the header of the multi-line show. A scattering operator shows
+the vacuum operator it was built over, plain or composite. =#
+_oprRow(opr::AbstractGlaOpr) = [("storage", _stoRow(opr))]
+_oprRow(opr::Union{GlaOprVac, AsyGlaOprVac, SymGlaOprVac}) = [("volume", _volRow(opr)),
+    ("kernel", "$(isquasistatic(opr) ? "quasistatic" : "full"), frequency $(opr.mem.cmpInf.frqPhz)"),
+    ("storage", _stoRow(opr))]
+_oprRow(opr::AnySctOpr) = _oprRow(GlaOprVac(opr))
+_oprRow(opr::SusOpr) = [("volume", sprint(show, opr.cvol)), ("storage", "$(_dofStr(opr)), sus $(_szStr(sizeof(opr.sus)))")]
 
 # The regions row replaces the bespoke composite show with a short table
 function _oprRow(opr::GlaCmpOprVac)
@@ -117,6 +76,7 @@ function _dimStr(opr::Union{GlaOprVac, AsyGlaOprVac, SymGlaOprVac})
     return join(_srcVol(opr).cel, "×") * " → " * join(_trgVol(opr).cel, "×")
 end
 _dimStr(opr::AnySctOpr) = _dimStr(GlaOprVac(opr))
+_dimStr(opr::GlaSndOprVac) = join(glaSze(opr, 2)[1:3], "×") * " → " * join(glaSze(opr, 1)[1:3], "×")
 _dimStr(opr::SusOpr) = "$(size(opr, 2)) dof"
 
 function _dimStr(opr::GlaCmpOprVac)
@@ -140,13 +100,3 @@ function Base.show(io::IO, ::MIME"text/plain", opr::AbstractGlaOpr)
         _shwRow(io, lbl, val)
     end
 end
-
-function Base.show(io::IO, opr::GlaSndOprVac)
-    isadjoint(opr) && print(io, "Adjoint ")
-    print(io, nameof(typeof(get_backend(opr))), " ")
-    print(io, "fine mesh G₀ for $(eltype(opr)) (" *
-        join(glaSze(opr, 2)[1:3], "×") * ") -> (" *
-        join(glaSze(opr, 1)[1:3], "×") * ") volumes ")
-    print(io, "on a (" * join(_srcVol(opr.opr).scl, "×") * ")λ³ mesh")
-end
-Base.show(io::IO, ::MIME"text/plain", opr::GlaSndOprVac) = show(io, opr)
