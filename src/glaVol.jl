@@ -115,23 +115,22 @@ Base.union(vols::GlaVol...) = reduce(uniVol, vols)
 Information for mapping between general source and target volumes.
 
 # Fields
-- `minScl::NTuple{3,Rational}`: Common minimum cell size (in units of wavelength)
-- `trgDiv::NTuple{3,Integer}`: Divisions in each cartesian index of source volume
-- `srcDiv::NTuple{3,Integer}`: Divisions in each cartesian index of target volume
-- `trgCel::NTuple{3,Integer}`: Cells in a target partition
-- `srcCel::NTuple{3,Integer}`: Cells in a source partition
-- `trgPar::CartesianIndices`: Identification of volume partition with grid offsets in target volume
-- `srcPar::CartesianIndices`: Identification of volume partition with grid offsets in source volume
+- `minScl::NTuple{3,Rational{Int}}`: Common minimum cell size (in units of wavelength)
+- `trgDiv::NTuple{3,Int}`: Divisions in each cartesian index of target volume
+- `srcDiv::NTuple{3,Int}`: Divisions in each cartesian index of source volume
+- `trgCel::NTuple{3,Int}`: Cells in a target partition
+- `srcCel::NTuple{3,Int}`: Cells in a source partition
 """
-mutable struct GlaExtInf
-    minScl::NTuple{3,Rational}
-    trgDiv::NTuple{3,Integer}
-    srcDiv::NTuple{3,Integer}
-    trgCel::NTuple{3,Integer}
-    srcCel::NTuple{3,Integer}
-    trgPar::CartesianIndices
-    srcPar::CartesianIndices
+struct GlaExtInf
+    minScl::NTuple{3,Rational{Int}}
+    trgDiv::NTuple{3,Int}
+    srcDiv::NTuple{3,Int}
+    trgCel::NTuple{3,Int}
+    srcCel::NTuple{3,Int}
 end
+
+# Grid offset of partition itr among the div partitions of a volume, zero based
+_parOff(div::NTuple{3,Int}, itr::Integer) = Tuple(CartesianIndices(div)[itr]) .- 1
 
 """
     GlaExtInf(trgVol::GlaVol, srcVol::GlaVol)
@@ -170,12 +169,8 @@ function GlaExtInf(trgVol::GlaVol, srcVol::GlaVol)::GlaExtInf
     if prod(trgDivCel) == 0 || prod(srcDivCel) == 0
         error("Volume sizes are incompatible---volume smaller than cell.")
     end
-    # association of volume partition with grid offset
-    trgPar = CartesianIndices(tuple(trgDivGrd...)) .- CartesianIndex(1, 1, 1)
-    srcPar = CartesianIndices(tuple(srcDivGrd...)) .- CartesianIndex(1, 1, 1)
     # create transfer information
-    return GlaExtInf(minScl, trgDivGrd, srcDivGrd, trgDivCel, srcDivCel, 
-        trgPar, srcPar)
+    return GlaExtInf(minScl, trgDivGrd, srcDivGrd, trgDivCel, srcDivCel)
 end
 
 #=
