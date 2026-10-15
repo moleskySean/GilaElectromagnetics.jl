@@ -384,15 +384,15 @@ Two different volumes are two bodies and must not overlap.
 
 Same-scale pairs and separated cross-scale pairs use the external path; a
 cross-scale pair in contact is built on the finer mesh, see `GlaSndOprVac`.
-Keywords as for `GlaOprVac`, without `prxWrn`; the Bloch periods `P` of `blc`
-count cells of the finest region.
+Keywords as for `GlaOprVac`; `prxWrn` warns once, for the closest pair of regions.
+The Bloch periods `P` of `blc` count cells of the finest region.
 """
 function GlaCmpOprVac{T}(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol;
-    dev::Backend=CPU(), frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false,
+    dev::Backend=CPU(), prxWrn::Bool=true, frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false,
     shpCch::Bool=false, hrmPrt::Union{Nothing,Symbol}=nothing, blc=nothing) where T<:AbstractFloat
     slfCmp = trgCvl == srcCvl
     trgRegs, srcRegs = regions(trgCvl), regions(srcCvl)
-    slfCmp || _prxCmpChk(trgRegs, srcRegs)
+    prxWrn && !slfCmp && _prxCmpChk(trgRegs, srcRegs)
     if blc !== nothing
         slfCmp || throw(ArgumentError("A Bloch lattice is self volume only."))
         blc = (; blc.ax, L = ntuple(j -> blc.P[j] * minimum(reg -> reg.scl[blc.ax[j]], trgRegs), length(blc.ax)), blc.θ)

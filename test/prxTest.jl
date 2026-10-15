@@ -28,4 +28,6 @@ end
     @test_logs min_level = Logging.Warn GlaCmpOprVac{Float64}(cvlA,
         GlaCmpVol([prxVol(10//16)]))
     @test_logs min_level = Logging.Warn GlaCmpOprVac{Float64}(cvlA, cvlA)
+    @test_logs min_level = Logging.Warn GlaOprVac{Float64}(cvlA,
+        GlaCmpVol([prxVol(6//16)]); prxWrn = false)
 end
