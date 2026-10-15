@@ -95,8 +95,8 @@ function egoBrn!(egoMem::GlaVacOprMem, lvl::Integer, bId::Integer, actVec::Abstr
         fill!(retVec, zero(eltype(retVec)))
         synchronize(egoMem.cmpInf.dev)
         # multiply by Toeplitz vector, sequentially: every source partition adds into the same target slice
-        for trgItr in eachindex(1:parNumTrg) 
-            for srcItr in eachindex(1:parNumSrc) 
+        for trgItr in 1:parNumTrg 
+            for srcItr in 1:parNumSrc 
                 mulBrn!(egoMem, bId, selectdim(retVec, 5, trgItr),
                 view(egoMem.egoFur[bId + 1], :, :, :, :, srcItr, trgItr), 
                 selectdim(orgVec, 5, srcItr))

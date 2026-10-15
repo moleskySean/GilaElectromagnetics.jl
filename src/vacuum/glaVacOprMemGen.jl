@@ -13,7 +13,7 @@ function genEgoCrc!(egoCrc::AbstractArray{<:Complex}, trgVol::GlaVol, srcVol::Gl
     totParTrg = prod(mixInf.trgDiv)
     totParSrc = prod(mixInf.srcDiv)
     # partition source and target for consistent distance offsets
-    for trgItr ∈ eachindex(1:totParTrg)
+    for trgItr ∈ 1:totParTrg
         # target grid offset
         trgGrdOff = Tuple(mixInf.trgPar[trgItr]) 
         # offset of center of partition from center of volume
@@ -22,7 +22,7 @@ function genEgoCrc!(egoCrc::AbstractArray{<:Complex}, trgVol::GlaVol, srcVol::Gl
         trgGrdScl = mixInf.trgDiv .* trgVol.scl
         # create target volume partition
         trgVolPar = GlaVol(mixInf.trgCel, trgVol.scl, trgOrgOff, trgGrdScl)
-        for srcItr ∈ eachindex(1:totParSrc) 
+        for srcItr ∈ 1:totParSrc 
             # relative grid position
             srcGrdOff = Tuple(mixInf.srcPar[srcItr]) 
             # offset of center of partition from center of volume

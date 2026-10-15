@@ -39,16 +39,7 @@ finite. One volume gives the self construction.
 """
 function GlaVacOprMem(cmpInf::GlaKerOpt{T}, egoFur::AbstractVector{<:AbstractArray{Complex{T}}}, trgVol::GlaVol, srcVol::GlaVol=trgVol) where T<:AbstractFloat
     mixInf = genEveExtInf(trgVol, srcVol)
-    # branching depth of multiplication
-    lvl = 3
-    # number of multiplication branches     
-    eoDim = 2^lvl
-    # verify that egoFur contains only numeric values
-    for eoItr ∈ eachindex(1:eoDim)
-        if !all(isfinite, egoFur[eoItr])
-            throw(ArgumentError("Fourier information contains non-numeric values."))
-        end
-    end
+    all(fur -> all(isfinite, fur), egoFur) || throw(ArgumentError("Fourier information contains non-numeric values."))
     return glaOprPrp(egoFur, trgVol, srcVol, mixInf, cmpInf)
 end
 
@@ -106,19 +97,11 @@ function GlaVacOprMem(cmpInf::GlaKerOpt{T}, trgVol::GlaVol, srcVol::GlaVol=trgVo
     end
     # allow the 9-component fill array to be reclaimed before the transform
     egoCrc = nothing
-    # number of unique elements in each cartesian index for a branch
-    truInf = Array{Int}(undef, 3)
-    for dirItr ∈ eachindex(1:3)
-        # row and column entries are symmetric or anti-symmetric, except along a periodic axis
-        if mixInf.trgCel[dirItr] == mixInf.srcCel[dirItr] && all(mixInf.srcDiv .== 1) && all(mixInf.trgDiv .== 1) && trgVol.org[dirItr] == srcVol.org[dirItr] &&
-            (cmpInf.blc === nothing || dirItr ∉ cmpInf.blc.ax)
-            # store only necessary information
-            truInf[dirItr] = max(Integer(ceil(mixInf.trgCel[dirItr] / 2)) + iseven(mixInf.trgCel[dirItr]), 2)
-            continue
-        end
-        # genVolEve enforces that number of cells is even
-        truInf[dirItr] = totCelCrc[dirItr] ÷ 2
-    end
+    # row and column entries are symmetric or anti-symmetric, except along a periodic axis
+    symDir(dir) = mixInf.trgCel[dir] == mixInf.srcCel[dir] && all(mixInf.srcDiv .== 1) && all(mixInf.trgDiv .== 1) &&
+        trgVol.org[dir] == srcVol.org[dir] && (cmpInf.blc === nothing || dir ∉ cmpInf.blc.ax)
+    # number of unique elements in each direction of a branch; genVolEve enforces an even number of cells
+    truInf = [symDir(dir) ? max(mixInf.trgCel[dir] ÷ 2 + 1, 2) : totCelCrc[dir] ÷ 2 for dir in 1:3]
     # Fourier transform of the circulant and even/odd branch extraction on the
     # backend selected by cmpInf
     egoFur = genEgoFur(egoCrcCmp, truInf, cmpInf)
@@ -292,7 +275,7 @@ function glaOprPrp(egoFur::AbstractVector{<:AbstractArray{Complex{T}}}, trgVol::
     adjFftPlnRev = Array{AbstractFFTs.Plan}(undef, lvls)
     (; srcCel, trgCel, srcDiv, trgDiv) = mixInf
     # initialize Fourier transform plans
-    for dir ∈ eachindex(1:lvls)
+    for dir ∈ 1:lvls
         # size of vector changes throughout application for external Green 
         vecSzeFwd = ntuple(x -> x <= dir ? brnSze[x] : srcCel[x], 3)
         vecSzeRev = ntuple(x -> x > dir ? trgCel[x] : brnSze[x], 3)
@@ -301,7 +284,7 @@ function glaOprPrp(egoFur::AbstractVector{<:AbstractArray{Complex{T}}}, trgVol::
         fftPlnFwd[dir], fftPlnRev[dir], adjFftPlnFwd[dir], adjFftPlnRev[dir] = fftPlnGen(fwdSze, revSze, dir, cmpInf)
     end
     # phase transformations (internal for block Toeplitz transformations)
-    for itr ∈ eachindex(1:lvls)
+    for itr ∈ 1:lvls
         # allows calculation odd coefficient numbers
         phzInfHst = Complex{T}.([cispi(-k / brnSze[itr]) for k ∈ 0:(brnSze[itr] - 1)])
         phzInf[itr] = similar(first(egoFur), brnSze[itr])
