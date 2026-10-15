@@ -136,10 +136,10 @@ allocates its Krylov basis with a matrix shaped similar, which would strip it. =
     @test sol.cvol == fld.cvol
     @test sol.dat ≈ fld.dat rtol=1e-6
 
-    out = zerofield(Float64, GlaCmpVol(_vol2s))
+    out = zeros(ComplexF64, GlaCmpVol(_vol2s))
     @test ldiv!(out, sct, sct * fld) === out
     @test out.dat ≈ fld.dat rtol=1e-6
 
     # A field on another tiling is refused rather than solved on
-    @test_throws ArgumentError sct \ zerofield(Float64, GlaCmpVol(_vol4))
+    @test_throws ArgumentError sct \ zeros(ComplexF64, GlaCmpVol(_vol4))
 end

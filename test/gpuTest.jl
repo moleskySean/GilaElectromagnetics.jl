@@ -44,8 +44,8 @@ const gpuCvl = refine(GlaCmpVol(GlaVol((4,2,2), scl16, stdOrg)),
     @testset "composite operator" begin
         oprCpu = GlaCmpOprVac{Float32}(gpuCvl)
         oprGpu = GlaCmpOprVac{Float32}(gpuCvl; dev)
-        fldCpu = discretize!(zerofield(Float32, gpuCvl), tstDns)
-        fldGpu = discretize!(zerofield(Float32, gpuCvl; dev), tstDns)
+        fldCpu = discretize!(zeros(ComplexF32, gpuCvl), tstDns)
+        fldGpu = discretize!(zeros(ComplexF32, gpuCvl; dev), tstDns)
         out = (oprCpu * fldCpu).dat
         outGpu = oprGpu * fldGpu
         @test get_backend(outGpu) isa typeof(dev)
@@ -77,8 +77,8 @@ const gpuCvl = refine(GlaCmpVol(GlaVol((4,2,2), scl16, stdOrg)),
     end
 
     @testset "field" begin
-        fldCpu = discretize!(zerofield(Float32, gpuCvl), tstDns)
-        fldGpu = discretize!(zerofield(Float32, gpuCvl; dev), tstDns)
+        fldCpu = discretize!(zeros(ComplexF32, gpuCvl), tstDns)
+        fldGpu = discretize!(zeros(ComplexF32, gpuCvl; dev), tstDns)
         @test get_backend(fldGpu) isa typeof(dev)
         @test norm(fldGpu) ≈ norm(fldCpu)
         @test dot(fldGpu, fldGpu) ≈ dot(fldCpu, fldCpu)

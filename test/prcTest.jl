@@ -55,8 +55,8 @@ end
     @test dflPrc === Float32
     @test GlaKerOpt() isa GlaKerOpt{Float32, CPU}
     @test prcDflOpr isa GlaOprVac{Float32}
-    @test zerofield(GlaCmpVol(prcVol2)) isa GlaFld{Float32}
-    @test zerofield(prcVol2) isa GlaFld{Float32}
+    @test zeros(GlaCmpVol(prcVol2)) isa GlaFld{Float32}
+    @test zeros(prcVol2) isa GlaFld{Float32}
     # An fp64 susceptibility is converted on construction, the one allowed conversion
     @test eltype(GlaOpr(prcDflOpr, mkSus((2,2,2)))) == ComplexF32
     @test InvSctOpr(prcDflOpr, mkSus((2,2,2))) isa InvSctOpr{Float32}
@@ -164,8 +164,8 @@ end
     out32, out64 = similar(v32), similar(v64)
     ten32 = zeros(ComplexF32, 4, 4, 4, 3)
     ten64 = zeros(ComplexF64, 4, 4, 4, 3)
-    fld64 = zerofield(Float64, prcVol)
-    fld32 = zerofield(Float32, prcVol)
+    fld64 = zeros(ComplexF64, prcVol)
+    fld32 = zeros(ComplexF32, prcVol)
     #= Every one of these has to be an explicit throwing method: absent, the
     caller gets a method error rather than the conversion to make, and nothing
     may reach the scalar getindex on the way there, so no warning may appear. =#
@@ -186,13 +186,13 @@ end
 
 @testset "GlaFld at Float32" begin
     cvol = GlaCmpVol(prcVol)
-    fld = zerofield(Float32, cvol)
+    fld = zeros(ComplexF32, cvol)
     @test fld isa GlaFld{Float32}
     @test eltype(fld) == ComplexF32
     @test eltype(parent(fld)) == ComplexF32
     @test eltype(similar(fld)) == ComplexF32
 
-    dsc = discretize!(zerofield(Float32, cvol), tstDns)
+    dsc = discretize!(zeros(ComplexF32, cvol), tstDns)
     @test eltype(dsc.dat) == ComplexF32
     # Broadcast keeps the wrapper and the precision
     bct = 2 .* dsc .+ dsc
@@ -204,7 +204,7 @@ end
     opr32 = prcG032()
     out = opr32 * dsc
     @test out isa GlaFld{Float32}
-    outMul = zerofield(Float32, cvol)
+    outMul = zeros(ComplexF32, cvol)
     mul!(outMul, opr32, dsc, 2.0, 0.0)
     @test norm(outMul.dat .- 2 .* out.dat) < 1e-5 * norm(out.dat)
 

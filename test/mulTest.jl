@@ -84,7 +84,7 @@ end
 
 @testset "GlaFld mul!" begin
     for (opr, cvl) in ((_cmp2s, _cvl2s), (_g0s(), GlaCmpVol(_vol2s)))
-        inp = discretize!(zerofield(Float64, cvl), tstDns)
+        inp = discretize!(zeros(ComplexF64, cvl), tstDns)
         sav = copy(inp.dat)
         ref = opr * inp
         @test ref isa GlaFld

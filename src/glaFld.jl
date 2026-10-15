@@ -46,34 +46,6 @@ end
 
 const MultiScaleField = GlaFld
 
-"""
-    GlaFld(cvol::GlaCmpVol; dev::Backend=CPU())
-
-Construct the zero field over a composite volume. Same as `zerofield`.
-
-# Arguments
-- `cvol::GlaCmpVol`: The composite volume
-- `dev::Backend=CPU()`: The KernelAbstractions backend holding the buffer
-
-# Returns
-- `GlaFld`: A field of zeros with one entry per degree of freedom
-"""
-GlaFld(cvol::GlaCmpVol; dev::Backend=CPU()) = zerofield(cvol; dev=dev)
-
-"""
-    GlaFld(vol::GlaVol; dev::Backend=CPU())
-
-Construct the zero field over a plain volume. Same as `zerofield`.
-
-# Arguments
-- `vol::GlaVol`: The volume
-- `dev::Backend=CPU()`: The KernelAbstractions backend holding the buffer
-
-# Returns
-- `GlaFld`: A field of zeros with one entry per degree of freedom
-"""
-GlaFld(vol::GlaVol; dev::Backend=CPU()) = zerofield(GlaCmpVol(vol); dev=dev)
-
 Adapt.adapt_structure(to, fld::GlaFld) = GlaFld(adapt(to, fld.dat), fld.cvol)
 
 Base.zero(fld::GlaFld) = GlaFld(zero(fld.dat), fld.cvol)
@@ -181,42 +153,24 @@ function Base.copyto!(fld::GlaFld,
 end
 
 """
-    zerofield(::Type{T}, cvol::GlaCmpVol; dev::Backend=CPU())
-    zerofield(cvol::GlaCmpVol; dev::Backend=CPU())
+    zeros(::Type{Complex{T}}, vol::Union{GlaVol, GlaCmpVol}; dev::Backend=CPU())
+    zeros(vol::Union{GlaVol, GlaCmpVol}; dev::Backend=CPU())
 
-Allocate a zero field of storage precision `T` (`dflPrc` when unrequested) over a composite volume.
+Allocate a zero field of eltype `Complex{T}` (`Complex{dflPrc}` when unrequested)
+over a volume. A plain volume is taken as a tiling of one region, so the result
+is an ordinary `GlaFld` either way.
 
 # Arguments
-- `cvol::GlaCmpVol`: The composite volume
+- `vol`: The plain or composite volume
 - `dev::Backend=CPU()`: The KernelAbstractions backend holding the buffer
 
 # Returns
 - `GlaFld{T}`: A field of zeros with one entry per degree of freedom
 """
-function zerofield(::Type{T}, cvol::GlaCmpVol; dev::Backend=CPU()) where T<:AbstractFloat
-    dat = KernelAbstractions.zeros(dev, Complex{T}, _dofOff(cvol)[end])
-    return GlaFld(dat, cvol)
-end
-zerofield(cvol::GlaCmpVol; dev::Backend=CPU()) = zerofield(dflPrc, cvol; dev=dev)
-
-"""
-    zerofield(::Type{T}, vol::GlaVol; dev::Backend=CPU())
-    zerofield(vol::GlaVol; dev::Backend=CPU())
-
-Allocate a zero field of storage precision `T` (`dflPrc` when unrequested) over a plain volume.
-
-The volume is taken as a tiling of one region, so the result is an ordinary
-`GlaFld` and every operation defined on fields applies to it.
-
-# Arguments
-- `vol::GlaVol`: The volume
-- `dev::Backend=CPU()`: The KernelAbstractions backend holding the buffer
-
-# Returns
-- `GlaFld`: A field of zeros with one entry per degree of freedom
-"""
-zerofield(::Type{T}, vol::GlaVol; dev::Backend=CPU()) where T<:AbstractFloat = zerofield(T, GlaCmpVol(vol); dev=dev)
-zerofield(vol::GlaVol; dev::Backend=CPU()) = zerofield(dflPrc, GlaCmpVol(vol); dev=dev)
+Base.zeros(::Type{Complex{T}}, cvol::GlaCmpVol; dev::Backend=CPU()) where T<:AbstractFloat =
+    GlaFld(KernelAbstractions.zeros(dev, Complex{T}, _dofOff(cvol)[end]), cvol)
+Base.zeros(::Type{Complex{T}}, vol::GlaVol; kw...) where T<:AbstractFloat = zeros(Complex{T}, GlaCmpVol(vol); kw...)
+Base.zeros(vol::Union{GlaVol, GlaCmpVol}; kw...) = zeros(Complex{dflPrc}, vol; kw...)
 
 """
     regionview(fld::GlaFld, idx::Integer)

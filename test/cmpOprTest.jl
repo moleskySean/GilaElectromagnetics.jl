@@ -105,7 +105,7 @@ end
 end
 
 @testset "Composite operator on a field" begin
-    fld = discretize!(zerofield(Float64, mnyCvl), tstDns)
+    fld = discretize!(zeros(ComplexF64, mnyCvl), tstDns)
     out = mnyOpr * fld
     @test out isa GlaFld
     @test out.cvol === mnyCvl
@@ -114,10 +114,10 @@ end
     # The flat path and the field path are the same computation
     @test mnyOpr * collect(fld.dat) == out.dat
     # A field on another tiling does not fit
-    @test_throws ArgumentError mnyOpr * zerofield(Float64, GlaCmpVol(mnyRef))
+    @test_throws ArgumentError mnyOpr * zeros(ComplexF64, GlaCmpVol(mnyRef))
     @test_throws ArgumentError mnyOpr * zeros(ComplexF64, 863)
     # Five argument mul! comes from the generic fallback
-    outMul = zerofield(Float64, mnyCvl)
+    outMul = zeros(ComplexF64, mnyCvl)
     mul!(outMul, mnyOpr, fld, 2.0, 0.0)
     @test norm(outMul.dat - 2 .* out.dat) < 1e-12 * norm(out.dat)
     # Densification through getindex
@@ -152,12 +152,12 @@ the same block matrix, so a matvec costs one application of G₀. =#
     # Hermitian, so adjoint! hands the operator back
     @test GilaElectromagnetics.adjoint!(asyOpr) === asyOpr
 
-    fld = discretize!(zerofield(Float64, mnyCvl), tstDns)
+    fld = discretize!(zeros(ComplexF64, mnyCvl), tstDns)
     out = asyOpr * fld
     @test out isa GlaFld
     @test out.cvol === mnyCvl
     @test asyOpr * collect(fld.dat) == out.dat
-    @test_throws ArgumentError asyOpr * zerofield(Float64, GlaCmpVol(mnyRef))
+    @test_throws ArgumentError asyOpr * zeros(ComplexF64, GlaCmpVol(mnyRef))
     @test_throws ArgumentError asyOpr * zeros(ComplexF64, 863)
     @test asyOpr[1:4, 1:4] == (asyOpr * Matrix{ComplexF64}(I, 864, 4))[1:4, :]
 
@@ -302,7 +302,7 @@ end
     #= A plain operator over one region is the one region composite, so the two
     have to agree on a field, including the sqrt(ΔV_trg / ΔV_src) of the basis. =#
     trgVol = GlaVol((4, 4, 4), stdScl, (3//8, 0//1, 0//1))
-    fld = discretize!(zerofield(Float64, smlVol), tstDns)
+    fld = discretize!(zeros(ComplexF64, smlVol), tstDns)
     cmpOut = prxBld(() -> GlaCmpOprVac{Float64}(GlaCmpVol(trgVol), smlCvl)) * fld
     plnOut = prxBld(() -> GlaOprVac{Float64}(trgVol, smlVol)) * fld
     @test plnOut isa GlaFld

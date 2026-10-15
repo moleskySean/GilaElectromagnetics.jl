@@ -22,40 +22,39 @@ end
 # Cell offset of the block of region idx in the flat layout
 fldCelOff(cvol, idx) = sum(prod(regions(cvol)[r].cel) for r in 1:(idx - 1); init=0)
 
-@testset "GlaFld zerofield" begin
+@testset "GlaFld zeros" begin
     cvol = mkFldRef()
-    fld = zerofield(Float64, cvol)
+    fld = zeros(ComplexF64, cvol)
     @test fld isa GlaFld
     @test length(fld) == fldLen(cvol)
     @test all(iszero, fld)
     @test iszero(norm(fld))
     @test fld.cvol == cvol
     # A trivial composite has one block of the whole volume
-    @test length(zerofield(Float64, mkFldUni())) == 3 * prod(mkFldVol().cel)
+    @test length(zeros(ComplexF64, mkFldUni())) == 3 * prod(mkFldVol().cel)
     # The buffer has to match the tiling
     @test_throws ArgumentError GlaFld(zeros(ComplexF64, 7), cvol)
 end
 
 @testset "GlaFld over a plain volume" begin
     vol = mkFldVol()
-    fld = zerofield(Float64, vol)
+    fld = zeros(ComplexF64, vol)
     @test fld isa GlaFld
     @test nregions(fld.cvol) == 1
     @test regions(fld.cvol)[1] == vol
     @test length(fld) == 3 * prod(vol.cel)
-    @test GlaFld(vol) == fld
-    @test fld == zerofield(Float64, GlaCmpVol(vol))
-    @test discretize!(zerofield(Float64, vol), fldStp) == discretize!(zerofield(Float64, GlaCmpVol(vol)), fldStp)
+    @test fld == zeros(ComplexF64, GlaCmpVol(vol))
+    @test discretize!(zeros(ComplexF64, vol), fldStp) == discretize!(zeros(ComplexF64, GlaCmpVol(vol)), fldStp)
     @test shwChk(fld)
 end
 
-@testset "GlaFld zero and constructor" begin
+@testset "GlaFld zero" begin
     cvol = mkFldRef()
-    fld = GlaFld(cvol)
+    fld = zeros(cvol)
     @test fld isa GlaFld
     @test all(iszero, fld)
-    @test fld == zerofield(Float64, cvol)
-    fld = discretize!(zerofield(Float64, cvol), pos -> (1.0 + 0im, 0, 0))
+    @test fld == zeros(ComplexF64, cvol)
+    fld = discretize!(zeros(ComplexF64, cvol), pos -> (1.0 + 0im, 0, 0))
     zro = zero(fld)
     @test zro isa GlaFld
     @test zro.cvol == cvol
@@ -65,7 +64,7 @@ end
 
 @testset "GlaFld eachregion" begin
     cvol = mkFldRef()
-    fld = discretize!(zerofield(Float64, cvol), pos -> (pos[1] + 0im, pos[2], pos[3]))
+    fld = discretize!(zeros(ComplexF64, cvol), pos -> (pos[1] + 0im, pos[2], pos[3]))
     vws = collect(eachregion(fld))
     @test length(vws) == nregions(cvol)
     for (idx, vw) in enumerate(vws)
@@ -82,12 +81,12 @@ end
     @test nregions(cvolRef) == 7
     @test finest(cvolRef) == stdScl
     # A smooth density only agrees to quadrature error
-    smtUni = discretize!(zerofield(Float64, cvolUni), fldSmt)
-    smtRef = discretize!(zerofield(Float64, cvolRef), fldSmt)
+    smtUni = discretize!(zeros(ComplexF64, cvolUni), fldSmt)
+    smtRef = discretize!(zeros(ComplexF64, cvolRef), fldSmt)
     @test abs(norm(smtRef) - norm(smtUni)) / norm(smtUni) < 1e-3
     # A density constant on every coarse cell agrees exactly
-    stpUni = discretize!(zerofield(Float64, cvolUni), fldStp)
-    stpRef = discretize!(zerofield(Float64, cvolRef), fldStp)
+    stpUni = discretize!(zeros(ComplexF64, cvolUni), fldStp)
+    stpRef = discretize!(zeros(ComplexF64, cvolRef), fldStp)
     @test norm(stpRef) ≈ norm(stpUni) rtol=1e-12
     # Both norms are the analytic L2 norm of the step density
     stpNrm = sqrt(6 * Float64(prod(mkFldVol().cel .* mkFldVol().scl)) *
@@ -97,7 +96,7 @@ end
 
 @testset "GlaFld regionview" begin
     cvol = mkFldRef()
-    fld = zerofield(Float64, cvol)
+    fld = zeros(ComplexF64, cvol)
     for (idx, reg) in enumerate(regions(cvol))
         @test size(regionview(fld, idx)) == (Int.(reg.cel)..., 3)
     end
@@ -126,7 +125,7 @@ end
 
 @testset "GlaFld physical convention" begin
     cvol = mkFldRef()
-    fld = discretize!(zerofield(Float64, cvol), pos -> (1, 0, 0))
+    fld = discretize!(zeros(ComplexF64, cvol), pos -> (1, 0, 0))
     # Dividing a region block by the square root of its cell volume gives the
     # density back, whatever the scale of the region
     for (idx, reg) in enumerate(regions(cvol))
@@ -146,18 +145,18 @@ end
 @testset "GlaFld regrid" begin
     cvolRef = mkFldRef()
     volFin = GlaVol((16, 16, 16), stdScl, stdOrg)
-    stpRef = discretize!(zerofield(Float64, cvolRef), fldStp)
+    stpRef = discretize!(zeros(ComplexF64, cvolRef), fldStp)
     rsm = regrid(stpRef)
     @test rsm isa Array{ComplexF64,4}
     @test size(rsm) == (16, 16, 16, 3)
     # Sampling on the uniform fine mesh directly, read back as a density
-    stpFin = discretize!(zerofield(Float64, GlaCmpVol(volFin)), fldStp)
+    stpFin = discretize!(zeros(ComplexF64, GlaCmpVol(volFin)), fldStp)
     dnsFin = regionview(stpFin, 1) ./ sqrt(Float64(prod(volFin.scl)))
     @test maximum(abs, rsm .- dnsFin) < 1e-12
     # The explicit scale is the default
     @test regrid(stpRef, stdScl) == rsm
     # A trivial composite regrids to itself
-    stpUni = discretize!(zerofield(Float64, mkFldUni()), fldStp)
+    stpUni = discretize!(zeros(ComplexF64, mkFldUni()), fldStp)
     dnsUni = regionview(stpUni, 1) ./ sqrt(Float64(prod(scl16)))
     @test maximum(abs, regrid(stpUni) .- dnsUni) < 1e-12
     # Finer than every region is allowed and just repeats values
@@ -172,8 +171,8 @@ end
 
 @testset "GlaFld linear algebra" begin
     cvol = mkFldRef()
-    fldX = discretize!(zerofield(Float64, cvol), fldSmt)
-    fldY = discretize!(zerofield(Float64, cvol), fldStp)
+    fldX = discretize!(zeros(ComplexF64, cvol), fldSmt)
+    fldY = discretize!(zeros(ComplexF64, cvol), fldStp)
     @test dot(fldX, fldX) ≈ norm(fldX)^2
     @test dot(fldX, fldY) ≈ dot(fldX.dat, fldY.dat)
     @test norm(fldX, 1) ≈ norm(fldX.dat, 1)
@@ -188,14 +187,14 @@ end
 
 @testset "GlaFld broadcasting" begin
     cvol = mkFldRef()
-    fldX = discretize!(zerofield(Float64, cvol), fldSmt)
+    fldX = discretize!(zeros(ComplexF64, cvol), fldSmt)
     fldY = 2 .* fldX
     @test fldY isa GlaFld
     @test fldY.cvol == cvol
     @test norm(fldY) ≈ 2 * norm(fldX)
     @test norm(fldX .+ fldX .- fldY) < 1e-12 * norm(fldY)
     # In place forms
-    fldZ = zerofield(Float64, cvol)
+    fldZ = zeros(ComplexF64, cvol)
     fldZ .= 2 .* fldX
     @test fldZ isa GlaFld
     @test norm(fldZ .- fldY) < 1e-12 * norm(fldY)
@@ -213,8 +212,8 @@ end
     cvolA = GlaCmpVol(GlaVol((8, 8, 8), scl16, stdOrg))
     # Same number of degrees of freedom, different geometry
     cvolB = GlaCmpVol(GlaVol((8, 8, 8), stdScl, stdOrg))
-    fldA = discretize!(zerofield(Float64, cvolA), fldSmt)
-    fldB = discretize!(zerofield(Float64, cvolB), fldSmt)
+    fldA = discretize!(zeros(ComplexF64, cvolA), fldSmt)
+    fldB = discretize!(zeros(ComplexF64, cvolB), fldSmt)
     @test length(fldA) == length(fldB)
     @test_throws ArgumentError dot(fldA, fldB)
     @test_throws ArgumentError axpy!(1.0, fldA, fldB)
@@ -223,6 +222,6 @@ end
     @test_throws ArgumentError fldA .+ fldB
     @test_throws ArgumentError fldA .= fldB
     # The refined tiling of the same domain is a different volume again
-    fldRef = zerofield(Float64, mkFldRef())
+    fldRef = zeros(ComplexF64, mkFldRef())
     @test_throws ArgumentError dot(fldA, fldRef)
 end

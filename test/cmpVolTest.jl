@@ -207,7 +207,7 @@ end
     @test finest(cvol) == stdScl
     @test cmpTilVol(cvol) == 2 * prod(volA.cel .* volA.scl)
     # regrid spans the bounding box and leaves the gap at zero
-    fld = zerofield(Float64, cvol)
+    fld = zeros(ComplexF64, cvol)
     fld.dat .= one(ComplexF64)
     rsm = regrid(fld)
     @test size(rsm) == (12, 4, 4, 3)

@@ -15,7 +15,7 @@ export CPU, get_backend, adapt
 export GlaSlv, AbstractGlaOpr, AbstractGlaVacOpr
 export GlaVol
 export GlaCmpVol, CompositeVolume, refine, regions, nregions, coordinates, cellvolumes, finest
-export GlaFld, MultiScaleField, zerofield, discretize!, regionview, eachregion, regrid
+export GlaFld, MultiScaleField, discretize!, regionview, eachregion, regrid
 export GlaKerOpt, GlaVacOprMem
 export GMRESSolver, GCRODRSolver, RcySpc, BiCGStabSolver, MixPrcRfn, SlvLog, solve, isvarying
 export MixedPrecisionRefinement

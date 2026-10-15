@@ -83,7 +83,7 @@ end
     sctGmr = SctOpr(sctVac, sctChi; slv=GMRESSolver())
     @test norm(invSct * (sctGmr * vecX) - vecX) < 1e-7 * norm(vecX)
     # A field goes in and a field on the same tiling comes out
-    fld = discretize!(zerofield(Float64, sctCvl), sctCur)
+    fld = discretize!(zeros(ComplexF64, sctCvl), sctCur)
     out = sct * fld
     @test out isa GlaFld
     @test out.cvol === sctCvl
@@ -99,7 +99,7 @@ end
     @test glaOut isa GlaFld
     @test norm(glaOut.dat - (sctVac * out).dat) < 1e-7 * norm(glaOut.dat)
     # A field on another tiling does not fit
-    @test_throws ArgumentError sct * zerofield(Float64, sctOne)
+    @test_throws ArgumentError sct * zeros(ComplexF64, sctOne)
     @test_throws ArgumentError invSct * zeros(ComplexF64, 215)
 end
 
@@ -162,7 +162,7 @@ end
     @test SctOpr(cmpVac, chi) * vecX ≈ SctOpr(plnVac, susTen) * vecX
     @test GlaOpr(cmpVac, chi) * vecX ≈ GlaOpr(plnVac, susTen) * vecX
     # A plain operator also takes a field
-    fld = discretize!(zerofield(Float64, vol), sctCur)
+    fld = discretize!(zeros(ComplexF64, vol), sctCur)
     @test (plnInv * fld).dat ≈ cmpInv * collect(fld.dat)
 end
 
@@ -171,8 +171,8 @@ end
     over half the domain. The two answers agree to the discretization error of
     the coarse half, which is what the refinement is there to control. =#
     finVol = GlaVol((8, 4, 4), stdScl, stdOrg)
-    finFld = discretize!(zerofield(Float64, finVol), sctCur)
-    cmpFld = discretize!(zerofield(Float64, sctCvl), sctCur)
+    finFld = discretize!(zeros(ComplexF64, finVol), sctCur)
+    cmpFld = discretize!(zeros(ComplexF64, sctCvl), sctCur)
     finOut = SctOpr{Float64}(GlaCmpVol(finVol), sctChi) * finFld
     cmpOut = SctOpr(sctVac, sctChi) * cmpFld
     finArr = regrid(finOut, stdScl)

@@ -96,19 +96,19 @@ end
 
 @testset "GlaOprVac on a field" begin
     opr = _g0()
-    fld = discretize!(zerofield(Float64, opr.mem.srcVol), tstDns)
+    fld = discretize!(zeros(ComplexF64, opr.mem.srcVol), tstDns)
     out = opr * fld
     @test out isa GlaFld
     @test nregions(out.cvol) == 1
     @test regions(out.cvol)[1] == opr.mem.trgVol
     @test out.dat ≈ opr * fld.dat
     # A field over another volume, or over a tiling of several regions
-    @test_throws ArgumentError opr * zerofield(Float64, GlaVol((2,2,2), stdScl, stdOrg))
-    @test_throws ArgumentError opr * zerofield(Float64, GlaCmpVol(
+    @test_throws ArgumentError opr * zeros(ComplexF64, GlaVol((2,2,2), stdScl, stdOrg))
+    @test_throws ArgumentError opr * zeros(ComplexF64, GlaCmpVol(
         [GlaVol((2,2,2), stdScl, (-1//32, 0//1, 0//1)),
          GlaVol((2,2,2), stdScl, (1//32, 0//1, 0//1))]))
     # The masked route reads its input through a mask, so it takes no field
-    @test_throws ArgumentError _mskOpr * zerofield(Float64, _mskBox)
+    @test_throws ArgumentError _mskOpr * zeros(ComplexF64, _mskBox)
 end
 
 @testset "setSus!" begin

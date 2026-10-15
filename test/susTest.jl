@@ -86,7 +86,7 @@ end
 @testset "Susceptibility fields" begin
     isoOpr = SusOpr{Float64}(susVol, susArr)
     gyrOpr = SusOpr{Float64}(susVol, susGyr)
-    fld = discretize!(zerofield(Float64, susVol), tstDns)
+    fld = discretize!(zeros(ComplexF64, susVol), tstDns)
     for opr in (isoOpr, gyrOpr)
         out = opr * fld
         @test out isa GlaFld && out.cvol == fld.cvol
@@ -95,8 +95,8 @@ end
         @test (opr \ out).dat ≈ collect(fld.dat)
     end
     # A field on another tiling does not fit
-    @test_throws ArgumentError isoOpr * zerofield(Float64, mkVol((4,4,4)))
-    @test_throws ArgumentError isoOpr \ zerofield(Float64, mkVol((4,4,4)))
+    @test_throws ArgumentError isoOpr * zeros(ComplexF64, mkVol((4,4,4)))
+    @test_throws ArgumentError isoOpr \ zeros(ComplexF64, mkVol((4,4,4)))
 end
 
 @testset "Anisotropic scattering" begin
