@@ -34,8 +34,7 @@ end
     @test GlaOprVac(sct)    === sct.invSctOpr.oprVac
     @test GlaOprVac(gla)    === gla.sctOpr.invSctOpr.oprVac
     @test SctOpr(gla)       === gla.sctOpr
-    # Source bug: GlaOpr(::InvSctOpr) calls SctOpr(opr) without a solver,
-    # but SctOpr(::InvSctOpr, ::GlaSlv) requires an explicit solver argument.
+    # A GlaOpr needs a solver, which an InvSctOpr does not carry
     @test_throws MethodError GlaOpr(sct.invSctOpr)
 
     @test InvSctOpr(sct)    === sct.invSctOpr

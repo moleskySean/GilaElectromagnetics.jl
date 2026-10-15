@@ -152,8 +152,6 @@ Convert the storage precision of the operator, and of its susceptibility, to `T`
 GlaOpr{T}(opr::GlaOpr{T}) where T<:AbstractFloat = opr
 GlaOpr{T}(opr::GlaOpr) where T<:AbstractFloat = GlaOpr{T}(SctOpr{T}(opr.sctOpr))
 
-GlaOpr(opr::InvSctOpr) = GlaOpr(SctOpr(opr))
-
 """
     InvSctOpr{T}(cvol::GlaCmpVol, sus; dev, kwargs...)
 
