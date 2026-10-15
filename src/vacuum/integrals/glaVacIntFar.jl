@@ -342,7 +342,9 @@ const TOL = 1e-14                   # relative to est(R), the a priori scale of 
 const SHPC = Dict{Tuple{NTuple{3,QI},NTuple{3,QI},Int},ShpTab}()   # keyed (a, b, nMax)
 # empty until the disk cache is asked for, and then a Scratch space
 const TABDIR = Ref("")
-tabDir() = isempty(TABDIR[]) ? (TABDIR[] = @get_scratch!("shapetab")) : TABDIR[]
+# Scratch.jl logs every access in a plain Dict, so threads take turns resolving a directory
+const SCRLK = ReentrantLock()
+tabDir() = @lock SCRLK isempty(TABDIR[]) ? (TABDIR[] = @get_scratch!("shapetab")) : TABDIR[]
 const SHPLK = ReentrantLock()
 
 # the exact-zero threshold of the contraction, tied to the build precision (see momAcc)
@@ -1276,7 +1278,7 @@ end
 
 # empty until route 3 is first reached, and then a Scratch space
 const KSRDIR = Ref("")
-ksrDir() = isempty(KSRDIR[]) ? (KSRDIR[] = @get_scratch!("ksrcache")) : KSRDIR[]
+ksrDir() = @lock SCRLK isempty(KSRDIR[]) ? (KSRDIR[] = @get_scratch!("ksrcache")) : KSRDIR[]
 const KSRPRC = 128                  # the 36 signed face pairs cancel; route 3 needs the headroom
 const MOMC = Dict{Tuple{NTuple{3,Int},NTuple{3,QI}},Tuple{Int,Vector{Vector{BigFloat}}}}()
 const KSRLK = ReentrantLock()           # guards MOMC and MOMCX
