@@ -167,7 +167,6 @@ end
 @testset "GlaCmpVol refine argument errors" begin
     vol = mkCmpVol()
     box = (stdOrg, (1//8, 1//8, 1//8))
-    @test_throws ArgumentError refine(GlaCmpVol(vol), box; snap=:inward)
     @test_throws ArgumentError refine(GlaCmpVol(vol), box; factor=0)
     @test_throws ArgumentError refine(GlaCmpVol(vol), box; factor=(2, 0, 2))
     @test_throws TypeError refine(GlaCmpVol(vol), box; factor=2.0)

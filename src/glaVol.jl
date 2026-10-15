@@ -534,7 +534,7 @@ function _crvVol(vol::GlaVol, boxLwr, boxUpr, fac::NTuple{3,Int})
 end
 
 """
-    refine(cvol::GlaCmpVol, box; factor=2, snap::Symbol=:outward)
+    refine(cvol::GlaCmpVol, box; factor=2)
 
 Refine a composite volume inside a box by carving.
 
@@ -560,20 +560,16 @@ You may refine a volume multiple times, even in nested a fashion.
 - `factor=2`: The refinement factor, an `Integer` or an `NTuple{3,Integer}` with
   every entry at least 1. An entry of 1 leaves that direction at the parent
   resolution while still carving the region.
-- `snap::Symbol=:outward`: The snapping mode. Only `:outward` exists.
 
 # Returns
 - `GlaCmpVol`: The refined composite volume, validated by the constructor
 
 # Throws
-- `ArgumentError`: If `snap` is not `:outward`, if any refinement factor is less
-  than 1, or if the resulting tiling violates an invariant of `GlaCmpVol`
+- `ArgumentError`: If any refinement factor is less than 1, or if the resulting
+  tiling violates an invariant of `GlaCmpVol`
 """
 function refine(cvol::GlaCmpVol, box::Union{GlaVol, Tuple{NTuple{3,Rational},NTuple{3,Rational}}};
-    factor::Union{Integer, NTuple{3,Integer}}=2, snap::Symbol=:outward)
-    if snap !== :outward
-        throw(ArgumentError("Unknown snapping mode :$(snap). Only :outward is implemented."))
-    end
+    factor::Union{Integer, NTuple{3,Integer}}=2)
     fac = _facTup(factor)
     if any(fac .< 1)
         throw(ArgumentError("Refinement factors must be at least 1, got $(fac)."))
@@ -593,7 +589,7 @@ function refine(cvol::GlaCmpVol, box::Union{GlaVol, Tuple{NTuple{3,Rational},NTu
 end
 
 """
-    refine(vol::GlaVol, box; factor=2, snap::Symbol=:outward)
+    refine(vol::GlaVol, box; factor=2)
 
 Refine a single volume inside a box, returning a composite volume.
 
@@ -601,13 +597,11 @@ Refine a single volume inside a box, returning a composite volume.
 - `vol::GlaVol`: The volume to refine
 - `box`: The refinement box, either a `GlaVol` or a tuple `(org, dims)`
 - `factor=2`: The refinement factor, an `Integer` or an `NTuple{3,Integer}`
-- `snap::Symbol=:outward`: The snapping mode
 
 # Returns
 - `GlaCmpVol`: The refined composite volume
 """
-refine(vol::GlaVol, box; factor=2, snap::Symbol=:outward) =
-    refine(GlaCmpVol(vol), box; factor=factor, snap=snap)
+refine(vol::GlaVol, box; factor=2) = refine(GlaCmpVol(vol), box; factor)
 
 struct GlaCmpCrd
     cvol::GlaCmpVol
