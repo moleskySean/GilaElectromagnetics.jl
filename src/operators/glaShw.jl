@@ -1,3 +1,12 @@
+# One labelled row of a multi-line show; a multi-line val re-indents to align.
+function _shwRow(io::IO, lbl::AbstractString, val::AbstractString)
+    lines = split(val, '\n')
+    print(io, "\n  ", rpad(lbl, 14), "  ", lines[1])
+    for line in lines[2:end]
+        print(io, "\n", " "^18, line)
+    end
+end
+
 _strKnd(opr::GlaOprVac) = "G₀"
 _strKnd(opr::AsyGlaOprVac) = "Asym(G₀)"
 _strKnd(opr::SymGlaOprVac) = "Sym(G₀)"

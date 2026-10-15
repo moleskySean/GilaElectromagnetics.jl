@@ -1,12 +1,3 @@
-# One labelled row of a multi-line show; a multi-line val re-indents to align.
-# Shared by GlaVol and the operator show.
-function _shwRow(io::IO, lbl::AbstractString, val::AbstractString)
-    lines = split(val, '\n')
-    print(io, "\n  ", rpad(lbl, 14), "  ", lines[1])
-    for line in lines[2:end]
-        print(io, "\n", " "^18, line)
-    end
-end
 
 """
     GlaVol
@@ -70,11 +61,11 @@ _volDesc(vol::GlaVol, sep::AbstractString) = string(join(vol.cel, "×"), " cells
 
 #= The grid step only differs from the cell scale for a lattice with gaps
 between cells (grdScl > celScl in the constructor), which is otherwise
-invisible — so the row only appears then. =#
+invisible — so it is only printed then. =#
 function Base.show(io::IO, vol::GlaVol)
     print(io, "GlaVol: ", _volDesc(vol, " — "))
     grdScl = step.(vol.grd)
-    grdScl == vol.scl || _shwRow(io, "grid", "step $(_sclStr(grdScl))")
+    grdScl == vol.scl || print(io, ", grid step ", _sclStr(grdScl))
 end
 
 # Create the union volume of two overlapping volumes

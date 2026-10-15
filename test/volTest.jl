@@ -96,4 +96,6 @@ end
 
 @testset "GlaVol show" begin
     @test shwChk(mkVol((4,4,4)))
+    # A lattice with gaps between cells, whose grid step is printed too
+    @test shwChk(GlaVol((4,4,4), stdScl, stdOrg, 2 .* stdScl))
 end
