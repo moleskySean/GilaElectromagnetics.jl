@@ -9,7 +9,7 @@ back on the device. =#
 module GilaJLD2Ext
 
 using GilaElectromagnetics
-using GilaElectromagnetics: _memDsk, _memLod
+using GilaElectromagnetics: GlaVacOprMem, _memDsk, _memLod
 using DoubleFloats: Double64
 import JLD2
 

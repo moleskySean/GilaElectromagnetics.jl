@@ -1,6 +1,7 @@
 # Shared helpers — included before all topic files in runtests.jl
 import GilaElectromagnetics: mskRng
 import GilaElectromagnetics: uniVol
+import GilaElectromagnetics: GlaKerOpt, GlaVacOprMem, GlaCmpOprVac, glaSze
 
 # sym, unlike asym, is not exported; the fine mesh block type is internal as well
 const glaSym = GilaElectromagnetics.sym
