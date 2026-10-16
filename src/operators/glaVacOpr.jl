@@ -593,7 +593,7 @@ isquasistatic(opr::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}) = isquasistatic(opr.
 
 Set the Bloch phases `θ` of a Bloch self operator, or of the one inside a scattering operator, in place: a phase costs one fill and one transform, no plan or per-frequency cache is rebuilt.
 """
-setBlc!(opr::AbstractGlaOpr, θ::Tuple) = (setBlc!(GlaOprVac(opr), θ); opr)
+setBlc!(opr::AbstractGlaOpr, θ::Tuple) = (setBlc!(vac(opr), θ); opr)
 setBlc!(opr::AbstractGlaVacOpr, θ::Tuple) = (setBlc!(opr.mem, θ); opr)
 
 # One blcCmp call for every block, one per sandwich for its fine pair; a block in adjoint mode holds the adjoint of its transposed pair

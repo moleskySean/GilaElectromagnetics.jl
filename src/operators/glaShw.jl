@@ -25,9 +25,9 @@ _strKnd(::SctOpr{T, <:InvSctOpr{T, <:GlaCmpOprVac}}) where T<:AbstractFloat = "c
 _strKnd(::GlaOpr{T, <:SctOpr{T, <:InvSctOpr{T, <:GlaCmpOprVac}}}) where T<:AbstractFloat = "composite G₀(I - XG₀)⁻¹"
 
 _srcVol(opr::Union{GlaOprVac, AsyGlaOprVac, SymGlaOprVac}) = opr.mem.srcVol
-_srcVol(opr::AnySctOpr) = _srcVol(GlaOprVac(opr))
+_srcVol(opr::AnySctOpr) = _srcVol(vac(opr))
 _trgVol(opr::Union{GlaOprVac, AsyGlaOprVac, SymGlaOprVac}) = opr.mem.trgVol
-_trgVol(opr::AnySctOpr) = _trgVol(GlaOprVac(opr))
+_trgVol(opr::AnySctOpr) = _trgVol(vac(opr))
 
 # A byte count as MiB or GiB, one decimal place
 _szStr(bytes::Integer) = bytes >= 2^30 ? "$(round(bytes / 2^30, digits=1)) GiB" :
@@ -57,7 +57,7 @@ _oprRow(opr::AbstractGlaOpr) = [("storage", _stoRow(opr))]
 _oprRow(opr::Union{GlaOprVac, AsyGlaOprVac, SymGlaOprVac}) = [("volume", _volRow(opr)),
     ("kernel", "$(isquasistatic(opr) ? "quasistatic" : "full"), frequency $(opr.mem.cmpInf.frqPhz)"),
     ("storage", _stoRow(opr))]
-_oprRow(opr::AnySctOpr) = _oprRow(GlaOprVac(opr))
+_oprRow(opr::AnySctOpr) = _oprRow(vac(opr))
 _oprRow(opr::SusOpr) = [("volume", sprint(show, opr.cvol)), ("storage", "$(_dofStr(opr)), sus $(_szStr(sizeof(opr.sus)))")]
 
 # The regions row replaces the bespoke composite show with a short table
@@ -84,7 +84,7 @@ function _dimStr(opr::Union{GlaOprVac, AsyGlaOprVac, SymGlaOprVac})
     isselfoperator(opr) && return join(_srcVol(opr).cel, "×")
     return join(_srcVol(opr).cel, "×") * " → " * join(_trgVol(opr).cel, "×")
 end
-_dimStr(opr::AnySctOpr) = _dimStr(GlaOprVac(opr))
+_dimStr(opr::AnySctOpr) = _dimStr(vac(opr))
 _dimStr(opr::GlaSndOprVac) = join(glaSze(opr, 2)[1:3], "×") * " → " * join(glaSze(opr, 1)[1:3], "×")
 _dimStr(opr::SusOpr) = "$(size(opr, 2)) dof"
 

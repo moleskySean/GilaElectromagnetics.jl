@@ -20,7 +20,7 @@ export GMRESSolver, GCRODRSolver, RcySpc, BiCGStabSolver, MixPrcRfn, SlvLog, sol
 export MixedPrecisionRefinement
 export GlaOprVac, AsyGlaOprVac, SymGlaOprVac, AsyGlaCmpOprVac, SymGlaCmpOprVac, InvSctOpr, SctOpr, GlaOpr, SusOpr
 export VacuumGreenOperator, AsymVacuumGreenOperator, SymVacuumGreenOperator, AsymCompositeVacuumGreenOperator, SymCompositeVacuumGreenOperator, InverseScatteringOperator, ScatteringOperator, GreenOperator, SusceptibilityOperator
-export isadjoint, isselfoperator, isexternaloperator, isoverlappingoperator, isquasistatic, adjoint!, slv, sus, asym, sym, setSus!, setBlc!
+export isadjoint, isselfoperator, isexternaloperator, isoverlappingoperator, isquasistatic, adjoint!, vac, slv, sus, asym, sym, setSus!, setBlc!
 
 """
     dflPrc

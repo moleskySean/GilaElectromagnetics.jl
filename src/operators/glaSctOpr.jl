@@ -48,16 +48,14 @@ const GreenOperator = GlaOpr
 const AnySctOpr = Union{InvSctOpr, SctOpr, GlaOpr}
 
 """
-    GlaOprVac(opr::Union{InvSctOpr, SctOpr, GlaOpr})
+    vac(opr::AbstractGlaOpr)
 
-The vacuum operator inside a scattering operator, shared rather than copied.
+The vacuum operator of `opr`, shared rather than copied. A vacuum operator is its own.
 """
-GlaOprVac(opr::InvSctOpr) = opr.oprVac
-GlaOprVac(opr::SctOpr) = GlaOprVac(opr.invSctOpr)
-GlaOprVac(opr::GlaOpr) = GlaOprVac(opr.sctOpr)
-
-# A vacuum operator is already the vacuum operator the unwrapping looks for
-GlaOprVac(opr::AbstractGlaVacOpr) = opr
+vac(opr::AbstractGlaVacOpr) = opr
+vac(opr::InvSctOpr) = opr.oprVac
+vac(opr::SctOpr) = vac(opr.invSctOpr)
+vac(opr::GlaOpr) = vac(opr.sctOpr)
 
 """
     InvSctOpr{T}(vol::Union{GlaVol, GlaCmpVol}, sus; dev, kwargs...)
@@ -79,14 +77,6 @@ Convert the storage precision of the operator, and of its susceptibility, to `T`
 InvSctOpr{T}(opr::InvSctOpr{T}) where T<:AbstractFloat = opr
 InvSctOpr{T}(opr::InvSctOpr) where T<:AbstractFloat =
     InvSctOpr{T}(Base.typename(typeof(opr.oprVac)).wrapper{T}(opr.oprVac), SusOpr{T}(opr.sus))
-
-"""
-    InvSctOpr(opr::Union{SctOpr, GlaOpr})
-
-The inverse scattering operator inside `opr`, shared rather than copied.
-"""
-InvSctOpr(opr::SctOpr) = opr.invSctOpr
-InvSctOpr(opr::GlaOpr) = InvSctOpr(opr.sctOpr)
 
 """
     SctOpr{T}(vol::Union{GlaVol, GlaCmpVol}, sus; dev, slv=GCRODRSolver(), kwargs...)
@@ -116,13 +106,6 @@ SctOpr{T}(opr::SctOpr{T}) where T<:AbstractFloat = opr
 SctOpr{T}(opr::SctOpr) where T<:AbstractFloat = SctOpr{T}(InvSctOpr{T}(opr.invSctOpr), opr.slv)
 
 """
-    SctOpr(opr::GlaOpr)
-
-The scattering operator inside `opr`, shared rather than copied.
-"""
-SctOpr(opr::GlaOpr) = opr.sctOpr
-
-"""
     GlaOpr{T}(vol::Union{GlaVol, GlaCmpVol}, sus; dev, slv=GCRODRSolver(), kwargs...)
 
 The full Green operator G₀(I - XG₀)⁻¹. Arguments as for `SctOpr`.
@@ -150,15 +133,15 @@ Adapt.@adapt_structure InvSctOpr
 Adapt.@adapt_structure SctOpr
 Adapt.@adapt_structure GlaOpr
 
-isadjoint(opr::AnySctOpr) = isadjoint(GlaOprVac(opr))
-isquasistatic(opr::AnySctOpr) = isquasistatic(GlaOprVac(opr))
-_relKnd(opr::AnySctOpr) = _relKnd(GlaOprVac(opr))
-KernelAbstractions.get_backend(opr::AnySctOpr) = get_backend(GlaOprVac(opr))
-glaSze(opr::AnySctOpr) = glaSze(GlaOprVac(opr))
-glaSze(opr::AnySctOpr, dim::Int) = glaSze(GlaOprVac(opr), dim)
-Base.size(opr::AnySctOpr) = size(GlaOprVac(opr))
-Base.size(opr::AnySctOpr, dim::Int) = size(GlaOprVac(opr), dim)
-_srcCvl(opr::AnySctOpr) = _srcCvl(GlaOprVac(opr))
+isadjoint(opr::AnySctOpr) = isadjoint(vac(opr))
+isquasistatic(opr::AnySctOpr) = isquasistatic(vac(opr))
+_relKnd(opr::AnySctOpr) = _relKnd(vac(opr))
+KernelAbstractions.get_backend(opr::AnySctOpr) = get_backend(vac(opr))
+glaSze(opr::AnySctOpr) = glaSze(vac(opr))
+glaSze(opr::AnySctOpr, dim::Int) = glaSze(vac(opr), dim)
+Base.size(opr::AnySctOpr) = size(vac(opr))
+Base.size(opr::AnySctOpr, dim::Int) = size(vac(opr), dim)
+_srcCvl(opr::AnySctOpr) = _srcCvl(vac(opr))
 # X lives on the source tiling, so (I - XG₀) and its inverse stay there
 _trgCvl(opr::Union{InvSctOpr, SctOpr}) = _srcCvl(opr)
 
@@ -174,7 +157,8 @@ function setSus!(opr::InvSctOpr{T}, sus) where T<:AbstractFloat
     return opr
 end
 
-setSus!(opr::Union{SctOpr, GlaOpr}, sus) = (setSus!(InvSctOpr(opr), sus); opr)
+setSus!(opr::SctOpr, sus) = (setSus!(opr.invSctOpr, sus); opr)
+setSus!(opr::GlaOpr, sus) = (setSus!(opr.sctOpr, sus); opr)
 
 slv(opr::InvSctOpr) = slv(opr.oprVac)
 slv(opr::SctOpr) = opr.slv
@@ -188,7 +172,8 @@ copied, so an `adjoint!` on either is seen by both. `setSus!` replaces it, and a
 earlier handle keeps the old one.
 """
 sus(opr::InvSctOpr) = opr.sus
-sus(opr::Union{SctOpr, GlaOpr}) = sus(InvSctOpr(opr))
+sus(opr::SctOpr) = sus(opr.invSctOpr)
+sus(opr::GlaOpr) = sus(opr.sctOpr)
 
 #= (I - XG₀), in place on the input. In adjoint mode the vacuum operator is
 already the adjoint and the susceptibility already the conjugate transpose,

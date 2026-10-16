@@ -25,20 +25,17 @@ end
     @test_throws ArgumentError SymGlaOprVac(_gExt())
 end
 
-@testset "Cross-constructors" begin
+@testset "Vacuum accessor" begin
     invSct = _invSct()
     sct    = _sct()
     gla    = _gla()
 
-    @test GlaOprVac(invSct) === invSct.oprVac
-    @test GlaOprVac(sct)    === sct.invSctOpr.oprVac
-    @test GlaOprVac(gla)    === gla.sctOpr.invSctOpr.oprVac
-    @test SctOpr(gla)       === gla.sctOpr
+    @test vac(invSct) === invSct.oprVac
+    @test vac(sct)    === sct.invSctOpr.oprVac
+    @test vac(gla)    === gla.sctOpr.invSctOpr.oprVac
+    @test vac(invSct.oprVac) === invSct.oprVac
     # A GlaOpr needs a solver, which an InvSctOpr does not carry
     @test_throws MethodError GlaOpr(sct.invSctOpr)
-
-    @test InvSctOpr(sct)    === sct.invSctOpr
-    @test InvSctOpr(gla)    === gla.sctOpr.invSctOpr
 end
 
 @testset "Composition identities" begin
