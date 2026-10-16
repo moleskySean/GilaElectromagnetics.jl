@@ -6,7 +6,7 @@ const mulExt = GlaOprVac{Float64}(GlaVol((2,2,2), stdScl, (4//32, 0//1, 0//1)), 
 const mulGap = GlaCmpOprVac{Float64}(GlaCmpVol([_vol2s,
     GlaVol((2,2,2), stdScl, extOrg)]))
 
-const mulOprs = (_g0s(), _asys(), SymGlaOprVac(_g0s()), mulExt, _invScts(),
+const mulOprs = (_g0s(), _asys(), glaSym(_g0s()), mulExt, _invScts(),
     _scts(), _glas(), _cmp2s, mulGap)
 
 const mulNaN = ComplexF64(NaN, NaN)

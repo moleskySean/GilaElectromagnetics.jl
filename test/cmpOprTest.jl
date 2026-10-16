@@ -125,12 +125,11 @@ end
 end
 
 #= The two Hermitian parts are read entry by entry off the composite matrix,
-which the complex symmetry of the self operator makes exact. Both are built from
-the same block matrix, so a matvec costs one application of G₀. =#
+which the complex symmetry of the self operator makes exact. Each part is rebuilt
+from the tiling, and a matvec costs one application of G₀. =#
 @testset "Composite operator Hermitian parts" begin
     asyOpr, symOpr = asym(mnyOpr), glaSym(mnyOpr)
-    @test asyOpr isa AsyGlaCmpOprVac
-    @test symOpr isa SymGlaCmpOprVac
+    @test asyOpr isa GlaCmpOprVac && symOpr isa GlaCmpOprVac
     @test isselfoperator(asyOpr)
     @test !isexternaloperator(asyOpr)
     @test !isoverlappingoperator(asyOpr)
@@ -149,8 +148,10 @@ the same block matrix, so a matvec costs one application of G₀. =#
     # The operator the part was taken from is untouched
     @test mnyOpr * inp == out
 
-    # Hermitian, so adjoint! hands the operator back
-    @test GilaElectromagnetics.adjoint!(asyOpr) === asyOpr
+    # Hermitian, so the adjoint is the operator again: the cross blocks trade places
+    adjOpr = GilaElectromagnetics.adjoint!(deepcopy(asyOpr))
+    @test !isadjoint(adjOpr)
+    @test frbErr(adjOpr * inp, asyOut) < 1e-12
 
     fld = discretize!(zeros(ComplexF64, mnyCvl), tstDns)
     out = asyOpr * fld
@@ -168,9 +169,8 @@ the same block matrix, so a matvec costs one application of G₀. =#
     @test_throws ArgumentError glaSym(extOpr)
     @test_throws ArgumentError asym(adjoint(mnyOpr))
 
-    # The volume constructor builds the operator it needs
-    @test AsyGlaCmpOprVac{Float64}(smlCvl) isa AsyGlaCmpOprVac
-    @test SymGlaCmpOprVac{Float64}(smlCvl) isa SymGlaCmpOprVac
+    # The hrmPrt keyword builds the part straight from the tiling
+    @test prbErr(GlaOprVac{Float64}(smlCvl; hrmPrt = :asy), asym(GlaOprVac{Float64}(smlCvl))) == 0
 end
 
 #= A coarse region on each side of a fine one, so a sandwich block appears in
@@ -292,7 +292,7 @@ end
     # One region means one cell volume, so the normalization is the identity
     @test prbErr(opr, GlaOprVac{Float64}(smlVol)) == 0
     # One region reproduces the plain anti-Hermitian operator
-    @test prbErr(asym(opr), AsyGlaOprVac{Float64}(smlVol)) < 1e-12
+    @test prbErr(asym(opr), asym(GlaOprVac{Float64}(smlVol))) < 1e-12
     @test slv(opr) isa GlaSlv
     @test prbErr(adapt(CPU(), opr), opr) < 1e-12
     @test shwChk(opr)

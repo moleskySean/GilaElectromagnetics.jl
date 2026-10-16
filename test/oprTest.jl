@@ -17,12 +17,15 @@ end
 
 @testset "Hermitian part constructors" begin
     gSelf = _g0()
-    @test asym(gSelf) isa AsyGlaOprVac
-    @test glaSym(gSelf) isa SymGlaOprVac
+    @test asym(gSelf) isa GlaOprVac{Float64} && glaSym(gSelf) isa GlaOprVac{Float64}
     @test isselfoperator(_asy()) && isselfoperator(_sym())
-    # Neither part is defined for an operator between two different volumes
-    @test_throws ArgumentError AsyGlaOprVac(_gExt())
-    @test_throws ArgumentError SymGlaOprVac(_gExt())
+    # A part is rebuilt from the volume, the same route as the hrmPrt keyword
+    @test asym(gSelf).mem.egoFur == _asy().mem.egoFur
+    @test occursin("Asym(G₀)", sprint(show, _asy())) && occursin("Sym(G₀)", sprint(show, _sym()))
+    # Neither part is defined for an operator between two different volumes, nor for an adjoint
+    @test_throws ArgumentError asym(_gExt())
+    @test_throws ArgumentError glaSym(_gExt())
+    @test_throws ArgumentError asym(adjoint(gSelf))
 end
 
 @testset "Vacuum accessor" begin
@@ -56,7 +59,7 @@ const oprAdjCmp = GlaCmpOprVac{Float64}(refine(GlaCmpVol(GlaVol((4,2,2), scl16, 
 @testset "adjoint" begin
     # A gyrotropic susceptibility: complex, not symmetric, coupling the three components
     gyr = SusOpr{Float64}(_vol2s, randn(ComplexF64, 3, 3))
-    for opr in (_g0s(), _gExt(), _mskOpr, _asys(), SymGlaOprVac(_g0s()), oprAdjXsc, oprAdjCmp,
+    for opr in (_g0s(), _gExt(), _mskOpr, _asys(), glaSym(_g0s()), oprAdjXsc, oprAdjCmp,
         gyr, _invScts(), _scts(), _glas())
         inp = randn(ComplexF64, size(opr, 2))
         out = opr * inp

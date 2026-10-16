@@ -40,7 +40,7 @@ end
     fine the mesh. =#
     @testset "fine mesh" begin
         for den ∈ (512, 2048, 8192)
-            mat = dnsMat(AsyGlaOprVac{Float64}(GlaVol((4, 4, 4), (1//den, 1//den, 1//den), stdOrg)))
+            mat = dnsMat(GlaOprVac{Float64}(GlaVol((4, 4, 4), (1//den, 1//den, 1//den), stdOrg); hrmPrt = :asy))
             ev = eigvals(Hermitian((mat + mat') / 2))
             rat = minimum(ev) / maximum(ev)
             @test rat > -1e-14

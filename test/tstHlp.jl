@@ -28,13 +28,17 @@ const _trgV4 = mkVol((4,4,4); org=extOrg)
 
 const _selfMem4 = GlaVacOprMem(GlaKerOpt{Float64}(), _vol4)
 const _extMem4  = GlaVacOprMem(GlaKerOpt{Float64}(), _trgV4, _vol4)
+# A Hermitian part of a self operator is never mutated by adjoint!, so its memory is shared like the others
+const _asyMem4  = GlaVacOprMem(GlaKerOpt{Float64}(; hrmPrt = :asy), _vol4)
+const _symMem4  = GlaVacOprMem(GlaKerOpt{Float64}(; hrmPrt = :sym), _vol4)
 
 # Tiny (2,2,2) operator for tests that loop over many mul! calls (linAlg, extOps)
 const _vol2s   = mkVol((2,2,2))
 const _sus2s   = mkSus((2,2,2))
 const _mem2s   = GlaVacOprMem(GlaKerOpt{Float64}(), _vol2s)
+const _asyMem2s = GlaVacOprMem(GlaKerOpt{Float64}(; hrmPrt = :asy), _vol2s)
 _g0s()     = GlaOprVac(_mem2s)
-_asys()    = AsyGlaOprVac(_g0s())
+_asys()    = GlaOprVac(_asyMem2s)
 _invScts() = InvSctOpr(_g0s(), _sus2s)
 _scts()    = SctOpr(_g0s(), _sus2s)
 _glas()    = GlaOpr(_g0s(), _sus2s)
@@ -47,9 +51,8 @@ _sct()    = SctOpr(_g0(), _sus4)
 _gla()    = GlaOpr(_g0(), _sus4)
 _glaVac() = GlaOpr(_g0(), zeros(ComplexF64, 4, 4, 4))
 
-# Cheap AsyGlaOprVac/SymGlaOprVac from precomputed GlaOprVac (deepcopy of egoFur, no integration)
-_asy()    = AsyGlaOprVac(_g0())
-_sym()    = SymGlaOprVac(_g0())
+_asy()    = GlaOprVac(_asyMem4)
+_sym()    = GlaOprVac(_symMem4)
 
 #= A slab and a box sharing interior, which the constructor sends through the
 union route, so the operator carries a source and a target mask. =#

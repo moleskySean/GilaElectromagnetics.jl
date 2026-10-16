@@ -12,27 +12,7 @@ end
 
 GlaOprVac(mem::GlaVacOprMem{T}, srcMsk, trgMsk) where T<:AbstractFloat = GlaOprVac{T}(mem, srcMsk, trgMsk)
 
-"""
-    AsyGlaOprVac{T}
-
-The anti-Hermitian part `(G₀ - G₀†) / 2i` of a self vacuum operator.
-"""
-struct AsyGlaOprVac{T<:AbstractFloat} <: AbstractGlaVacOpr{T}
-    mem::GlaVacOprMem{T}
-end
-
-"""
-    SymGlaOprVac{T}
-
-The Hermitian part `(G₀ + G₀†) / 2` of a self vacuum operator.
-"""
-struct SymGlaOprVac{T<:AbstractFloat} <: AbstractGlaVacOpr{T}
-    mem::GlaVacOprMem{T}
-end
-
 const VacuumGreenOperator = GlaOprVac
-const AsymVacuumGreenOperator = AsyGlaOprVac
-const SymVacuumGreenOperator = SymGlaOprVac
 
 """
     GlaSndOprVac{T}
@@ -102,67 +82,6 @@ GlaCmpOprVac{T}(opr::GlaCmpOprVac) where T<:AbstractFloat =
 
 const CompositeVacuumGreenOperator = GlaCmpOprVac
 
-"""
-    AsyGlaCmpOprVac(opr::GlaCmpOprVac)
-
-The anti-Hermitian part `Asym(G₀) = (G₀ - G₀†) / 2i` of the vacuum Green function
-operator over a composite volume, built from the self composite operator `opr`.
-
-The self operator is complex-symmetric in the √ΔV basis, so this is its entry
-by entry imaginary part: a block matrix of the same shape, applied at the cost of
-one `G₀`. `opr` must be a self operator not in adjoint mode, and is left untouched.
-"""
-struct AsyGlaCmpOprVac{T<:AbstractFloat} <: AbstractGlaVacOpr{T}
-    opr::GlaCmpOprVac{T}
-
-    AsyGlaCmpOprVac{T}(opr::GlaCmpOprVac{T}) where T<:AbstractFloat = new{T}(_hrmOpr(opr, true))
-    #= Blocks that already carry the transformed coefficients, as read back by
-    the deserializer. Taking the part again would apply it twice. =#
-    AsyGlaCmpOprVac{T}(opr::GlaCmpOprVac{T}, ::Val{:raw}) where T<:AbstractFloat = new{T}(opr)
-end
-
-AsyGlaCmpOprVac(opr::GlaCmpOprVac{T}) where T<:AbstractFloat = AsyGlaCmpOprVac{T}(opr)
-AsyGlaCmpOprVac(opr::GlaCmpOprVac{T}, raw::Val{:raw}) where T<:AbstractFloat = AsyGlaCmpOprVac{T}(opr, raw)
-
-"""
-    AsyGlaCmpOprVac{T}(opr::AsyGlaCmpOprVac)
-
-Convert the storage precision of every block to `T`, without regenerating any Fourier coefficients.
-"""
-AsyGlaCmpOprVac{T}(opr::AsyGlaCmpOprVac{T}) where T<:AbstractFloat = opr
-AsyGlaCmpOprVac{T}(opr::AsyGlaCmpOprVac) where T<:AbstractFloat =
-    AsyGlaCmpOprVac{T}(GlaCmpOprVac{T}(opr.opr), Val(:raw))
-
-"""
-    SymGlaCmpOprVac(opr::GlaCmpOprVac)
-
-The Hermitian part `Sym(G₀) = (G₀ + G₀†) / 2` of the vacuum Green function
-operator over a composite volume, built the same way as `AsyGlaCmpOprVac` from
-the entry by entry real part of the blocks.
-"""
-struct SymGlaCmpOprVac{T<:AbstractFloat} <: AbstractGlaVacOpr{T}
-    opr::GlaCmpOprVac{T}
-
-    SymGlaCmpOprVac{T}(opr::GlaCmpOprVac{T}) where T<:AbstractFloat = new{T}(_hrmOpr(opr, false))
-    # Raw path, see AsyGlaCmpOprVac
-    SymGlaCmpOprVac{T}(opr::GlaCmpOprVac{T}, ::Val{:raw}) where T<:AbstractFloat = new{T}(opr)
-end
-
-SymGlaCmpOprVac(opr::GlaCmpOprVac{T}) where T<:AbstractFloat = SymGlaCmpOprVac{T}(opr)
-SymGlaCmpOprVac(opr::GlaCmpOprVac{T}, raw::Val{:raw}) where T<:AbstractFloat = SymGlaCmpOprVac{T}(opr, raw)
-
-"""
-    SymGlaCmpOprVac{T}(opr::SymGlaCmpOprVac)
-
-Convert the storage precision of every block to `T`, without regenerating any Fourier coefficients.
-"""
-SymGlaCmpOprVac{T}(opr::SymGlaCmpOprVac{T}) where T<:AbstractFloat = opr
-SymGlaCmpOprVac{T}(opr::SymGlaCmpOprVac) where T<:AbstractFloat =
-    SymGlaCmpOprVac{T}(GlaCmpOprVac{T}(opr.opr), Val(:raw))
-
-const AsymCompositeVacuumGreenOperator = AsyGlaCmpOprVac
-const SymCompositeVacuumGreenOperator = SymGlaCmpOprVac
-
 # Returns the region where subVol is contained within vol
 function mskRng(subVol::GlaVol, vol::GlaVol)
     stpVol = Rational.(step.(vol.grd))
@@ -196,6 +115,8 @@ on their union and masked, so they must sit on a common grid.
 - `qssApx::Bool=false`: use the quasistatic kernel
 - `shpCch::Bool=false`: cache the far-field geometry table of each cell shape, see `GlaVacOprMem`
 - `prxWrn::Bool=true`: warn when two separated volumes are closer than a third of a wavelength
+- `hrmPrt=nothing`: `:asy` or `:sym` keeps only the anti-Hermitian or Hermitian part
+  of a self operator, taken from the kernel before its transform; see `asym` and `sym`
 - `blc=nothing`: Bloch lattice `(ax = (1, 2), P = (32, 32), θ = (0.7, 1//2))`, self
   operator only: `vol` is the unit cell, periodic along the axes `ax` with periods
   `P` cells and Bloch phases `θ` (radians, or exact twists θ/2π as `Rational`s),
@@ -215,8 +136,8 @@ function GlaOprVac{T}(trgVol::GlaVol, srcVol::GlaVol;
     end
 
     # Create the memory structure with appropriate GPU/CPU options
-    opt = GlaKerOpt{T}(dev; frqPhz, genPrc, qssApx, blc)
-    mem = GlaVacOprMem(opt, trgVol, srcVol; shpCch, prxWrn, hrmPrt, blk)
+    opt = GlaKerOpt{T}(dev; frqPhz, genPrc, qssApx, hrmPrt, blc)
+    mem = GlaVacOprMem(opt, trgVol, srcVol; shpCch, prxWrn, blk)
     return GlaOprVac{T}(mem, innMsk, outMsk)
 end
 
@@ -242,88 +163,41 @@ GlaOprVac{T}(opr::GlaOprVac) where T<:AbstractFloat =
     GlaOprVac{T}(GlaVacOprMem{T}(opr.mem), opr.srcMsk, opr.trgMsk)
 
 """
-    AsyGlaOprVac{T}(vol::GlaVol; kwargs...)
+    asym(opr::Union{GlaOprVac, GlaCmpOprVac})
+    sym(opr::Union{GlaOprVac, GlaCmpOprVac})
 
-The anti-Hermitian part of the self vacuum operator of `vol`, the radiative part
-that enters the fluctuation-dissipation theorem. Keywords as for `GlaOprVac`.
+The anti-Hermitian part `(G₀ - G₀†) / 2i` of a self vacuum operator, the radiative
+part that enters the fluctuation-dissipation theorem, or its Hermitian part
+`(G₀ + G₀†) / 2`. The part is rebuilt from the volume and options of `opr` with
+`hrmPrt`, which takes it from the kernel before the transform, so it costs a
+build rather than reusing the coefficients of `opr`, and leaves `opr` untouched.
 """
-AsyGlaOprVac{T}(vol::GlaVol; kw...) where T<:AbstractFloat =
-    AsyGlaOprVac{T}(GlaOprVac{T}(vol; kw..., hrmPrt=:asy).mem)
-AsyGlaOprVac(args...; kw...) = AsyGlaOprVac{dflPrc}(args...; kw...)
+asym(opr::Union{GlaOprVac, GlaCmpOprVac}) = _hrmBld(opr, :asy)
+sym(opr::Union{GlaOprVac, GlaCmpOprVac}) = _hrmBld(opr, :sym)
 
-"""
-    AsyGlaOprVac{T}(opr::AsyGlaOprVac)
-
-Convert the storage precision of the operator to `T`, without regenerating its Fourier coefficients.
-"""
-AsyGlaOprVac{T}(opr::AsyGlaOprVac{T}) where T<:AbstractFloat = opr
-AsyGlaOprVac{T}(opr::AsyGlaOprVac) where T<:AbstractFloat = AsyGlaOprVac{T}(GlaVacOprMem{T}(opr.mem))
-
-"""
-    AsyGlaOprVac(opr::GlaOprVac)
-
-The anti-Hermitian part of a self operator, from its coefficients. Recovering the
-imaginary part from a symbol the size of the real one costs
-`eps * ‖real g‖ / ‖imag g‖` in accuracy; build from the volume when that matters.
-"""
-function AsyGlaOprVac(opr::GlaOprVac{T}) where T<:AbstractFloat
-    srcVol, trgVol = opr.mem.srcVol, opr.mem.trgVol
-    if srcVol != trgVol
-        throw(ArgumentError("AsyGlaOprVac can only be constructed from a GlaOprVac with identical source and target volumes"))
-    end
-    opr.mem.cmpInf.blc === nothing || throw(ArgumentError("The Hermitian parts of a Bloch operator come from the volume: AsyGlaOprVac(vol; blc)."))
-    mem = deepcopy(opr.mem)
-    map!(fur -> complex.(imag.(fur)), mem.egoFur)
-    return AsyGlaOprVac{T}(mem)
+function _hrmBld(opr::GlaOprVac{T}, hrmPrt::Symbol) where T<:AbstractFloat
+    _hrmChk(opr)
+    opt = opr.mem.cmpInf
+    return GlaOprVac{T}(opr.mem.srcVol; dev=opt.dev, opt.frqPhz, opt.genPrc, opt.qssApx, opt.blc, hrmPrt)
 end
 
-"""
-    SymGlaOprVac{T}(vol::GlaVol; kwargs...)
-
-The Hermitian part of the self vacuum operator of `vol`. Keywords as for `GlaOprVac`.
-"""
-SymGlaOprVac{T}(vol::GlaVol; kw...) where T<:AbstractFloat =
-    SymGlaOprVac{T}(GlaOprVac{T}(vol; kw..., hrmPrt=:sym).mem)
-SymGlaOprVac(args...; kw...) = SymGlaOprVac{dflPrc}(args...; kw...)
-
-"""
-    SymGlaOprVac{T}(opr::SymGlaOprVac)
-
-Convert the storage precision of the operator to `T`, without regenerating its Fourier coefficients.
-"""
-SymGlaOprVac{T}(opr::SymGlaOprVac{T}) where T<:AbstractFloat = opr
-SymGlaOprVac{T}(opr::SymGlaOprVac) where T<:AbstractFloat = SymGlaOprVac{T}(GlaVacOprMem{T}(opr.mem))
-
-"""
-    SymGlaOprVac(opr::GlaOprVac)
-
-The Hermitian part of a self operator, from its coefficients.
-"""
-function SymGlaOprVac(opr::GlaOprVac{T}) where T<:AbstractFloat
-    srcVol, trgVol = opr.mem.srcVol, opr.mem.trgVol
-    if srcVol != trgVol
-        throw(ArgumentError("SymGlaOprVac can only be constructed from a GlaOprVac with identical source and target volumes"))
-    end
-    opr.mem.cmpInf.blc === nothing || throw(ArgumentError("The Hermitian parts of a Bloch operator come from the volume: SymGlaOprVac(vol; blc)."))
-    mem = deepcopy(opr.mem)
-    # The Hermitian part is the large one, so reusing the symbol costs it nothing
-    map!(fur -> complex.(real.(fur)), mem.egoFur)
-    return SymGlaOprVac{T}(mem)
+# The blocks hold the Bloch periods L in λ, and the constructor takes P in cells of the finest region
+function _hrmBld(opr::GlaCmpOprVac{T}, hrmPrt::Symbol) where T<:AbstractFloat
+    _hrmChk(opr)
+    opt = _blkOpt(first(opr.blkMat))
+    blc = opt.blc === nothing ? nothing : (; opt.blc.ax, opt.blc.θ,
+        P = map((L, ax) -> Int(L // minimum(reg -> reg.scl[ax], regions(opr.srcCvl))), opt.blc.L, opt.blc.ax))
+    return GlaCmpOprVac{T}(opr.srcCvl; dev=opt.dev, opt.frqPhz, opt.genPrc, opt.qssApx, blc, hrmPrt)
 end
 
-"""
-    asym(opr::GlaOprVac)
+function _hrmChk(opr::AbstractGlaVacOpr)
+    isselfoperator(opr) || throw(ArgumentError("A Hermitian part needs a self operator, and this one is $(_relKnd(opr))."))
+    isadjoint(opr) && throw(ArgumentError("A Hermitian part needs an operator that is not in adjoint mode. Call adjoint! on it to restore it first."))
+end
 
-The anti-Hermitian part of a self vacuum operator, see `AsyGlaOprVac`.
-"""
-asym(opr::GlaOprVac) = AsyGlaOprVac(opr)
-
-"""
-    sym(opr::GlaOprVac)
-
-The Hermitian part of a self vacuum operator, see `SymGlaOprVac`.
-"""
-sym(opr::GlaOprVac) = SymGlaOprVac(opr)
+# The options a block was generated with; a fine mesh block's are its inner operator's
+_blkOpt(blk::GlaOprVac) = blk.mem.cmpInf
+_blkOpt(blk::GlaSndOprVac) = _blkOpt(blk.opr)
 
 # Normalization of block (i, j) in the √ΔV basis
 _nrmWgt(trgReg::GlaVol, srcReg::GlaVol) =
@@ -420,113 +294,11 @@ GlaOprVac{T}(cvol::GlaCmpVol; kw...) where T<:AbstractFloat = GlaCmpOprVac{T}(cv
 GlaOprVac{T}(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol; kw...) where T<:AbstractFloat =
     GlaCmpOprVac{T}(trgCvl, srcCvl; kw...)
 
-#= Sign picked up by each stored tensor component when the real space kernel is
-reflected in the directions flagged in dirRfl. Storage order is xx, yy, zz, xy,
-xz, yz, and a reflection flips a component once for each of its two tensor
-indices that lies along it. =#
-_rflSgn(dirRfl::NTuple{3,Bool}, cmp::Integer) =
-    prod(dir -> dirRfl[dir] && count(==(dir), egoCmpPos[cmp]) == 1 ? -1 : 1, 1:3)
-
-#= Fourier coefficients of the entry by entry real or imaginary part of a block.
-A block is the leading corner of a circulant, so taking the real or imaginary
-part entry by entry is the circulant of the real or imaginary part of its kernel,
-whose coefficients are (fur[m] ± conj(fur[-m])) / 2 (with an extra 1/i for the
-imaginary part). Negating the circulant index reverses a direction held in full,
-and is the reflection sign of the component in a direction stored only up to that
-reflection. A branch is even or odd in each direction, which shifts the even
-reversal by one, and never mixes with the other branches. The subtraction is
-the one a `hrmPrt` build avoids, and loses the same digits of the imaginary
-part as `AsyGlaOprVac(opr::GlaOprVac)`. =#
-function _hrmFur!(mem::GlaVacOprMem{T}, isAsy::Bool) where T<:AbstractFloat
-    brnSze = div.(mem.mixInf.trgCel .+ mem.mixInf.srcCel, 2)
-    for bId in 0:7
-        fur = mem.egoFur[bId + 1]
-        dirRfl = ntuple(dir -> size(fur, dir) != brnSze[dir], 3)
-        negFur = conj.(fur)
-        for dir in 1:3
-            dirRfl[dir] && continue
-            len = size(negFur, dir)
-            # the reversal, shifted by one for an even branch
-            idx = isodd(bId >> (3 - dir)) ? (len:-1:1) : [1; len:-1:2]
-            negFur = negFur[ntuple(d -> d == dir ? idx : Colon(), ndims(negFur))...]
-        end
-        for cmp in 1:6
-            sgn = _rflSgn(dirRfl, cmp)
-            sgn == 1 || (view(negFur, :, :, :, cmp, :, :) .*= sgn)
-        end
-        # the scalar stays in T so a Complex{Float32} branch does not promote
-        scl = isAsy ? Complex{T}(0, -0.5) : Complex{T}(0.5)
-        fur .= isAsy ? (fur .- negFur) .* scl : (fur .+ negFur) .* scl
-    end
-    return mem
-end
-
-function _hrmBlk(opr::GlaOprVac, isAsy::Bool)
-    mem = _hrmFur!(deepcopy(opr.mem), isAsy)
-    return GlaOprVac(mem, opr.srcMsk, opr.trgMsk)
-end
-
-#= wgt is real and the aggregation and injection matrices hold zeros and ones, so
-they all commute with taking the real or imaginary part of the block. =#
-_hrmBlk(opr::GlaSndOprVac, isAsy::Bool) =
-    GlaSndOprVac(_hrmBlk(opr.opr, isAsy), opr.trgRat, opr.srcRat, opr.wgt)
-
-function _hrmOpr(opr::GlaCmpOprVac{T}, isAsy::Bool) where T<:AbstractFloat
-    nam = isAsy ? "AsyGlaCmpOprVac" : "SymGlaCmpOprVac"
-    if !isselfoperator(opr)
-        throw(ArgumentError("$nam can only be constructed from a GlaCmpOprVac with identical target and source tilings, and this operator maps between two different ones."))
-    end
-    if isadjoint(opr)
-        throw(ArgumentError("$nam can only be constructed from an operator that is not in adjoint mode. Call adjoint! on it to restore it first."))
-    end
-    any(blk -> blk isa GlaOprVac && blk.mem.cmpInf.blc !== nothing, opr.blkMat) &&
-        throw(ArgumentError("The Hermitian parts of a Bloch operator come from the volume: $nam(cvol; blc)."))
-    return GlaCmpOprVac{T}(opr.trgCvl, opr.srcCvl, map(blk -> _hrmBlk(blk, isAsy), opr.blkMat))
-end
-
-"""
-    AsyGlaCmpOprVac{T}(cvol::GlaCmpVol; kwargs...)
-
-The anti-Hermitian part of the self vacuum operator of `cvol`, built from the
-volume rather than from a full operator. Keywords as for `GlaCmpOprVac`.
-"""
-# Val(:raw) because every block already holds the part, taken before its transform
-AsyGlaCmpOprVac{T}(cvol::GlaCmpVol; kw...) where T<:AbstractFloat =
-    AsyGlaCmpOprVac{T}(GlaCmpOprVac{T}(cvol; kw..., hrmPrt=:asy), Val(:raw))
-AsyGlaCmpOprVac(args...; kw...) = AsyGlaCmpOprVac{dflPrc}(args...; kw...)
-
-"""
-    SymGlaCmpOprVac{T}(cvol::GlaCmpVol; kwargs...)
-
-The Hermitian part of the self vacuum operator of `cvol`, built from the volume.
-Keywords as for `GlaCmpOprVac`.
-"""
-SymGlaCmpOprVac{T}(cvol::GlaCmpVol; kw...) where T<:AbstractFloat =
-    SymGlaCmpOprVac{T}(GlaCmpOprVac{T}(cvol; kw..., hrmPrt=:sym), Val(:raw))
-SymGlaCmpOprVac(args...; kw...) = SymGlaCmpOprVac{dflPrc}(args...; kw...)
-
-"""
-    asym(opr::GlaCmpOprVac)
-
-The anti-Hermitian part of a self composite operator, see `AsyGlaCmpOprVac`.
-"""
-asym(opr::GlaCmpOprVac) = AsyGlaCmpOprVac(opr)
-
-"""
-    sym(opr::GlaCmpOprVac)
-
-The Hermitian part of a self composite operator, see `SymGlaCmpOprVac`.
-"""
-sym(opr::GlaCmpOprVac) = SymGlaCmpOprVac(opr)
-
 Adapt.@adapt_structure GlaOprVac
-Adapt.@adapt_structure AsyGlaOprVac
-Adapt.@adapt_structure SymGlaOprVac
 
 Adapt.@adapt_structure GlaSndOprVac
-# A matrix of operators is not an array to move, and the raw path keeps the part from being taken twice
+# A matrix of operators is not an array to move
 Adapt.adapt_structure(to, opr::GlaCmpOprVac) = GlaCmpOprVac(opr.trgCvl, opr.srcCvl, map(blk -> adapt(to, blk), opr.blkMat))
-Adapt.adapt_structure(to, opr::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}) = Base.typename(typeof(opr)).wrapper(adapt(to, opr.opr), Val(:raw))
 
 """
     isadjoint(opr::AbstractGlaOpr)
@@ -535,14 +307,12 @@ Whether `opr` is in adjoint mode, see `adjoint!`.
 """
 isadjoint(opr::GlaOprVac) = opr.mem.cmpInf.adjMod
 
-isadjoint(::Union{AsyGlaOprVac, SymGlaOprVac}) = false
-
 """
     isquasistatic(opr::AbstractGlaOpr)
 
 Whether `opr` was built from the quasistatic Green function rather than the full one.
 """
-isquasistatic(opr::Union{GlaOprVac, AsyGlaOprVac, SymGlaOprVac}) = opr.mem.cmpInf.qssApx
+isquasistatic(opr::GlaOprVac) = opr.mem.cmpInf.qssApx
 
 """
     isselfoperator(opr::AbstractGlaOpr)
@@ -568,7 +338,6 @@ isoverlappingoperator(opr::AbstractGlaOpr) = _relKnd(opr) === :overlapping
 # How the target and source of an operator relate: :self, :external or :overlapping
 _relKnd(opr::GlaOprVac) = !isnothing(opr.srcMsk) ? :overlapping :
     opr.mem.srcVol == opr.mem.trgVol ? :self : :external
-_relKnd(::Union{AsyGlaOprVac, SymGlaOprVac, AsyGlaCmpOprVac, SymGlaCmpOprVac}) = :self
 _relKnd(::GlaSndOprVac) = :external
 _relKnd(opr::GlaCmpOprVac) = opr.trgCvl == opr.srcCvl ? :self : :external
 
@@ -577,16 +346,14 @@ _relKnd(opr::GlaCmpOprVac) = opr.trgCvl == opr.srcCvl ? :self : :external
 
 The KernelAbstractions backend the operator computes on.
 """
-KernelAbstractions.get_backend(opr::Union{GlaOprVac, AsyGlaOprVac, SymGlaOprVac}) = get_backend(opr.mem)
+KernelAbstractions.get_backend(opr::GlaOprVac) = get_backend(opr.mem)
 
 isadjoint(opr::GlaSndOprVac) = isadjoint(opr.opr)
 isadjoint(opr::GlaCmpOprVac) = all(isadjoint, opr.blkMat)
-isadjoint(::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}) = false
-KernelAbstractions.get_backend(opr::Union{GlaSndOprVac, AsyGlaCmpOprVac, SymGlaCmpOprVac}) = get_backend(opr.opr)
+KernelAbstractions.get_backend(opr::GlaSndOprVac) = get_backend(opr.opr)
 KernelAbstractions.get_backend(opr::GlaCmpOprVac) = get_backend(first(opr.blkMat))
 isquasistatic(opr::GlaSndOprVac) = isquasistatic(opr.opr)
 isquasistatic(opr::GlaCmpOprVac) = all(isquasistatic, opr.blkMat)
-isquasistatic(opr::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}) = isquasistatic(opr.opr)
 
 """
     setBlc!(opr::AbstractGlaOpr, θ::Tuple)
@@ -614,7 +381,6 @@ function setBlc!(opr::GlaCmpOprVac, θ::Tuple)
     end
     return opr
 end
-setBlc!(opr::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}, θ::Tuple) = (setBlc!(opr.opr, θ); opr)
 
 """
     slv(opr::AbstractGlaOpr)
@@ -637,24 +403,17 @@ function glaSze(opr::GlaOprVac)
     end
     return ((opr.mem.trgVol.cel..., 3), (opr.mem.srcVol.cel..., 3))
 end
-glaSze(opr::Union{AsyGlaOprVac, SymGlaOprVac}) = ((opr.mem.trgVol.cel..., 3), (opr.mem.srcVol.cel..., 3))
 
 glaSze(opr::GlaSndOprVac) =
     ((glaSze(opr.opr, 1)[1:3] .÷ opr.trgRat..., 3),
      (glaSze(opr.opr, 2)[1:3] .÷ opr.srcRat..., 3))
 glaSze(opr::GlaCmpOprVac) = glaSze.(opr.blkMat)
 glaSze(opr::GlaCmpOprVac, dim::Int) = map(sze -> sze[dim], glaSze(opr))
-glaSze(opr::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}) = glaSze(opr.opr)
-glaSze(opr::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}, dim::Int) =
-    glaSze(opr.opr, dim)
 
 Base.size(opr::GlaCmpOprVac) = (_dofOff(opr.trgCvl)[end], _dofOff(opr.srcCvl)[end])
 Base.size(opr::GlaCmpOprVac, dim::Int) = size(opr)[dim]
-Base.size(opr::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}) = size(opr.opr)
-Base.size(opr::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}, dim::Int) =
-    size(opr.opr, dim)
 
-function mulAct!(opr::Union{GlaOprVac{T}, AsyGlaOprVac{T}, SymGlaOprVac{T}}, act::AbstractVector{Complex{T}}) where T<:AbstractFloat
+function mulAct!(opr::GlaOprVac{T}, act::AbstractVector{Complex{T}}) where T<:AbstractFloat
     if isoverlappingoperator(opr)
         # The masked input is read into the union volume
         actEmb = fill!(similar(act, opr.mem.srcVol.cel..., 3), zero(eltype(act)))
@@ -701,9 +460,6 @@ function mulAct!(opr::GlaCmpOprVac{T}, act::AbstractVector{Complex{T}}) where T<
     return outDat
 end
 
-mulAct!(opr::Union{AsyGlaCmpOprVac{T}, SymGlaCmpOprVac{T}},
-    act::AbstractVector{Complex{T}}) where T<:AbstractFloat = mulAct!(opr.opr, act)
-
 """
     *(opr::GlaOprVac, fld::GlaFld)
 
@@ -723,12 +479,10 @@ function Base.:*(opr::GlaOprVac{T}, fld::GlaFld{T}) where T<:AbstractFloat
 end
 
 # The tilings a vacuum operator reads from and writes to; a plain volume is a tiling of one region
-_srcCvl(opr::Union{GlaOprVac, AsyGlaOprVac, SymGlaOprVac}) = GlaCmpVol(opr.mem.srcVol)
-_trgCvl(opr::Union{GlaOprVac, AsyGlaOprVac, SymGlaOprVac}) = GlaCmpVol(opr.mem.trgVol)
+_srcCvl(opr::GlaOprVac) = GlaCmpVol(opr.mem.srcVol)
+_trgCvl(opr::GlaOprVac) = GlaCmpVol(opr.mem.trgVol)
 _srcCvl(opr::GlaCmpOprVac) = opr.srcCvl
 _trgCvl(opr::GlaCmpOprVac) = opr.trgCvl
-_srcCvl(opr::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}) = _srcCvl(opr.opr)
-_trgCvl(opr::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}) = _trgCvl(opr.opr)
 
 """
     adjoint!(opr::AbstractGlaOpr)
@@ -738,6 +492,9 @@ the argument may have been mutated or replaced. `adjoint!(adjoint!(opr))` restor
 the original; `adjoint` works on a copy instead.
 """
 function adjoint!(opr::GlaOprVac)
+    # A Hermitian part of a self operator is its own adjoint
+    isselfoperator(opr) && opr.mem.cmpInf.hrmPrt !== nothing && return opr
+
     # Mark the adjoint
     opr.mem.cmpInf.adjMod = !opr.mem.cmpInf.adjMod
 
@@ -755,12 +512,9 @@ function adjoint!(opr::GlaOprVac)
     # The masks are immutable fields, so the transpose needs a new wrapper
     return GlaOprVac(opr.mem, opr.trgMsk, opr.srcMsk)
 end
-adjoint!(opr::Union{AsyGlaOprVac, SymGlaOprVac}) = opr # These operators are Hermitian (self-adjoint)
 
 adjoint!(opr::GlaSndOprVac) =
     GlaSndOprVac(adjoint!(opr.opr), opr.srcRat, opr.trgRat, conj(opr.wgt))
 
 adjoint!(opr::GlaCmpOprVac{T}) where T<:AbstractFloat =
     GlaCmpOprVac{T}(opr.srcCvl, opr.trgCvl, permutedims(map(adjoint!, opr.blkMat)))
-# Both parts are Hermitian (self-adjoint)
-adjoint!(opr::Union{AsyGlaCmpOprVac, SymGlaCmpOprVac}) = opr

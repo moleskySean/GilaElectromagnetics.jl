@@ -20,6 +20,7 @@ struct MemDsk{T<:AbstractFloat}
     genPrc::Symbol
     qssApx::Bool
     adjMod::Bool
+    hrmPrt::Union{Nothing, Symbol}
     blc::Union{Nothing, NamedTuple}
     trgVol::GlaVol
     srcVol::GlaVol

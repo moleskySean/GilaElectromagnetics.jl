@@ -36,8 +36,8 @@ ptri(s) = Tuple(prat.(split(s, ",")))
                 @test norm(opr * x - D * x) < 4eps() * norm(D * x)
                 θ === θGen || continue
                 @test abs(dot(opr * x, y) - dot(x, adjoint(opr) * y)) < 4eps() * norm(opr * x) * norm(y)
-                @test norm(SymGlaOprVac{Float64}(vol; frqPhz = f, blc) * x - (D + D') / 2 * x) < 4eps() * norm(D * x)
-                @test norm(AsyGlaOprVac{Float64}(vol; frqPhz = f, blc) * x - (D - D') / 2im * x) < 4eps() * norm(D * x)
+                @test norm(glaSym(opr) * x - (D + D') / 2 * x) < 4eps() * norm(D * x)
+                @test norm(asym(opr) * x - (D - D') / 2im * x) < 4eps() * norm(D * x)
                 θNew = map(t -> -t / 3, θ)
                 @test setBlc!(opr, θNew) * x ≈ GlaOprVac{Float64}(vol; frqPhz = f, blc = (; ax, P, θ = θNew)) * x rtol = 4eps()
             end
@@ -78,13 +78,14 @@ ptri(s) = Tuple(prat.(split(s, ",")))
         opr = GlaCmpOprVac{Float64}(cvol; frqPhz = f, blc)
         @test norm(opr * x - D * x) < 4eps() * norm(D * x)
         @test abs(dot(opr * x, y) - dot(x, adjoint(opr) * y)) < 4eps() * norm(opr * x) * norm(y)
-        @test norm(SymGlaCmpOprVac{Float64}(cvol; frqPhz = f, blc) * x - (D + D') / 2 * x) < 4eps() * norm(D * x)
-        @test norm(AsyGlaCmpOprVac{Float64}(cvol; frqPhz = f, blc) * x - (D - D') / 2im * x) < 4eps() * norm(D * x)
+        @test norm(glaSym(opr) * x - (D + D') / 2 * x) < 4eps() * norm(D * x)
+        @test norm(asym(opr) * x - (D - D') / 2im * x) < 4eps() * norm(D * x)
         θNew = (-1.9,)
         @test setBlc!(opr, θNew) * x ≈ GlaCmpOprVac{Float64}(cvol; frqPhz = f, blc = (; ax, P, θ = θNew)) * x rtol = 4eps()
         Dn = boxMat(f, θNew)
         @test norm(opr * x - Dn * x) < 4eps() * norm(Dn * x)
-        @test_throws ArgumentError AsyGlaCmpOprVac(opr)
+        # the part is rebuilt at the phases setBlc! left
+        @test norm(asym(opr) * x - (Dn - Dn') / 2im * x) < 4eps() * norm(Dn * x)
     end
 
     # coarse (2, 2, 2) at (1/16, 1/32, 1/32) next to fine (4, 2, 2) along the periodic axis: the 8 × 2 × 2 box at 1/32 with pairs of cells merged
@@ -127,8 +128,8 @@ ptri(s) = Tuple(prat.(split(s, ",")))
     @testset "Psd" begin
         vol = GlaVol((4, 2, 2), (1//8, 1//8, 1//8))
         for f in (1.0 + 0.0im, 1.0 + 0.1im)
-            for M in (AsyGlaOprVac{Float64}(vol; frqPhz = f, blc = (ax = (1,), P = (6,), θ)) * Matrix{ComplexF64}(I, 48, 48),
-                      AsyGlaCmpOprVac{Float64}(cvol; frqPhz = f, blc = (; ax, P, θ)) * Matrix{ComplexF64}(I, 48, 48))
+            for M in (GlaOprVac{Float64}(vol; frqPhz = f, blc = (ax = (1,), P = (6,), θ), hrmPrt = :asy) * Matrix{ComplexF64}(I, 48, 48),
+                      GlaOprVac{Float64}(cvol; frqPhz = f, blc = (; ax, P, θ), hrmPrt = :asy) * Matrix{ComplexF64}(I, 48, 48))
                 λ = eigvals(Hermitian((M + M') / 2))
                 @test iszero(imag(f)) ? minimum(λ) >= -8eps() * maximum(λ) : minimum(λ) > 0
             end

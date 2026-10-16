@@ -7,7 +7,7 @@ function genEgoCrc!(egoCrc::AbstractArray{<:Complex}, trgVol::GlaVol, srcVol::Gl
         return genEgoSlf!(selectdim(selectdim(egoCrc, 7, 1), 6, 1), trgVol, cmpInf; shpCch, blk)
     end
     # a Bloch pair of a composite: the block blcCmp gave, in this layout
-    cmpInf.blc === nothing || return view(egoCrc, :, :, :, :, :, 1, 1) .= blcKer(cmpInf.blc, blk...)
+    cmpInf.blc === nothing || return view(egoCrc, :, :, :, :, :, 1, 1) .= blcKer(cmpInf.hrmPrt, blk...)
     # external green function case
     # total number of target and source partitions
     totParTrg = prod(mixInf.trgDiv)
@@ -50,7 +50,7 @@ Bloch lattice one blcFil call, or the block blk = (H, A) blcCmp gave a composite
 whole block, identity term included.
 =#
 # The Bloch kernel hrmPrt asks for: H, A or G = H + iA
-blcKer(blc, H, A) = blc.hrmPrt === :sym ? H : blc.hrmPrt === :asy ? A : H .+ im .* A
+blcKer(hrmPrt, H, A) = hrmPrt === :sym ? H : hrmPrt === :asy ? A : H .+ im .* A
 
 function genEgoSlf!(egoCrc::AbstractArray{<:Complex,5}, slfVol::GlaVol, cmpInf::GlaKerOpt;
     shpCch::Bool = false, blk = nothing)
@@ -59,7 +59,7 @@ function genEgoSlf!(egoCrc::AbstractArray{<:Complex,5}, slfVol::GlaVol, cmpInf::
     blc = cmpInf.blc
     stp = ntuple(dir -> Int(step(slfVol.grd[dir]) // slfVol.scl[dir]), 3)
     if blk !== nothing
-        egoToe = blcKer(blc, blk...)
+        egoToe = blcKer(cmpInf.hrmPrt, blk...)
     elseif blc !== nothing
         frq = Complex{prc}(cmpInf.frqPhz)
         # one BlcSet per frequency and unit cell, kept for setBlc!
@@ -67,7 +67,7 @@ function genEgoSlf!(egoCrc::AbstractArray{<:Complex,5}, slfVol::GlaVol, cmpInf::
         st !== nothing && (st.f, st.N) == (frq, slfVol.cel) ||
             (st = cmpInf.blcSet = blcSet(slfVol.scl, frq, blc.ax, slfVol.cel, blc.P))
         H, A, _ = blcFil(st, blc.θ)
-        egoToe = blcKer(blc, H, A)
+        egoToe = blcKer(cmpInf.hrmPrt, H, A)
     elseif cmpInf.qssApx
         egoToe = Array{eltype(egoCrc)}(undef, 3, 3, slfVol.cel...)
         momBlkQss!(egoToe, slfVol, [(Tuple(itr) .- 1) .* stp # the contact offsets

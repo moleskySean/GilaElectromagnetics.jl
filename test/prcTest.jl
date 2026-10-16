@@ -20,6 +20,8 @@ const prcSlfMem32 = GlaVacOprMem(GlaKerOpt{Float32}(), prcVol)
 const prcExtMem32 = GlaVacOprMem{Float32}(_extMem4)
 
 prcG032() = GlaOprVac(prcSlfMem32)
+const prcAsy32 = asym(prcG032())
+const prcSym32 = glaSym(prcG032())
 
 const prcDns32 = dnsMat(prcG032())
 
@@ -79,12 +81,11 @@ end
     @test prcOptGen.frqPhz == 1.0 + 0.1im
 
     opr32 = prcG032()
-    for opr in (AsyGlaOprVac(opr32), SymGlaOprVac(opr32), GlaOprVac(prcExtMem32),
+    for opr in (prcAsy32, prcSym32, GlaOprVac(prcExtMem32),
         InvSctOpr(opr32, prcSus32), SctOpr(opr32, prcSus32), GlaOpr(opr32, prcSus32))
         @test eltype(opr) == ComplexF32
     end
-    @test AsyGlaOprVac{Float32}(prcVol2) isa AsyGlaOprVac{Float32}
-    @test SymGlaOprVac{Float32}(prcVol2) isa SymGlaOprVac{Float32}
+    @test GlaOprVac{Float32}(prcVol2; hrmPrt = :asy) isa GlaOprVac{Float32}
     @test prcCmp32 isa GlaCmpOprVac{Float32}
     @test prcGap32 isa GlaCmpOprVac{Float32}
 end
@@ -92,8 +93,8 @@ end
 @testset "Dense truncation accuracy" begin
     prcChkDns(prcG032(), _g0())
     prcChkDns(GlaOprVac(prcExtMem32), _gExt())
-    prcChkDns(AsyGlaOprVac(prcG032()), _asy())
-    prcChkDns(SymGlaOprVac(prcG032()), _sym())
+    prcChkDns(prcAsy32, _asy())
+    prcChkDns(prcSym32, _sym())
     prcChkDns(prcGap32, prcGap64)
     prcChkDns(prcCmp32, prcCmp64)
     prcChkDns(prcXsc32, prcXsc64)
@@ -132,7 +133,7 @@ end
     # Same precision hands back the same object rather than a copy
     opr32 = prcG032()
     @test GlaOprVac{Float32}(opr32) === opr32
-    for opr in (AsyGlaOprVac(opr32), SymGlaOprVac(opr32),
+    for opr in (prcAsy32, prcSym32,
         InvSctOpr(opr32, prcSus32), SctOpr(opr32, prcSus32), GlaOpr(opr32, prcSus32),
         prcCmp32)
         @test Base.typename(typeof(opr)).wrapper{Float32}(opr) === opr

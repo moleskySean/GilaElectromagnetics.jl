@@ -43,8 +43,7 @@ function egoAna!(anaOut::AbstractVector{ComplexF64}, slfVol::GlaVol,
     return nothing
 end
 
-@testset "Asym(G₀) PSD — AsyGlaOprVac itself" begin
-    # AsyGlaOprVac(_g0()) deepcopies egoFur then takes Im part — cheap (no integration)
+@testset "Asym(G₀) PSD — the operator itself" begin
     mat = dnsMat(_asy())
     @test mat ≈ mat'
     checkPsd(mat)

@@ -18,8 +18,8 @@ export GlaCmpVol, CompositeVolume, refine, regions, nregions, coordinates, cellv
 export GlaFld, MultiScaleField, discretize!, regionview, eachregion, regrid
 export GMRESSolver, GCRODRSolver, RcySpc, BiCGStabSolver, MixPrcRfn, SlvLog, solve, isvarying
 export MixedPrecisionRefinement
-export GlaOprVac, AsyGlaOprVac, SymGlaOprVac, AsyGlaCmpOprVac, SymGlaCmpOprVac, InvSctOpr, SctOpr, GlaOpr, SusOpr
-export VacuumGreenOperator, AsymVacuumGreenOperator, SymVacuumGreenOperator, AsymCompositeVacuumGreenOperator, SymCompositeVacuumGreenOperator, InverseScatteringOperator, ScatteringOperator, GreenOperator, SusceptibilityOperator
+export GlaOprVac, InvSctOpr, SctOpr, GlaOpr, SusOpr
+export VacuumGreenOperator, InverseScatteringOperator, ScatteringOperator, GreenOperator, SusceptibilityOperator
 export isadjoint, isselfoperator, isexternaloperator, isoverlappingoperator, isquasistatic, adjoint!, vac, slv, sus, asym, sym, setSus!, setBlc!
 
 """

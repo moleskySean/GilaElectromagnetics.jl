@@ -44,7 +44,7 @@ end
 include("glaVacOprMemGen.jl") # For genEgoCrc!
 
 """
-    GlaVacOprMem(cmpInf::GlaKerOpt{T}, trgVol::GlaVol, srcVol::GlaVol=trgVol; shpCch, prxWrn, hrmPrt, blk)
+    GlaVacOprMem(cmpInf::GlaKerOpt{T}, trgVol::GlaVol, srcVol::GlaVol=trgVol; shpCch, prxWrn, blk)
 
 Generate the Fourier coefficients and the operator memory. One volume gives the
 self construction.
@@ -53,16 +53,11 @@ self construction.
 - `shpCch::Bool=false`: cache the far-field geometry table of each cell shape in a
   scratch space; a table is 16-19 MB and takes 12-16 s to build against 0.6-0.7 s to read
 - `prxWrn::Bool=true`: warn when separated volumes are closer than a third of a wavelength
-- `hrmPrt=nothing`: keep only the entry by entry real (`:sym`) or imaginary (`:asy`)
-  part of the kernel, as `SymGlaOprVac` and `AsyGlaOprVac` do
 - `blk=nothing`: the Bloch block `(H, A)` blcCmp gave a pair of composite regions
 """
-function GlaVacOprMem(cmpInf::GlaKerOpt{T}, trgVol::GlaVol, srcVol::GlaVol=trgVol; shpCch::Bool = false, prxWrn::Bool = true, hrmPrt::Union{Nothing,Symbol} = nothing, blk = nothing) where T<:AbstractFloat
-    hrmPrt ∈ (nothing, :sym, :asy) || throw(ArgumentError("hrmPrt is :sym, :asy or nothing, got $(repr(hrmPrt))."))
+function GlaVacOprMem(cmpInf::GlaKerOpt{T}, trgVol::GlaVol, srcVol::GlaVol=trgVol; shpCch::Bool = false, prxWrn::Bool = true, blk = nothing) where T<:AbstractFloat
     prxWrn && prxChk(cmpInf.frqPhz, trgVol, srcVol)
     mixInf = chkParExtInf(GlaExtInf(trgVol, srcVol))
-    # a Bloch kernel is not complex symmetric: genEgoSlf! takes its parts H and A from the fill
-    cmpInf.blc === nothing || (cmpInf.blc = merge(cmpInf.blc, (; hrmPrt)))
 
     # total cells in circulant
     totCelCrc = mixInf.trgCel .+ mixInf.srcCel
@@ -87,10 +82,11 @@ function GlaVacOprMem(cmpInf::GlaKerOpt{T}, trgVol::GlaVol, srcVol::GlaVol=trgVo
     #= The Hermitian and anti-Hermitian parts are the entry by entry real and
     imaginary parts of the kernel, taken before the transform rather than after:
     imag(fft(g)) leaves ‖imag g‖ behind a subtraction of two terms the size of
-    ‖real g‖, which costs eps * ‖real g‖ / ‖imag g‖ and grows as (k cell)^-3. =#
+    ‖real g‖, which costs eps * ‖real g‖ / ‖imag g‖ and grows as (k cell)^-3. A
+    Bloch kernel is not complex symmetric, so the fill takes its parts instead. =#
     if cmpInf.blc === nothing
-        hrmPrt === :sym && (egoCrcCmp .= complex.(real.(egoCrcCmp)))
-        hrmPrt === :asy && (egoCrcCmp .= complex.(imag.(egoCrcCmp)))
+        cmpInf.hrmPrt === :sym && (egoCrcCmp .= complex.(real.(egoCrcCmp)))
+        cmpInf.hrmPrt === :asy && (egoCrcCmp .= complex.(imag.(egoCrcCmp)))
     end
     # allow the 9-component fill array to be reclaimed before the transform
     egoCrc = nothing
@@ -316,12 +312,12 @@ The FFT plans are process-local C pointers and mixInf follows from the volumes,
 so glaOprPrp rebuilds both on load. The Bloch lattice is kept, its per-frequency
 BlcSet cache is not. =#
 _memDsk(mem::GlaVacOprMem) = (egoFur = map(fur -> adapt(CPU(), fur), mem.egoFur), frqPhz = mem.cmpInf.frqPhz,
-    genPrc = mem.cmpInf.genPrc, qssApx = mem.cmpInf.qssApx, adjMod = mem.cmpInf.adjMod, blc = mem.cmpInf.blc,
+    genPrc = mem.cmpInf.genPrc, qssApx = mem.cmpInf.qssApx, adjMod = mem.cmpInf.adjMod, hrmPrt = mem.cmpInf.hrmPrt, blc = mem.cmpInf.blc,
     trgVol = mem.trgVol, srcVol = mem.srcVol)
 
 # An operator memory on the CPU from its stored form, at the precision of the stored Fourier data
 function _memLod(dsk, genPrc = dsk.genPrc)
-    opt = GlaKerOpt{real(eltype(first(dsk.egoFur)))}(; dsk.frqPhz, genPrc, dsk.qssApx, dsk.adjMod, dsk.blc)
+    opt = GlaKerOpt{real(eltype(first(dsk.egoFur)))}(; dsk.frqPhz, genPrc, dsk.qssApx, dsk.adjMod, dsk.hrmPrt, dsk.blc)
     return glaOprPrp(dsk.egoFur, dsk.trgVol, dsk.srcVol, GlaExtInf(dsk.trgVol, dsk.srcVol), opt)
 end
 
