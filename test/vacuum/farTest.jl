@@ -181,10 +181,27 @@ end
         sepLst = first.(farRefX()[(sclTrg, sclSrc, frq)])[1:6]
         egoBlk = Array{ComplexF64}(undef, 3, 3, length(sepLst))
         rteLst = GVF.farBlkX!(egoBlk, sepLst, sclTrg, sclSrc, frq)
-        # a lattice-aligned pair never reaches the k-series, which is why no generation path does
+        # offsets on the gcd lattice never reach the k-series
         @test all(!=(3), rteLst)
         frqSet = farSetCas(sclTrg, sclSrc, frq, sepLst)
         @test all(GVF.farTnsX(sepLst[itr], sclTrg, sclSrc, frq; fs = frqSet) ==
             egoBlk[:, :, itr] for itr ∈ eachindex(sepLst))
+    end
+
+    # an offset off the gcd lattice, as between GlaVol((2, 2, 2), 1/16, 0) and GlaVol((4, 4, 4),
+    # 1/32, (1/8 + 1/128, 0, 0)), takes the k-series; its only check is the swap of the two cells
+    @testset "cross-scale k-series off the lattice" begin
+        sclTrg = (1//16, 1//16, 1//16); sclSrc = (1//32, 1//32, 1//32); frq = 0.25 + 0.0im
+        sep = (farQI(-7, 128), farQI(1, 64), farQI(1, 64))
+        ego = Array{ComplexF64}(undef, 3, 3, 1); egoSwp = similar(ego)
+        # a cold k-series cache, or a cached line would be read instead
+        ksrDir = GVF.KSRDIR[]; GVF.KSRDIR[] = mktempdir()
+        try
+            @test GVF.farBlkX!(ego, [sep], sclTrg, sclSrc, frq; disk = false) == [3]
+            @test GVF.farBlkX!(egoSwp, [.-sep], sclSrc, sclTrg, frq; disk = false) == [3]
+        finally
+            GVF.KSRDIR[] = ksrDir
+        end
+        @test maximum(abs, ego .- prod(sclSrc) / prod(sclTrg) .* egoSwp) < 1e-13 * maximum(abs, ego)
     end
 end
