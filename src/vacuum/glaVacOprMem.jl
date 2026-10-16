@@ -187,7 +187,7 @@ receives the narrowed branches.
 =#
 function genEgoFur(egoCrcCmp::Array{<:Complex,6}, truInf::AbstractVector{<:Integer}, cmpInf::GlaKerOpt{T, <:GPU}) where T<:AbstractFloat
     dev = cmpInf.dev
-    supports_float64(dev) && eltype(egoCrcCmp) === ComplexF64 || return map(brn -> adapt(dev, brn), genEgoFur(egoCrcCmp, truInf, GlaKerOpt{T}(cmpInf, CPU())))
+    supports_float64(dev) && eltype(egoCrcCmp) === ComplexF64 || return map(brn -> adapt(dev, brn), genEgoFur(egoCrcCmp, truInf, GlaKerOpt{T}(cmpInf; dev=CPU())))
     ddDim, totParSrc, totParTrg = size(egoCrcCmp)[4:6]
     egoFur = map(_ -> allocate(dev, Complex{T}, truInf..., ddDim, totParSrc, totParTrg), 1:8)
     # leave headroom: the transform itself needs device workspace
@@ -306,7 +306,7 @@ KernelAbstractions.get_backend(mem::GlaVacOprMem) = mem.cmpInf.dev
 
 function Adapt.adapt_structure(to, mem::GlaVacOprMem)
     egoFur = map(fur -> adapt(to, fur), mem.egoFur)
-    cmpInf = GlaKerOpt{real(eltype(first(egoFur)))}(mem.cmpInf, get_backend(first(egoFur)))
+    cmpInf = GlaKerOpt{real(eltype(first(egoFur)))}(mem.cmpInf; dev=get_backend(first(egoFur)))
     return glaOprPrp(egoFur, mem.trgVol, mem.srcVol, mem.mixInf, cmpInf)
 end
 
@@ -321,7 +321,7 @@ _memDsk(mem::GlaVacOprMem) = (egoFur = map(fur -> adapt(CPU(), fur), mem.egoFur)
 
 # An operator memory on the CPU from its stored form, at the precision of the stored Fourier data
 function _memLod(dsk, genPrc = dsk.genPrc)
-    opt = GlaKerOpt{real(eltype(first(dsk.egoFur)))}(dsk.frqPhz, genPrc, dsk.qssApx, dsk.adjMod, CPU(), dsk.blc)
+    opt = GlaKerOpt{real(eltype(first(dsk.egoFur)))}(; dsk.frqPhz, genPrc, dsk.qssApx, dsk.adjMod, dsk.blc)
     return glaOprPrp(dsk.egoFur, dsk.trgVol, dsk.srcVol, GlaExtInf(dsk.trgVol, dsk.srcVol), opt)
 end
 

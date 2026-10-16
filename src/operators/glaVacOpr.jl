@@ -215,7 +215,7 @@ function GlaOprVac{T}(trgVol::GlaVol, srcVol::GlaVol;
     end
 
     # Create the memory structure with appropriate GPU/CPU options
-    opt = GlaKerOpt{T}(frqPhz, genPrc, qssApx, false, dev, blc)
+    opt = GlaKerOpt{T}(dev; frqPhz, genPrc, qssApx, blc)
     mem = GlaVacOprMem(opt, trgVol, srcVol; shpCch, prxWrn, hrmPrt, blk)
     return GlaOprVac{T}(mem, innMsk, outMsk)
 end

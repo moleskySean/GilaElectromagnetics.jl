@@ -28,7 +28,8 @@ mutable struct GlaKerOpt{T<:AbstractFloat, B<:KernelAbstractions.Backend}
     dev::B
     blc::Union{Nothing,NamedTuple}
     blcSet::Union{Nothing,BlcSet}
-    function GlaKerOpt{T}(frqPhz::Number, genPrc::Type{<:AbstractFloat}, qssApx::Bool, adjMod::Bool, dev::B, blc = nothing, blcSet = nothing) where {T<:AbstractFloat, B<:KernelAbstractions.Backend}
+    function GlaKerOpt{T}(dev::B = CPU(); frqPhz::Number = 1.0+0.0im, genPrc::Type{<:AbstractFloat} = Float64,
+        qssApx::Bool = false, adjMod::Bool = false, blc = nothing, blcSet = nothing) where {T<:AbstractFloat, B<:KernelAbstractions.Backend}
         chkGenPrc(genPrc)
         T === Float64 && !supports_float64(dev) && throw(ArgumentError("$(nameof(B)) has no Float64. Build the operator in Float32."))
         qssApx && blc !== nothing && throw(ArgumentError("The quasistatic kernel has no Bloch lattice."))
@@ -47,21 +48,21 @@ chkGenPrc(genPrc::Type{<:AbstractFloat}) = genPrc === Float32 &&
     throw(ArgumentError("genPrc = Float32 would return NaN: the contact h_l recursion overflows near l ≈ 27. Use Float64 (default) or Double64."))
 
 """
-    GlaKerOpt{T}(dev::KernelAbstractions.Backend=CPU())
-    GlaKerOpt(dev::KernelAbstractions.Backend=CPU())
+    GlaKerOpt{T}(dev::KernelAbstractions.Backend=CPU(); frqPhz=1.0+0.0im, genPrc=Float64, qssApx=false, adjMod=false, blc=nothing, blcSet=nothing)
+    GlaKerOpt(dev::KernelAbstractions.Backend=CPU(); kwargs...)
 
-Default options on `dev`: phase factor 1, `Float64` generation, full kernel, not
-adjoint. The storage precision `T` defaults to `dflPrc`.
+Options on `dev`, by default a phase factor of 1, `Float64` generation, the full
+kernel, not adjoint and no Bloch lattice. The storage precision `T` defaults to `dflPrc`.
 """
-GlaKerOpt{T}(dev::KernelAbstractions.Backend=CPU()) where T<:AbstractFloat = GlaKerOpt{T}(1.0+0.0im, Float64, false, false, dev)
-GlaKerOpt(dev::KernelAbstractions.Backend=CPU()) = GlaKerOpt{dflPrc}(dev)
+GlaKerOpt(dev::KernelAbstractions.Backend=CPU(); kw...) = GlaKerOpt{dflPrc}(dev; kw...)
 
 """
-    GlaKerOpt{T}(opt::GlaKerOpt, dev::KernelAbstractions.Backend=opt.dev)
+    GlaKerOpt{T}(opt::GlaKerOpt; dev::KernelAbstractions.Backend=opt.dev)
 
 Copy of `opt` with storage precision `T`, on `dev`.
 """
-GlaKerOpt{T}(opt::GlaKerOpt, dev::KernelAbstractions.Backend=opt.dev) where T<:AbstractFloat = GlaKerOpt{T}(opt.frqPhz, opt.genPrc, opt.qssApx, opt.adjMod, dev, opt.blc, opt.blcSet)
+GlaKerOpt{T}(opt::GlaKerOpt; dev::KernelAbstractions.Backend=opt.dev) where T<:AbstractFloat =
+    GlaKerOpt{T}(dev; opt.frqPhz, opt.genPrc, opt.qssApx, opt.adjMod, opt.blc, opt.blcSet)
 
 """
     devMem(dev::KernelAbstractions.Backend)

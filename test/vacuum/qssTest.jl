@@ -50,8 +50,7 @@ end
 
 # the assembled quasistatic operator, the object GlaOprVac is handed
 qssMem(cel, scl, frq = 1.0 + 0.0im) =
-    (opt = GlaKerOpt{Float64}(); opt.qssApx = true; opt.frqPhz = frq;
-        GlaVacOprMem(opt, mkVol(cel; scl = scl)))
+    GlaVacOprMem(GlaKerOpt{Float64}(; qssApx = true, frqPhz = frq), mkVol(cel; scl = scl))
 
 @testset "Quasistatic Tests" begin
     # the self block is minus the cell's own demagnetizing tensor, of trace one
