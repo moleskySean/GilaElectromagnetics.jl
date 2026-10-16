@@ -9,17 +9,6 @@
 # certified per offset against a proven bound; the a posteriori rounding factor λ_e = Σ|terms|/|X| of every entry is tracked.
 # Lengths in wavelengths, f complex (Float64, Double64 or BigFloat parts), exact Rational geometry (edges, offsets, periods), θ in radians
 # (T) or as an exact twist θ/2π (Rational: θ = π is 1//2). At Im f < 0 the operator is the continuation at fixed Re f (J10).
-#
-# Entry points
-#   blcTns(R, sT, sS, f, ax, L, θ)          one tensor pair (H, AH, info), any cells, per-entry rerun in the wider type
-#   blcSet(s, f, ax, N, P)                  the θ-independent state of one unit cell at one frequency
-#   blcFil(st, θ; form)                     both storage forms of the unit cell's Toeplitz/twisted-circulant block (threaded)
-#   blcFil(s, f, ax, N, P, θ)               the same without the per-frequency cache
-#   blcCmp(regs, f, ax, L, θ)               the blocks of every ordered region pair of a periodic composite unit cell
-#   blcTwc(M, ms, ax, θ)                    twisted-circulant rows of a Toeplitz fill (P = N) and its twist residual
-# Threads: the fill runs its producers (per-axis node factors, certification bounds, propagating orders' open-axis integrals, block
-# accumulation) on Threads.nthreads() threads and consumes them in a fixed order: the result is bitwise the same for every thread count.
-# Packages: DoubleFloats (hot rows, Double64 reruns), SpecialFunctions (Float64 erfc/erfcx/expint), QuadGK (Gauss nodes at +64 bits).
 module Bloch
 
 using LinearAlgebra, SpecialFunctions, DoubleFloats, QuadGK
@@ -61,6 +50,7 @@ function tFor(f, n::Int)
     for e in err; e === nothing || throw(e); end
     nothing
 end
+# map(f, xs) on the threads, results in index order: a caller that consumes them in that order is bitwise the same at every thread count
 function tMap(f, xs)
     (length(xs) <= 1 || Threads.nthreads() == 1) && return map(f, xs)
     r = Vector{Any}(undef, length(xs)); v = collect(xs)

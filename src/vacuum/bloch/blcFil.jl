@@ -299,11 +299,6 @@ function rs0DatQ(::Type{T}, ::Type{Q}, axk, xq, isper, pers) where {T,Q}
     end
 end
 
-# Block fill of the Herm/AH Bloch kernels for one equal-cell shape: all Toeplitz offsets at once.
-# Same representation as blcTns; every piece is a sum of rank-1 tensors over the axes (the integrand of K_t is a
-# product of per-axis factors), accumulated by matrix products. Offsets: periodic axes m ∈ -(N-1):(N-1), open 0:(N-1).
-# Returns H, A as (3,3,n1,n2,n3) arrays, raw normalization, Gila's full entry.
-
 # acc[a,b] += Σ_t w[t] V1[:,t] ⊗ V2[:,t] ⊗ V3[:,t], in chunks of KCH nodes whose BLAS partial sums are added with Neumaier
 # compensation (kept in CMP until fold!): the plain sum over thousands of nodes cost up to 13 eps against blcTns's compensated one
 # (route C)
@@ -359,11 +354,11 @@ function prMat(::Type{T}, P::PerAx, rng, rows, E0) where {T}
     Ee, Eo
 end
 
-# κ at the lattice point x = k·s of an equal-cell axis (cp = s, cm = 0), integer kink bookkeeping, same formulas as kap
 # θ-independent per-frequency cache of the lattice-point κ(k s, t) values, keyed on the cell edge, k and the exact node t (blcSet)
 const KCS = ScopedValue{Union{Nothing,KapCache}}(nothing)
 kapL(A::AxK{T}, sT::T, k::Int, t::S, tol::T) where {T,S} = (c = KCS[]; c === nothing ? kapL0(A, sT, k, t, tol) :
     kcGet!(() -> kapL0(A, sT, k, t, tol), c, (sT, k, t))::NTuple{3,S})
+# κ at the lattice point x = k·s of an equal-cell axis (cp = s, cm = 0), integer kink bookkeeping, same formulas as kap
 function kapL0(A::AxK{T}, sT::T, k::Int, t::S, tol::T) where {T,S}
     cp = sT; ax = abs(k) * sT
     # moment regime: kapV reads only (|x|, x) there; x = k a formed as toT does (one rounding of k·num/den), no Rational{BigInt} per node
@@ -524,6 +519,10 @@ function filD64(r, s, f::Complex{T}, ax, N, P, θ; entT = 1e-8, tol = eps(T), se
 end
 # the per-frequency cache and a fresh compensation store scoped to one fill (nested fills of the same call share the cache)
 blcFil0(s, f, ax, N, P, θ; cache = nothing, kw...) = with(() -> filBlk(s, f, ax, N, P, θ; cache, kw...), KCS => cache, CMPS => IdDict{Any,Any}())
+# Block fill of the Herm/AH Bloch kernels for one equal-cell shape: all Toeplitz offsets at once.
+# Same representation as blcTns; every piece is a sum of rank-1 tensors over the axes (the integrand of K_t is a
+# product of per-axis factors), accumulated by matrix products. Offsets: periodic axes m ∈ -(N-1):(N-1), open 0:(N-1).
+# Returns H, A as (3,3,n1,n2,n3) arrays, raw normalization, Gila's full entry.
 function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple{D,Int}, θ::NTuple{D,Any};
                tol::T = eps(T), nG::Int = 0, cth::Real = 1, τ::T = zero(T), sheet::Symbol = :J10, route::Symbol = :auto,
                c1::Real = 1 // 8, c2::Real = 12, cU::Real = 4, cache = nothing, entT::Real = 1e-8,
@@ -610,7 +609,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
     # (an exact twist, θ Rational, stays exact: its PerAx phases are cispi of the twist; a Float θ is the radian value)
     persD = Dict(i => (j = findfirst(==(i), ax); PerAx(axkD[i], L[j], θ[j] isa Rational ? twT(TD, θ[j]) : twT(TD, TD(θ[j])), θ[j])) for i in hax)
     # one periodic-axis row (offset index j) at the nodes tv in Double64: the three derivative orders and their Σ|terms| (perVec's forms)
-    # (every name assigned in these closures is declared local: an assignment to a name that blcFil0 also assigns, e.g. V, would rebind blcFil0's)
+    # (every name assigned in these closures is declared local: an assignment to a name that filBlk also assigns, e.g. V, would rebind filBlk's)
     function perRowD(i, j, tv)
         local Vr = zeros(Complex{TD}, 3, length(tv))
         local Vra = zeros(TD, 3, length(tv))
@@ -893,7 +892,6 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
     phC = Dict(i => TMemo{Int,Vector{Complex{T}}}() for i in 1:3)
     openV(i, tv) = nodeVecs(i, tv, (ii, j, t) -> Complex{T}.(kapL(axk[ii], sTa[ii], ms[ii][j], t, tol)))
     rsAdd!(tv, wv) = (VV = [isper(i) ? perVec(i, tv) : openV(i, tv) for i in 1:3]; addPats!([v[1] for v in VV], tv, wv, exp.(x .* tv), [v[2] for v in VV]))
-    tV = time() - t0
     rsAdd!(tn, tw_)
     evP = Tuple{T,T}[]; evAdd! = nothing; SPset = NTuple{D,Int}[]; spRecF = Any[]; spAdd! = nothing; νe2 = zero(T)
     spPlF = Dict{Int,Any}(); pairOf = nothing
@@ -1186,11 +1184,9 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
             end
         end
         info[:qcertFil] = stats
-        # not yet certified per offset in the fill (same panel rules as blcTns, whose certificates rarely bisect them)
-        info[:uncertStages] = ()
     end
 
-    info = Dict{Symbol,Any}(:τ => τ, :nRS => length(tn), :tRS => time() - t0, :tRSvec => tV, :tPre => t0 - tS0)
+    info = Dict{Symbol,Any}(:τ => τ, :nRS => length(tn), :tRS => time() - t0, :tPre => t0 - tS0)
     if route == :C
         cFil!(CH, CA, s, f, ax, xs, ms, nn, axk, sTa, pers, pats, τ, T(c2), T(cU), rpx, α, tol, nG, D2, D2o, info; qcert, zAll, MH, MA,
               hotC = isempty(hot) ? nothing : (hot = hot, axkD = axkD, sTaD = sTaD, persD = persD, tolD = tolD, faD = faD, fbD = fbD, symAx = symAx, rowC = rowC, ppD = ppD))
@@ -1993,13 +1989,12 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
         H[b, a, :, :, :] .= Hab; A[b, a, :, :, :] .= Aab
     end
     zRw === nothing || (for I in CartesianIndices(zAll); zAll[I] && (H[:, :, I] .= 0; A[:, :, I] .= 0; λH[:, I] .= 0; λA[:, I] .= 0); end)
-    # T != Float64 (blcFil's wrapper scans Float64 fills only): the near-symmetric flags reported as the Float64 default reports them (no rerun)
     info[:ms] = ms; info[:route] = route; info[:λe] = (λH, λA)
     (fa_ = FILACC[]) === nothing || (info[:spFlops] = fa_[])
     return H, A, info
 end
 
-# per-order flops of the d_o = 2 pole form beyond which the fill refuses, as blcFil0's a priori estimate counts them (M(√S) on every panel, an
+# per-order flops of the d_o = 2 pole form beyond which the fill refuses, as filBlk's a priori estimate counts them (M(√S) on every panel, an
 # upper bound of the per-panel rule): the largest d = 1 block of the coverage, c4 (16,64,64) at a 4λ period, f = 1, estimates 1.32e12 for its
 # costliest order; a cap of 1e11 refused far smaller blocks; open extents of 32λ estimate ~2e13
 const FILMAX = 4.0e12
@@ -2580,7 +2575,7 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
     D < 3 && (sc = min(sc, max(zero(T), minimum(i -> toT(T, pers[ax[i]].L)^2, 1:D) / (4 * T(π)) - τ1)))
     U = cU * abs(y)
     CC = Dict(p => zeros(Complex{T}, nn...) for p in pats); CCa = Dict(p => zeros(T, nn...) for p in pats)
-    # hot rows (as in blcFil0): the periodic per-axis vectors of those rows in Double64, rounded once
+    # hot rows (as in filBlk): the periodic per-axis vectors of those rows in Double64, rounded once
     hot = hotC === nothing ? Dict{Int,Vector{Int}}() : hotC.hot
     symC = hotC === nothing ? 0 : hotC.symAx
     TD = T === Float64 ? Double64 : T; rD = T(eps(TD) / eps(T))
@@ -2649,7 +2644,7 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
             collect((floor(Int, twv - νm * toT(T, Pv[i].L)) - 1):(ceil(Int, twv + νm * toT(T, Pv[i].L)) + 1))
         end for i in 1:3]
         Ep = [[phsP(T, mq, Pv[i], xq) for xq in xs[i], mq in rngs[i]] for i in 1:3]
-        # ±m pairs at exact twists 0, 1/2 (prMat, as blcFil0's route R d = 3 tail)
+        # ±m pairs at exact twists 0, 1/2 (prMat, as filBlk's route R d = 3 tail)
         prA = any(i -> prTw(Pv[i]), 1:3)
         EpP = [prMat(T, Pv[i], rngs[i], [((xq, 1),) for xq in xs[i]], Ep[i]) for i in 1:3]
         Epp(p) = [isodd(p[i]) ? EpP[i][2] : EpP[i][1] for i in 1:3]
@@ -2668,7 +2663,7 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
             for p in pats
                 p == (0, 0, 0) && continue
                 if any(==(2), p)
-                    # the diagonal with its δ part, (-E + 4π² S_a W)/f² (blcFil0 route R d = 3)
+                    # the diagonal with its δ part, (-E + 4π² S_a W)/f² (filBlk route R d = 3)
                     a = findfirst(==(2), p); Sa = 4 * T(π)^2 * sum(d -> d == a ? zero(T) : ν[d]^2, 1:3); νa = 4 * T(π)^2 * ν[a]^2
                     if dgE(Sa, νa, abs(W), abs(E_), abs(f2i))
                         Cq[p][i1, i2, i3] = c * (Sa * W - E_) * f2i; CqM[p][i1, i2, i3] = c * (Sa * abs(W) + abs(E_)) * abs(f2i)
@@ -2685,7 +2680,7 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
             X2 = permutedims(reshape(E[2] * reshape(permutedims(X1, (2, 1, 3)), nq[2], :), nn[2], nn[1], nq[3]), (2, 1, 3))
             permutedims(reshape(E[3] * reshape(permutedims(X2, (3, 1, 2)), nq[3], :), nn[3], nn[1], nn[2]), (2, 3, 1))
         end
-        # hot slabs in Double64 (as blcFil0's route R d = 3)
+        # hot slabs in Double64 (as filBlk's route R d = 3)
         CqD = nothing
         if !isempty(hot)
             PvD = [hotC.persD[i] for i in 1:3]; τcD = Complex{TD}(τc); yD = 8 * TD(π)^2 * hotC.faD * hotC.fbD
@@ -2972,7 +2967,7 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
                     end
                 end
             end
-            # hot rows/columns of E in Double64 (as blcFil0's route R block, complex t)
+            # hot rows/columns of E in Double64 (as filBlk's route R block, complex t)
             if haskey(hot, i1) || haskey(hot, i2)
                 local h1 = get(hot, i1, Int[])
                 local h2 = get(hot, i2, Int[])

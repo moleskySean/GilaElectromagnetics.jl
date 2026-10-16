@@ -1403,6 +1403,10 @@ function rteAuto(R, sT, sS, f::Complex{T}, ax, L, θ, kw, Lmx, Z = falses(3, 3))
     return Ho, Ao, inf
 end
 
+# the outermost call sets the budget wmax (work units) and runs the per-entry Double64 fallback; nested calls (rteAuto's routes, the principal
+# sheet) share the budget
+const WMAX0 = 1.0e8
+
 """
     blcTns(R, sT, sS, f, ax, L, θ; tol, nG, cth, cg) -> (H, A, info)
 
@@ -1410,9 +1414,6 @@ Herm[G^per] = Σ_n e^{iθ·n} Re G(R + Λn) and AH[G^per] = Σ_n e^{iθ·n} Im G
 Gila's full entry (−δ/f² inside the n = 0 self image). ax: periodic axes (1..3 of them), L: periods, θ: T radians or
 Rational twists θ/2π. Complex f with any sign of Im f (J10 continuation at Im f < 0).
 """
-# the outermost call sets the budget wmax (work units) and runs the per-entry Double64 fallback; nested calls (rteAuto's routes, the principal
-# sheet) share the budget
-const WMAX0 = 1.0e8
 function blcTns(R, sT, sS, f::Complex{T}, ax::NTuple{D,Int}, L::NTuple{D,<:Rational}, θ::NTuple{D,Any}; wmax::Real = WMAX0, pe::Bool = true, kw...) where {T,D}
     blasMt() && return blas1(() -> blcTns(R, sT, sS, f, ax, L, θ; wmax, pe, kw...))
     if BUD[] !== nothing

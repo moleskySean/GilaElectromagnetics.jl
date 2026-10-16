@@ -358,7 +358,7 @@ isquasistatic(opr::GlaCmpOprVac) = all(isquasistatic, opr.blkMat)
 """
     setBlc!(opr::AbstractGlaOpr, θ::Tuple)
 
-Set the Bloch phases `θ` of a Bloch self operator, or of the one inside a scattering operator, in place: a phase costs one fill and one transform, no plan or per-frequency cache is rebuilt.
+Set the Bloch phases `θ` of a Bloch self operator, or of the one inside a scattering operator, in place. On a self operator a phase costs one fill and one transform and reuses the plans and the per-frequency `BlcSet`; a composite operator also rebuilds its per-frequency κ cache on every phase, and each fine-mesh block pays one more fill.
 """
 setBlc!(opr::AbstractGlaOpr, θ::Tuple) = (setBlc!(vac(opr), θ); opr)
 setBlc!(opr::AbstractGlaVacOpr, θ::Tuple) = (setBlc!(opr.mem, θ); opr)

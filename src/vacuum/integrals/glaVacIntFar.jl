@@ -872,8 +872,8 @@ function farSet(sQ::NTuple{3,QI}, frq::Complex{T}; tol::Float64 = TOL,
                 disk::Bool = true, nCap::Int = NCAP, dir::AbstractString = TABDIR[]) where {T}
     s = ntuple(d -> T(sQ[d]), 3)
     k = 2 * T(pi) * frq
-    # the bound, the thresholds and the n-cut are selection arithmetic and are always done in
-    # Float64: they need no precision, and in Float32 (2l+1)!! and hb(l) overflow at l ~ 30.
+    # the bound, the thresholds and the n-cut are selection arithmetic, done in Float64 whatever
+    # T is: in Float32 (2l+1)!! overflows at l = 29 and the NaN poisons every tail.
     s6 = ntuple(d -> Float64(sQ[d]), 3); f6 = ComplexF64(frq); k6 = 2 * pi * f6
     vt6 = prod(s6); rd6 = sqrt(sum(s6[i]^2 for i in 1:3))
     rLo = nMin * minimum(s6); rHi = 4 * nBlk * rd6
@@ -945,7 +945,7 @@ end
 @inline chkCut(fs::FrqSet) = fs.nNd <= fs.nMx ? nothing :
     error("chkCut: the n-tail bound needs N = $(fs.nNd), the table holds $(fs.nMx)")
 
-# tol = 45 eps, which is 1e-14 at Float64: below the 16.4 ulp max-norm floor of the expansion,
+# tol = 45 eps, which is 9.992e-15 at Float64: below the 16.4 ulp max-norm floor of the expansion,
 # so tightening it only adds terms
 farTol(::Type{T}) where {T} = 45 * Float64(eps(T))
 

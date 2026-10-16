@@ -1111,8 +1111,8 @@ facMom(D::NTuple{3,Int}, F::Int, Fp::Int, s::NTuple{3,T}, mMax::Integer;
     parMom(parFac(D, F, Fp, s)..., mMax; tol = tol)
 
 # int_A int_B exp(2 pi i f r)/(4 pi r f^2) = (1/(4 pi f^2)) sum_n (2 pi i f)^n
-# I_{n-1}/n!. rel = |last term|/|sum| is the term-count stopping rule, NOT an
-# error bound: it certifies term decay, not the conditioning of the partial sum.
+# I_{n-1}/n!, summed over every moment given. The second return value, |last term|/|sum|,
+# shows term decay, not an error bound: it does not see cancellation in the partial sum.
 momSer(pA, pB, frq, mMax::Integer) = momSer(parMom(pA, pB, mMax), frq)
 
 function momSer(mom::AbstractVector{T}, frq) where {T}
@@ -1202,7 +1202,8 @@ function srfSum!(egoCrc::AbstractMatrix{<:Complex}, srfMat::AbstractVector{<:Com
 end
 
 const cntInd = CartesianIndices((2, 2, 2))
-# frequency-free, so one table serves every frequency at a given cell geometry
+# the moments carry no frequency, but the key holds the series length serOrd picks from it,
+# so a frequency that changes that length builds a new table
 const momMem = Dict{Tuple{NTuple{3,Rational},NTuple{3,Rational},Int},
     Array{Vector{Double64},4}}()
 const momLck = ReentrantLock()
