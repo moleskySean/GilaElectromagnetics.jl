@@ -19,7 +19,7 @@ export GlaFld, MultiScaleField, discretize!, regionview, eachregion, regrid
 export GMRESSolver, GCRODRSolver, RcySpc, BiCGStabSolver, MixPrcRfn, SlvLog, solve, isvarying
 export MixedPrecisionRefinement
 export GlaOprVac, InvSctOpr, SctOpr, GlaOpr, SusOpr
-export VacuumGreenOperator, InverseScatteringOperator, ScatteringOperator, GreenOperator, SusceptibilityOperator
+export VacuumGreenOperator, CompositeVacuumGreenOperator, InverseScatteringOperator, ScatteringOperator, GreenOperator, SusceptibilityOperator
 export isadjoint, isselfoperator, isexternaloperator, isoverlappingoperator, isquasistatic, adjoint!, vac, slv, sus, asym, sym, setSus!, setBlc!
 
 """
