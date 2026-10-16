@@ -1,180 +1,82 @@
+# The phases of axis dir, shaped to broadcast along it
+_phzDir(phzVec::AbstractVector{<:Complex}, dir::Integer) = reshape(phzVec, ntuple(d -> d == dir ? length(phzVec) : 1, 3))
+
 #=
-restructure input vector to match partitioned Green function data
+restructure input vector to match partitioned Green function data: cell i of
+partition o sits at (i - 1) * div + o + 1, partitions in column-major order
 =#
-function genPrt!(actVec::AbstractArray{<:Complex, 4}, mixInf::GlaExtInf, parNum::Integer)
-    maxItr = mixInf.srcCel
-    orgVec = similar(actVec, maxItr..., 3, parNum)
-    ker = genPrtKer!(get_backend(actVec))
-    for parItr in 1:parNum, dirItr in 1:3
-        stp = Tuple(mixInf.srcDiv)
-        off = _parOff(mixInf.srcDiv, parItr)
-        ker(stp, off, dirItr, parItr, actVec, orgVec; ndrange=maxItr)
-    end
+function genPrt!(actVec::AbstractArray{<:Complex, 4}, mixInf::GlaExtInf)
+    div, cel = mixInf.srcDiv, mixInf.srcCel
+    orgVec = similar(actVec, cel..., 3, prod(div))
+    permutedims!(reshape(orgVec, cel..., 3, div...),
+        reshape(actVec, div[1], cel[1], div[2], cel[2], div[3], cel[3], 3), (2, 4, 6, 7, 1, 3, 5))
     memCln!(actVec)
     return orgVec
 end
-@kernel function genPrtKer!(stp::NTuple{3,Integer}, off::NTuple{3,Integer}, dirItr::Integer, parItr::Integer, actVec::AbstractArray{<:Complex,4}, orgVec::AbstractArray{<:Complex,5})
-    itr = @index(Global, NTuple)
-    srcItr = (itr .- 1) .* stp .+ off .+ 1
-    @inbounds orgVec[itr..., dirItr, parItr] = actVec[srcItr..., dirItr]
-end
 
 #=
-split a branch so that even and odd Fourier coefficients are independent
+split a branch so that even and odd Fourier coefficients are independent: the
+even branch stays in orgVec, the odd one is its twiddled copy
 =#
-function sptBrn!(prgVec::AbstractArray{<:Complex, 5}, sptDir::Integer, phzVec::AbstractVector{<:Complex}, parNum::Integer, orgVec::AbstractArray{<:Complex, 5})
-    vecSze = size(orgVec)[1:3]
-    ker = sptKer!(get_backend(orgVec))
-    for parItr in 1:parNum
-        ker(sptDir, phzVec, parItr, orgVec, prgVec; ndrange=vecSze)
-    end
+function sptBrn!(prgVec::AbstractArray{<:Complex, 5}, dir::Integer, phzVec::AbstractVector{<:Complex}, orgVec::AbstractArray{<:Complex, 5})
+    prgVec .= _phzDir(phzVec, dir) .* orgVec
     return nothing
-end
-@kernel function sptKer!(sptDir::Integer, phzVec::AbstractVector{<:Complex}, parItr::Integer, orgVec::AbstractArray{<:Complex, 5}, prgVec::AbstractArray{<:Complex, 5})
-    itr = @index(Global, NTuple)
-    @inbounds begin
-        phz = phzVec[itr[sptDir]]
-        # apply it to all three Fourier‐branch slots
-        prgVec[itr..., 1, parItr] = phz * orgVec[itr..., 1, parItr]
-        prgVec[itr..., 2, parItr] = phz * orgVec[itr..., 2, parItr]
-        prgVec[itr..., 3, parItr] = phz * orgVec[itr..., 3, parItr]
-    end
 end
 #=
-split branches for external Green function
+split branches for external Green function: source cells past the branch length
+fold back onto its start, and the progeny past the source are zero
 =#
-function sptBrn!(prgVecEve::AbstractArray{<:Complex,5}, prgVecOdd::AbstractArray{<:Complex,5}, dirSpt::Integer, phzVec::AbstractVector{<:Complex}, mixInf::GlaExtInf, parNum::Integer, orgVec::AbstractArray{<:Complex,5})
-    brnSze = div.(mixInf.trgCel .+ mixInf.srcCel, 2)
-    curSze = size(orgVec)[1:3]
-    prgSze = ntuple(x -> x==dirSpt ? brnSze[x] : curSze[x], 3)
-
-    ovrRng  = ntuple(i-> i==dirSpt ?
-                     (1 : mixInf.srcCel[i]-brnSze[i]) :
-                     (1 : prgSze[i]), 3)
-    stdRng  = ntuple(i-> i==dirSpt ?
-                     (last(ovrRng[i])+1 : min(mixInf.srcCel[i],brnSze[i])) :
-                     (1 : prgSze[i]), 3)
-    ovrOff  = ntuple(i-> i==dirSpt ? brnSze[dirSpt] : 0, 3)
-
-    # Zero the progeny vectors
-    fill!(prgVecEve, zero(eltype(prgVecEve)))
-    fill!(prgVecOdd, zero(eltype(prgVecOdd)))
-
-    # Launch one kernel per (par,dir) over the entire prgSze
-    ker = sptBrnExt!(get_backend(orgVec))
-    for parItr in 1:parNum, dirItr in 1:3
-      ker(ovrRng, stdRng, ovrOff, dirSpt, dirItr, parItr,
-          phzVec, orgVec, prgVecEve, prgVecOdd;
-          ndrange=prgSze)
-    end
+function sptBrn!(eveVec::AbstractArray{<:Complex,5}, oddVec::AbstractArray{<:Complex,5}, dir::Integer, phzVec::AbstractVector{<:Complex}, mixInf::GlaExtInf, orgVec::AbstractArray{<:Complex,5})
+    brn, src = div(mixInf.trgCel[dir] + mixInf.srcCel[dir], 2), mixInf.srcCel[dir]
+    phz = _phzDir(phzVec, dir)
+    sel(arr, rng) = selectdim(arr, dir, rng)
+    ovr = 1:(src - brn)
+    std = (length(ovr) + 1):min(src, brn)
+    fill!(eveVec, zero(eltype(eveVec)))
+    fill!(oddVec, zero(eltype(oddVec)))
+    sel(eveVec, ovr) .= sel(orgVec, ovr) .+ sel(orgVec, ovr .+ brn)
+    sel(oddVec, ovr) .= sel(phz, ovr) .* (sel(orgVec, ovr) .- sel(orgVec, ovr .+ brn))
+    sel(eveVec, std) .= sel(orgVec, std)
+    sel(oddVec, std) .= sel(phz, std) .* sel(orgVec, std)
     return nothing
-end
-@kernel function sptBrnExt!(ovrRng::NTuple{3,UnitRange{Int}}, stdRng::NTuple{3,UnitRange{Int}}, ovrOff::NTuple{3,Int}, dirSpt::Int, dirItr::Int, parItr::Int, phzVec::AbstractVector{<:Complex}, orgVec::AbstractArray{<:Complex,5}, eveVec::AbstractArray{<:Complex,5}, oddVec::AbstractArray{<:Complex,5})
-    itr = @index(Global, NTuple)
-    @inbounds begin
-        phz = phzVec[itr[dirSpt]]
-        # is it in the spill‑over region?
-        if all(map(in, itr, ovrRng))
-            # the other index
-            sprItr = itr .+ ovrOff
-            eveVec[itr..., dirItr, parItr] = orgVec[itr..., dirItr, parItr] + orgVec[sprItr..., dirItr, parItr]
-            oddVec[itr..., dirItr, parItr] = phz * (orgVec[itr..., dirItr, parItr] - orgVec[sprItr..., dirItr, parItr])
-        # else if it's in the standard region
-        elseif all(map(in, itr, stdRng))
-            eveVec[itr..., dirItr, parItr] = orgVec[itr..., dirItr, parItr]
-            oddVec[itr..., dirItr, parItr] = phz * orgVec[itr..., dirItr, parItr]
-        # else: skip (they're already zero)
-        end
-    end
 end
 #=
 merge two branches, eliminating unused coefficients
 =#
-function mrgBrn!(orgVec::AbstractArray{<:Complex,5}, mrgDir::Integer, parNumTrg::Integer, phzVec::AbstractVector{<:Complex}, prgVec::AbstractArray{<:Complex,5})
-    # launch one fused kernel per (partition, direction)
-    vecSze = size(orgVec)[1:3]
-    ker = mrgKer!(get_backend(orgVec))
-
-    for prtItr in 1:parNumTrg, dirItr in 1:3
-        ker(mrgDir, phzVec, dirItr, prtItr, orgVec, prgVec;
-            ndrange = vecSze)
-    end
-
+function mrgBrn!(orgVec::AbstractArray{<:Complex,5}, dir::Integer, phzVec::AbstractVector{<:Complex}, prgVec::AbstractArray{<:Complex,5})
+    orgVec .= (orgVec .+ conj.(_phzDir(phzVec, dir)) .* prgVec) ./ 2
     # free the progeny vector on GPU
     memCln!(prgVec)
     return nothing
 end
-@kernel function mrgKer!(mrgDir::Integer, phzVec::AbstractVector{<:Complex}, dirItr::Integer, prtItr::Integer, orgVec::AbstractArray{<:Complex,5}, prgVec::AbstractArray{<:Complex,5})
-    itr = @index(Global, NTuple)
-    @inbounds begin
-        ph = phzVec[itr[mrgDir]]
-        # merge branches in place
-        orgVec[itr..., dirItr, prtItr] = (orgVec[itr..., dirItr, prtItr] + conj(ph) * prgVec[itr..., dirItr, prtItr]) / 2
-    end
-end
 #=
-generalized host merge allowing for different output size
+generalized merge allowing for different output size: the output past the
+branch length comes from the start of the branches, with the opposite sign
 =#
-function mrgBrn!(mrgVec::AbstractArray{<:Complex,5}, mrgDir::Integer, parNumTrg::Integer, phzVec::AbstractVector{<:Complex}, eveVec::AbstractArray{<:Complex,5}, oddVec::AbstractArray{<:Complex,5})
-    # 3D sizes
-    mrgSze3 = size(mrgVec)[1:3]
-    curSze3 = size(eveVec)[1:3]
-
-    # how much of the top comes from eve/odd
-    topStop = min(mrgSze3[mrgDir], curSze3[mrgDir])
-    offSet  = topStop
-
-    # kernel launcher
-    ker = mrgKerGnl!(get_backend(mrgVec))
-
-    # launch one kernel per (partition, direction)
-    for prtItr in 1:parNumTrg, dirItr in 1:3
-        ker(topStop, offSet,
-            mrgDir, dirItr, prtItr,
-            phzVec, eveVec, oddVec, mrgVec;
-            ndrange = mrgSze3)
-    end
-
+function mrgBrn!(mrgVec::AbstractArray{<:Complex,5}, dir::Integer, phzVec::AbstractVector{<:Complex}, eveVec::AbstractArray{<:Complex,5}, oddVec::AbstractArray{<:Complex,5})
+    phz = _phzDir(phzVec, dir)
+    sel(arr, rng) = selectdim(arr, dir, rng)
+    top = 1:min(size(mrgVec, dir), size(eveVec, dir))
+    bot = 1:(size(mrgVec, dir) - length(top))
+    sel(mrgVec, top) .= (sel(eveVec, top) .+ conj.(sel(phz, top)) .* sel(oddVec, top)) ./ 2
+    sel(mrgVec, bot .+ length(top)) .= (sel(eveVec, bot) .- conj.(sel(phz, bot)) .* sel(oddVec, bot)) ./ 2
     # free intermediate buffers
     memCln!(eveVec)
     memCln!(oddVec)
     return nothing
 end
-@kernel function mrgKerGnl!(topStop::Integer, offSet::Integer, mrgDir::Integer, dirItr::Integer, prtItr::Integer, phzVec::AbstractVector{<:Complex}, eveVec::AbstractArray{<:Complex,5}, oddVec::AbstractArray{<:Complex,5}, mrgVec::AbstractArray{<:Complex,5})
-    itr = @index(Global, NTuple)
-    top = itr[mrgDir] <= topStop
-    # map global→input coords (for accessing eve/odd)
-    inp = top ? itr : ntuple(dir -> dir == mrgDir ? itr[dir] - offSet : itr[dir], 3)
-    ph = phzVec[inp[mrgDir]]
-    @inbounds begin
-        if top
-            mrgVec[itr..., dirItr, prtItr] = (eveVec[inp..., dirItr, prtItr] + conj(ph) * oddVec[inp..., dirItr, prtItr]) / 2
-        else
-            mrgVec[itr..., dirItr, prtItr] = (eveVec[inp..., dirItr, prtItr] - conj(ph) * oddVec[inp..., dirItr, prtItr]) / 2
-        end
-    end
-end
 #=
-merge partitions and return output vector 
+merge partitions and return output vector, the inverse of genPrt!
 =#
-function mrgPrt!(mixInf::GlaExtInf, parNum::Integer, prtVec::AbstractArray{<:Complex, 5})
-    maxItr = mixInf.trgCel
-    mrgVec = similar(prtVec, (mixInf.trgDiv .* mixInf.trgCel)..., 3)
+function mrgPrt!(mixInf::GlaExtInf, prtVec::AbstractArray{<:Complex, 5})
+    div, cel = mixInf.trgDiv, mixInf.trgCel
+    mrgVec = similar(prtVec, (div .* cel)..., 3)
     synchronize(get_backend(prtVec))
-    ker = mrgPrtKer!(get_backend(prtVec))
-    for parItr in 1:parNum, dirItr in 1:3
-        stp = Tuple(mixInf.trgDiv)
-        off = _parOff(mixInf.trgDiv, parItr)
-        ker(stp, off, dirItr, parItr, mrgVec, prtVec; ndrange=maxItr)
-    end
+    permutedims!(reshape(mrgVec, div[1], cel[1], div[2], cel[2], div[3], cel[3], 3),
+        reshape(prtVec, cel..., 3, div...), (5, 1, 6, 2, 7, 3, 4))
     synchronize(get_backend(prtVec))
     memCln!(prtVec)
     return mrgVec
-end
-@kernel function mrgPrtKer!(stp::NTuple{3,Integer}, off::NTuple{3,Integer}, dirItr::Integer, parItr::Integer, mrgVec::AbstractArray{<:Complex,4}, prtVec::AbstractArray{<:Complex,5})
-    itr = @index(Global, NTuple)
-    trgItr = (itr .- 1) .* stp .+ off .+ 1
-    @inbounds mrgVec[trgItr..., dirItr] = prtVec[itr..., dirItr, parItr]
 end
 
 # Release a device buffer ahead of the GC, a no-op on the CPU

@@ -29,7 +29,7 @@ function egoBrn!(egoMem::GlaVacOprMem, lvl::Integer, bId::Integer, actVec::Abstr
     if lvl == 0 && sum(egoMem.mixInf.srcCel .!= size(actVec)[1:3]) > 0 
         # reshape current vector 
         # orgVec and actVec share the same underlying data
-        orgVec = genPrt!(actVec, egoMem.mixInf, parNumSrc)
+        orgVec = genPrt!(actVec, egoMem.mixInf)
     elseif lvl == 0
         orgVec = reshape(actVec, egoMem.mixInf.srcCel..., 3, parNumSrc)
     else
@@ -47,7 +47,7 @@ function egoBrn!(egoMem::GlaVacOprMem, lvl::Integer, bId::Integer, actVec::Abstr
         if size(orgVec)[lvl + 1] == brnSze[lvl + 1]
             prgVec = similar(orgVec)
             # split branch, includes phase operation and stream sync
-            sptBrn!(prgVec, lvl + 1, egoMem.phzInf[lvl+1], parNumSrc, orgVec)
+            sptBrn!(prgVec, lvl + 1, egoMem.phzInf[lvl+1], orgVec)
             # rename vectors for consistent convention with general branching
             prgVecEve = orgVec 
             prgVecOdd = prgVec
@@ -62,7 +62,7 @@ function egoBrn!(egoMem::GlaVacOprMem, lvl::Integer, bId::Integer, actVec::Abstr
             synchronize(egoMem.cmpInf.dev)
             # memory previously associated with orgVec is freed internally
             sptBrn!(prgVecEve, prgVecOdd, lvl + 1, egoMem.phzInf[lvl+1],
-                egoMem.mixInf, parNumSrc, orgVec)
+                egoMem.mixInf, orgVec)
         end
     end
     # branch until depth of block structure
@@ -74,7 +74,7 @@ function egoBrn!(egoMem::GlaVacOprMem, lvl::Integer, bId::Integer, actVec::Abstr
         # check if size of vector must change on merge
         if size(eveVec)[lvl + 1] == egoMem.mixInf.trgCel[lvl + 1]
             # merge branches, includes phase operation and stream sync
-			mrgBrn!(eveVec, lvl + 1, parNumTrg, egoMem.phzInf[lvl + 1], oddVec)
+			mrgBrn!(eveVec, lvl + 1, egoMem.phzInf[lvl + 1], oddVec)
             # rename eveVec to match return name used elsewhere
             retVec = eveVec
         # merge and resize
@@ -87,8 +87,7 @@ function egoBrn!(egoMem::GlaVacOprMem, lvl::Integer, bId::Integer, actVec::Abstr
             # allocate memory for merge
             retVec = similar(eveVec, mrgSze..., 3, parNumTrg)
             # merge branches, even and odd vectors are freed, stream synced 
-			mrgBrn!(retVec, lvl + 1, parNumTrg, 
-				egoMem.phzInf[lvl + 1], eveVec, oddVec)
+			mrgBrn!(retVec, lvl + 1, egoMem.phzInf[lvl + 1], eveVec, oddVec)
         end
     else
         retVec = similar(orgVec, brnSze..., 3, parNumTrg)
@@ -115,7 +114,7 @@ function egoBrn!(egoMem::GlaVacOprMem, lvl::Integer, bId::Integer, actVec::Abstr
         if parNumTrg == 1
             return reshape(retVec, egoMem.mixInf.trgCel..., 3)
         else
-            return mrgPrt!(egoMem.mixInf, parNumTrg, retVec)
+            return mrgPrt!(egoMem.mixInf, retVec)
         end
     end
     return retVec
