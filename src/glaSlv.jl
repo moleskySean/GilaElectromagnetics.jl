@@ -958,7 +958,7 @@ matrix-vector cost of `Tlo`.
 The operator passed to `solve` must be of higher precision than `Tlo`, and must
 match the precision of the right hand side.
 
-Typical usage: `GlaOpr{Float64}(vol, vol, sus; slv=MixPrcRfn(Float32))`
+Typical usage: `GlaOpr{Float64}(vol, sus; slv=MixPrcRfn(Float32))`
 
 # Fields
 - `innSlv::GlaSlv`: The solver used for the low precision corrections

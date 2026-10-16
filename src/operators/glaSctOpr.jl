@@ -11,9 +11,7 @@ mutable struct InvSctOpr{T<:AbstractFloat, O<:AbstractGlaVacOpr{T}} <: AbstractG
     #= The susceptibility comes in any of the forms SusOpr accepts, and is the
     one place a precision conversion is allowed. =#
     function InvSctOpr{T}(oprVac::AbstractGlaVacOpr{T}, sus) where T<:AbstractFloat
-        if oprVac isa GlaCmpOprVac && !isselfoperator(oprVac)
-            throw(ArgumentError("An inverse scattering operator needs a self operator, and this composite operator maps between two different tilings."))
-        end
+        isselfoperator(oprVac) || throw(ArgumentError("An inverse scattering operator needs a self operator, and this one is $(_relKnd(oprVac))."))
         return new{T, typeof(oprVac)}(oprVac, sus isa SusOpr ? sus :
             SusOpr{T}(_srcCvl(oprVac), sus; dev=get_backend(oprVac)))
     end
@@ -62,19 +60,15 @@ GlaOprVac(opr::GlaOpr) = GlaOprVac(opr.sctOpr)
 GlaOprVac(opr::AbstractGlaVacOpr) = opr
 
 """
-    InvSctOpr{T}(trgVol::GlaVol, srcVol::GlaVol, sus; dev, kwargs...)
     InvSctOpr{T}(vol::Union{GlaVol, GlaCmpVol}, sus; dev, kwargs...)
 
-The inverse scattering operator (I - XG₀), with `sus` in any form `SusOpr` takes,
-on the source volume, and `dev` defaulting as there. Other keywords go to
+The inverse scattering operator (I - XG₀) of `vol` on itself, with `sus` in any
+form `SusOpr` takes and `dev` defaulting as there. Other keywords go to
 `GlaOprVac`, or to `GlaCmpOprVac` for a composite volume. X and the √ΔV
 normalization of a composite volume are both diagonal, so they commute.
 """
-InvSctOpr{T}(trgVol::GlaVol, srcVol::GlaVol, sus; dev::Backend=susDev(sus), kw...) where T<:AbstractFloat =
-    InvSctOpr{T}(GlaOprVac{T}(trgVol, srcVol; dev, kw...), sus)
-InvSctOpr{T}(vol::GlaVol, sus; kw...) where T<:AbstractFloat = InvSctOpr{T}(vol, vol, sus; kw...)
-InvSctOpr{T}(cvol::GlaCmpVol, sus; dev::Backend=susDev(sus), kw...) where T<:AbstractFloat =
-    InvSctOpr{T}(GlaCmpOprVac{T}(cvol; dev, kw...), sus)
+InvSctOpr{T}(vol::Union{GlaVol, GlaCmpVol}, sus; dev::Backend=susDev(sus), kw...) where T<:AbstractFloat =
+    InvSctOpr{T}(GlaOprVac{T}(vol; dev, kw...), sus)
 InvSctOpr(args...; kw...) = InvSctOpr{dflPrc}(args...; kw...)
 
 """
@@ -96,15 +90,12 @@ InvSctOpr(opr::GlaOpr) = InvSctOpr(opr.sctOpr)
 
 """
     SctOpr{T}(vol::Union{GlaVol, GlaCmpVol}, sus; dev, slv=GCRODRSolver(), kwargs...)
-    SctOpr{T}(trgVol::GlaVol, srcVol::GlaVol, sus; dev, slv=GCRODRSolver(), kwargs...)
 
 The scattering operator (I - XG₀)⁻¹, applied by solving with `slv`. Other
 arguments as for `InvSctOpr`.
 """
 SctOpr{T}(vol::Union{GlaVol, GlaCmpVol}, sus; slv::GlaSlv=GCRODRSolver(), kw...) where T<:AbstractFloat =
     SctOpr{T}(InvSctOpr{T}(vol, sus; kw...), slv)
-SctOpr{T}(trgVol::GlaVol, srcVol::GlaVol, sus; slv::GlaSlv=GCRODRSolver(), kw...) where T<:AbstractFloat =
-    SctOpr{T}(InvSctOpr{T}(trgVol, srcVol, sus; kw...), slv)
 SctOpr(args...; kw...) = SctOpr{dflPrc}(args...; kw...)
 
 """
@@ -133,13 +124,10 @@ SctOpr(opr::GlaOpr) = opr.sctOpr
 
 """
     GlaOpr{T}(vol::Union{GlaVol, GlaCmpVol}, sus; dev, slv=GCRODRSolver(), kwargs...)
-    GlaOpr{T}(trgVol::GlaVol, srcVol::GlaVol, sus; dev, slv=GCRODRSolver(), kwargs...)
 
 The full Green operator G₀(I - XG₀)⁻¹. Arguments as for `SctOpr`.
 """
 GlaOpr{T}(vol::Union{GlaVol, GlaCmpVol}, sus; kw...) where T<:AbstractFloat = GlaOpr{T}(SctOpr{T}(vol, sus; kw...))
-GlaOpr{T}(trgVol::GlaVol, srcVol::GlaVol, sus; kw...) where T<:AbstractFloat =
-    GlaOpr{T}(SctOpr{T}(trgVol, srcVol, sus; kw...))
 GlaOpr(args...; kw...) = GlaOpr{dflPrc}(args...; kw...)
 
 """

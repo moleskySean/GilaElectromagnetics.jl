@@ -63,6 +63,9 @@ const sctOne = GlaCmpVol(GlaVol((2, 2, 2), scl16, stdOrg))
     # A two body vacuum operator is not a scattering geometry
     extOpr = GlaCmpOprVac{Float64}(sctOne, GlaCmpVol(GlaVol((2, 2, 2), scl16, (1//2, 0//1, 0//1))))
     @test_throws ArgumentError InvSctOpr(extOpr, 0.5 + 0.1im)
+    # Nor is an external or an overlapping plain one
+    @test_throws ArgumentError InvSctOpr(_gExt(), 0.5 + 0.1im)
+    @test_throws ArgumentError SctOpr(_mskOpr, 0.5 + 0.1im)
 end
 
 @testset "Composite scattering dense identity" begin
