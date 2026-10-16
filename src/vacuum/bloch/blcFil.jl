@@ -3294,30 +3294,6 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
     nothing
 end
 
-"""
-    blcTwc(M, ms, ax, θ) -> (W, twistErr)
-
-Twisted-circulant storage (P = N): the offsets m_i ∈ [0, N) on every periodic axis of a Toeplitz fill M (3,3,n1,n2,n3), and the
-check of the twist relation G(m + N e_i) = e^{-iθ_i} G(m) on the whole block: max over periodic axes i and m_i ∈ [1, N) of
-|M(m) - e^{-iθ_i} M(m - N e_i)| / max|M|. θ_i is T radians or an exact twist θ/2π (Rational).
-"""
-function blcTwc(M::Array{Complex{T},5}, ms, ax, θ) where {T}
-    idx = [haskey(Dict(ax .=> 1:length(ax)), i) ? findall(>=(0), ms[i]) : collect(eachindex(ms[i])) for i in 1:3]
-    W = M[:, :, idx[1], idx[2], idx[3]]
-    mx = maximum(abs, M); err = zero(T)
-    mx == 0 && return W, err   # M ≡ 0 (3D AH at real f): the relation holds exactly
-    for (j, i) in enumerate(ax)
-        N = maximum(ms[i]) + 1
-        ph = θ[j] isa Rational ? cispi(-2 * T(θ[j])) : cis(-T(θ[j]))
-        for m in 1:N-1
-            a = findfirst(==(m), ms[i]); b = findfirst(==(m - N), ms[i])
-            sa = ntuple(k -> k == i + 2 ? (a:a) : Colon(), 5); sb = ntuple(k -> k == i + 2 ? (b:b) : Colon(), 5)
-            err = max(err, maximum(abs, M[sa...] .- ph .* M[sb...]) / mx)
-        end
-    end
-    W, err
-end
-
 blcFil(s, f::Number, ax::Tuple, N::Tuple, P::Tuple, θ::Tuple; kw...) = (inpChk("blcFil", f, ax, P, θ); error("blcFil: f must be complex (got $(typeof(f))), N three cell counts, P integer periods"))
 
 # the mixed route's per-entry choice (a function barrier over typed arrays, threaded over the last offset index; the same rule): every

@@ -868,7 +868,7 @@ nerRad(D, s::NTuple{3,T}, off::NTuple{3,T}) where {T} =
 # frequency-contracted tables, thresholds and route cache for shape s at frequency f
 function farSet(sQ::NTuple{3,QI}, frq::Complex{T}; tol::Float64 = TOL,
                 L::Int = LMAX, nMax::Int = NMAX, nMin::Int = 2, nBlk::Int = 128,
-                lDef::Int = LDEF, offs = nothing, scl::Symbol = :est, off = ZR3,
+                lDef::Int = LDEF, scl::Symbol = :est, off = ZR3,
                 disk::Bool = true, nCap::Int = NCAP, dir::AbstractString = TABDIR[]) where {T}
     s = ntuple(d -> T(sQ[d]), 3)
     k = 2 * T(pi) * frq
@@ -885,9 +885,7 @@ function farSet(sQ::NTuple{3,QI}, frq::Complex{T}; tol::Float64 = TOL,
     hf6 = ntuple(d -> s6[d] / 2, 3); rj6 = sqrt(sum(hf6[i]^2 for i in 1:3))
     oLs, oT = bndTrmO(L + LEXT, farMomO(L + LEXT, hf6), rj6, k6, f6, vt6)
     Lw = min(lDef, L); Lo = 0; rNc = rHi
-    ds = offs === nothing ? nerOff(thr, s6, min(lDef, L), nMin, nBlk, rHi, off) :
-         [ntuple(d -> abs(D[d]), 3) for D in offs]
-    for D in ds
+    for D in nerOff(thr, s6, min(lDef, L), nMin, nBlk, rHi, off)
         R = ntuple(d -> max(0.0, Float64(D[d]) * s6[d] - off[d]), 3)
         rr = sqrt(sum(R[i]^2 for i in 1:3))
         Lc = whlLvl(thr, rr)
@@ -975,11 +973,6 @@ function whlLvl(thr::Vector{Float64}, rr::Real)
 end
 whlLvl(fs, rr::Real) = whlLvl(fs.thr, rr)   # FrqSet or FrqSetX
 
-# the Theorem A bound itself on max_ab |T_ab - T_ab^(L)| at radius rr
-bndWhl(fs::FrqSet{T}, rr::T, L::Int) where {T} =
-    (c = bndCum(fs.wLs, fs.wT, ComplexF64(fs.k), Float64(rr)); i = div(L, 2) + 1;
-     i <= length(c) ? c[i] : 0.0)
-
 # per-sub-box l for the octant split at offset R; -1 in a slot means LMAX is not enough
 function octLvl(fs::FrqSet{T}, R::NTuple{3,T}) where {T}
     R6 = ntuple(d -> Float64(R[d]), 3); hf = ntuple(d -> Float64(fs.ctr[d]), 3)
@@ -1043,11 +1036,11 @@ cstOct(fb::FrqBox, Lc::Vector{Int}) = sum(L -> L < 0 ? 0 : 7 * (L + 1)^2, Lc)
 
 # Throw for a radius outside [rNc, rHi], where this set's k-series cut nCut is certified: a set reused
 # outside its interval returned a wrong tensor under a valid-looking certificate.  A set built by
-# farTns or farBlk! covers its own offsets, so this can fire only for a hand-built or reused one.
+# farFil! covers its own offsets, so this can fire only for a hand-built or reused one.
 @inline chkRad(fs::FrqSet, rLo::Float64, rUp::Float64, R) =
     (fs.rNc * (1 - 1e-12) <= rLo && rUp <= fs.rHi * (1 + 1e-12)) ? nothing :
     error("farRte: offset $R has radius $rLo..$rUp outside [$(fs.rNc), $(fs.rHi)], where this ",
-          "set's n-cut is certified; build the set with this offset in offs")
+          "set's n-cut is certified; build the set with an nBlk that holds this offset")
 
 # route for one offset: (kind, L, Lc, cost); kind 1 = whole box, 2 = octants, 3 = k-series
 function farRte(fs::FrqSet{T}, R::NTuple{3,T}; cst::Bool = false) where {T}
@@ -1407,26 +1400,6 @@ end
 @inline farInd(i::NTuple{3,Int}) = maximum(i) >= 3
 @inline farInd(i1::Int, i2::Int, i3::Int) = max(i1, i2, i3) >= 3
 
-# far tensor for one offset D in cells of shape s at frequency f; max-norm separation >= 2
-# required.  A test entry point: generation fills whole blocks with farBlk!
-function farTns(D::NTuple{3,Int}, s::NTuple{3,<:Rational}, f::Complex{T};
-                tol::Float64 = TOL, fs::Union{Nothing,FrqSet} = nothing,
-                dir::AbstractString = TABDIR[]) where {T}
-    maximum(abs, D) >= 2 || error("farTns: max-norm separation $(maximum(abs,D)) <= 1")
-    sQ = ntuple(d -> QI(s[d]), 3)
-    st = fs === nothing ?
-         farSet(sQ, f; tol = tol, nBlk = max(4, maximum(abs, D)), offs = (D,), dir = dir) : fs
-    chkCut(st)
-    ws = FarWrk(max(st.Lw, st.Lo), T)
-    G = zeros(Complex{T}, 3, 3)
-    R = ntuple(d -> T(D[d]) * st.s[d], 3)
-    kind, L, Lc, _ = farRte(st, D)
-    kind == 1 && return tnsWhl!(G, st, ws, R, L)
-    kind == 2 && return tnsOct!(G, st, ws, R, Lc)
-    copyto!(G, ksrCch!(st, D))
-    G
-end
-
 # Fill dst(q), a 3x3 view, with the tensor at the offset Ds[q] cells of shape s plus the sub-cell
 # shift off an external pair off the cell lattice carries.  Threaded; route 3 is exact-rational in
 # the cell, so an offset that needs it under a nonzero off has no route and throws.
@@ -1505,8 +1478,8 @@ end
 #   1  the whole trapezoid box (Theorem A', r_d = |b|, ramp and point measures), one expansion;
 #   2  the gcd average G(R) = (1/N_t) sum_{j,j'} G(R + c_j - c'_j'; g, g), g = min(sT, sS) per
 #      axis: N_t x N_s equal-cell tensors at integer offsets in cells of g, since Gila's grids sit
-#      on the common gcd lattice.  farTnsX sums farTns, farBlkX! takes a box sum over one fine
-#      egoToe filled by farBlk!;
+#      on the common gcd lattice.  farBlkX! takes a box sum over one fine egoToe filled by
+#      farBlk!;
 #   3  the k-series on the 36 unequal face pairs, off the lattice or when a sub-offset would touch.
 # Touching pairs (|R_i| <= b_i on every axis) are Gila's contact path and throw here.
 trpHlf(sT::NTuple{3,S}, sS::NTuple{3,S}) where {S} =
@@ -1669,7 +1642,7 @@ function farRteX(fx::FrqSetX, R6::NTuple{3,Float64}, m::Union{Nothing,NTuple{3,I
     if L >= 0
         L <= fx.Lw || error("farRteX: offset $R6 needs whole-box l = $L, table holds $(fx.Lw)")
         # the k-series cut is certified on [rNc, rHi] only, and a set reused outside that
-        # interval is silently wrong; a set from farTnsX or farBlkX! covers its own offsets
+        # interval is silently wrong; a set from farBlkX! covers its own offsets
         fx.rNc * (1 - 1e-12) <= rr <= fx.rHi * (1 + 1e-12) ||
             error("farRteX: |R| = $rr is outside [$(fx.rNc), $(fx.rHi)], where this set's n-cut is ",
                   "certified; build the set with this offset in offs")
@@ -1695,56 +1668,7 @@ function tnsWhlX!(G::AbstractMatrix{Complex{T}}, fx::FrqSetX{T}, ws::FarWrk{T}, 
     G
 end
 
-# the Theorem A' bound on max_ab |T_ab - T_ab^(L)| of the whole trapezoid box at radius rr
-bndWhlX(fx::FrqSetX, rr::Real, L::Int) =
-    (c = bndCum(fx.wLs, fx.wT, ComplexF64(fx.k), Float64(rr)); i = div(L, 2) + 1;
-     i <= length(c) ? c[i] : 0.0)
-
 const KSRTOL = 1e-16                # route 3's own tolerance: remainder <= KSRTOL est(R)
-# certified absolute bound on max_ab |T_ab - G_ab| of the equal-cell tensor at D, as routed
-function certEq(fs::FrqSet{T}, D::NTuple{3,Int}, kind::Int, L::Int, Lc::Vector{Int}) where {T}
-    R6 = ntuple(d -> Float64(D[d]) * Float64(fs.s[d]), 3); rr = sqrt(sum(R6[i]^2 for i in 1:3))
-    k6 = ComplexF64(fs.k)
-    kind == 1 && return bndWhl(fs, T(rr), L)
-    kind == 3 && return KSRTOL * est(rr, k6, ComplexF64(fs.frq), Float64(prod(fs.s)))
-    hf = ntuple(d -> Float64(fs.ctr[d]), 3); c = 0.0
-    for (q, sg) in enumerate(SGN8)
-        v = ntuple(d -> sg[d] * R6[d] + hf[d], 3); vr = sqrt(sum(v[i]^2 for i in 1:3))
-        c += bndCum(fs.oLs, fs.oT, k6, vr)[Lc[q] + 1]
-    end
-    c
-end
-
-# route 2: (1/N_t) sum of the reflected equal-cell tensors at |D|; returns the summed certificate
-function tnsGcd!(G::AbstractMatrix{Complex{T}}, fx::FrqSetX{T}, fs::FrqSet{T}, ws::FarWrk{T},
-                 m::NTuple{3,Int}, tmp::AbstractMatrix{Complex{T}}, cert::Bool) where {T}
-    @inbounds for i in 1:9; G[i] = zero(Complex{T}); end
-    nT = fx.nT; nS = fx.nS; c = 0.0
-    for t3 in (1 - nS[3]):(nT[3] - 1), t2 in (1 - nS[2]):(nT[2] - 1), t1 in (1 - nS[1]):(nT[1] - 1)
-        w = T(subMlt(t1, nT[1], nS[1]) * subMlt(t2, nT[2], nS[2]) * subMlt(t3, nT[3], nS[3]))
-        D = (m[1] + t1, m[2] + t2, m[3] + t3)
-        Da = ntuple(d -> abs(D[d]), 3)
-        kind, L, Lc, _ = farRte(fs, Da)
-        if kind == 3
-            copyto!(tmp, ksrCch!(fs, Da))
-        else
-            Ra = ntuple(d -> T(Da[d]) * fs.s[d], 3)
-            kind == 1 ? tnsWhl!(tmp, fs, ws, Ra, L) : tnsOct!(tmp, fs, ws, Ra, Lc)
-        end
-        @inbounds for r in 1:6
-            i, j = ENTIJ[r]
-            sn = (D[i] < 0 ? -1 : 1) * (D[j] < 0 ? -1 : 1)
-            G[i, j] += (w * T(sn)) * tmp[i, j]
-        end
-        cert && (c += Float64(w) * certEq(fs, Da, kind, L, Lc))
-    end
-    nt = T(prod(nT))
-    @inbounds for r in 1:6
-        i, j = ENTIJ[r]; G[i, j] /= nt; G[j, i] = G[i, j]
-    end
-    c / prod(nT)
-end
-
 # face F of the target (edges sT at R) and face F' of the source (edges sS at 0) as panels
 parFacX(RQ::NTuple{3,QI}, sTQ::NTuple{3,QI}, sSQ::NTuple{3,QI}, F::Int, Fp::Int) =
     (boxFace(FACES[F]..., RQ, sTQ), boxFace(FACES[Fp]..., ZQ3, sSQ))
@@ -1846,48 +1770,9 @@ function finBlk(Rs, gQ::NTuple{3,QI}, nT::NTuple{3,Int}, nS::NTuple{3,Int})
            maximum(nT) + maximum(nS))
 end
 
-# far tensor of the pair (target edges sT centred at R, source edges sS at 0) at f; with
-# cert = true it also returns the certified bound on max_ab |T_ab - G_ab|
-function farTnsX(R::NTuple{3,<:Rational}, sT::NTuple{3,<:Rational}, sS::NTuple{3,<:Rational},
-                 f::Complex{T}; tol::Float64 = TOL, fs::Union{Nothing,FrqSetX} = nothing,
-                 cert::Bool = false, dir::AbstractString = TABDIR[]) where {T}
-    RQ = ntuple(d -> QI(R[d]), 3); sTQ = ntuple(d -> QI(sT[d]), 3); sSQ = ntuple(d -> QI(sS[d]), 3)
-    fx = if fs === nothing
-        gQ = ntuple(d -> min(sTQ[d], sSQ[d]), 3)
-        # farSetX raises on this too, but only after Int() below would have thrown
-        all(isinteger(sTQ[d] / sSQ[d]) || isinteger(sSQ[d] / sTQ[d]) for d in 1:3) ||
-            error("farTnsX: the edges must be integer multiples per axis (Gila's GlaExtInf rule)")
-        nT = ntuple(d -> Int(sTQ[d] / gQ[d]), 3); nS = ntuple(d -> Int(sSQ[d] / gQ[d]), 3)
-        farSetX(sTQ, sSQ, f; tol = tol, nBlk = finBlk((RQ,), gQ, nT, nS), offs = (RQ,), dir = dir)
-    else
-        fs
-    end
-    (fx.sTQ == sTQ && fx.sSQ == sSQ && fx.frq == f) ||
-        error("farTnsX: fs was built for the pair $(fx.sTQ) / $(fx.sSQ) at f = $(fx.frq)")
-    kind, L = farRteX(fx, RQ)
-    G = zeros(Complex{T}, 3, 3)
-    Rr = ntuple(d -> T(RQ[d]), 3); rr = sqrt(sum(Float64(RQ[i])^2 for i in 1:3))
-    c = 0.0
-    if kind == 1
-        tnsWhlX!(G, fx, FarWrk(fx.Lw, T), Rr, L)
-        cert && (c = bndWhlX(fx, rr, L))
-    elseif kind == 2
-        fg = finSet(fx); chkCut(fg)
-        c = tnsGcd!(G, fx, fg, FarWrk(max(fg.Lw, fg.Lo), T), latInd(fx, RQ), zeros(Complex{T}, 3, 3), cert)
-    else
-        copyto!(G, ksrCchX!(fx, RQ))
-        cert && (c = KSRTOL * est(Float64(rr), ComplexF64(fx.k), ComplexF64(fx.frq), Float64(prod(fx.sS))))
-    end
-    cert || return G
-    (G, c + 20 * eps(T) * Float64(maximum(abs, G)))
-end
-
-# the box sum (1/N_t) sum_t mult(t) T(m + t) over the fine egoToe, reflected; returns the
-# summed certificate from cg
+# the box sum (1/N_t) sum_t mult(t) T(m + t) over the fine egoToe, reflected
 function boxSum!(G::AbstractMatrix{Complex{T}}, ego::AbstractArray{Complex{T},5},
-                 cg::Array{Float64,3}, m::NTuple{3,Int}, nT::NTuple{3,Int},
-                 nS::NTuple{3,Int}) where {T}
-    c = 0.0
+                 m::NTuple{3,Int}, nT::NTuple{3,Int}, nS::NTuple{3,Int}) where {T}
     g11 = zero(Complex{T}); g22 = g11; g33 = g11; g12 = g11; g13 = g11; g23 = g11
     @inbounds for t3 in (1 - nS[3]):(nT[3] - 1)
         w3 = T(subMlt(t3, nT[3], nS[3])); d3 = m[3] + t3; a3 = abs(d3) + 1; s3 = d3 < 0 ? -one(T) : one(T)
@@ -1898,7 +1783,6 @@ function boxSum!(G::AbstractMatrix{Complex{T}}, ego::AbstractArray{Complex{T},5}
                 g11 += w * ego[1, 1, a1, a2, a3]; g22 += w * ego[2, 2, a1, a2, a3]; g33 += w * ego[3, 3, a1, a2, a3]
                 g12 += (w * s1 * s2) * ego[1, 2, a1, a2, a3]; g13 += (w * s1 * s3) * ego[1, 3, a1, a2, a3]
                 g23 += (w * s2 * s3) * ego[2, 3, a1, a2, a3]
-                c += Float64(w) * cg[a1, a2, a3]
             end
         end
     end
@@ -1908,15 +1792,15 @@ function boxSum!(G::AbstractMatrix{Complex{T}}, ego::AbstractArray{Complex{T},5}
         G[1, 2] = g12 / nt; G[2, 1] = G[1, 2]; G[1, 3] = g13 / nt; G[3, 1] = G[1, 3]
         G[2, 3] = g23 / nt; G[3, 2] = G[2, 3]
     end
-    c / prod(nT)
+    G
 end
 
 # fill G[:, :, q] for every exact offset Rs[q] of the pair, threaded, the near band as one box
-# sum over a fine egoToe; returns the route kinds, and with cert = true the certificates
+# sum over a fine egoToe; returns the route kinds
 function farBlkX!(G::AbstractArray{Complex{T},3}, Rs::AbstractVector{NTuple{3,QI}},
                   sT::NTuple{3,<:Rational}, sS::NTuple{3,<:Rational}, f::Complex{T};
-                  tol::Float64 = TOL, fs::Union{Nothing,FrqSetX} = nothing, cert::Bool = false,
-                  disk::Bool = true, dir::AbstractString = TABDIR[]) where {T}
+                  tol::Float64 = TOL, fs::Union{Nothing,FrqSetX} = nothing, disk::Bool = true,
+                  dir::AbstractString = TABDIR[]) where {T}
     n = length(Rs); size(G) == (3, 3, n) || error("farBlkX!: G must be 3 x 3 x $n")
     sTQ = ntuple(d -> QI(sT[d]), 3); sSQ = ntuple(d -> QI(sS[d]), 3)
     fx = if fs === nothing
@@ -1944,32 +1828,17 @@ function farBlkX!(G::AbstractArray{Complex{T},3}, Rs::AbstractVector{NTuple{3,QI
     end
     n2 = count(==(2), rt)
     ego = zeros(Complex{T}, 3, 3, n2 > 0 ? nbx : 0, n2 > 0 ? nbx : 0, n2 > 0 ? nbx : 0)
-    cg = zeros(Float64, size(ego, 3), size(ego, 4), size(ego, 5))
-    fg = nothing
     if n2 > 0
         fg = finSet(fx; nBlk = nbx); chkCut(fg)
         farBlk!(ego, fx.gQ, f; tol = fx.tol, fs = fg, dir = fx.dir)
-        if cert
-            Threads.@threads :static for i3 in 1:nbx
-                for i2 in 1:nbx, i1 in 1:nbx
-                    farInd(i1, i2, i3) || continue
-                    D = (i1 - 1, i2 - 1, i3 - 1)
-                    kind, L, Lc, _ = farRte(fg, D)
-                    cg[i1, i2, i3] = certEq(fg, D, kind, L, Lc)
-                end
-            end
-        end
     end
     # route 3, threaded; the shared state (MOMCX, fx.ksr, the cache file) is behind KSRLK and fx.lk
     ks3 = [q for q in 1:n if rt[q] == 3]
-    cs = zeros(Float64, n)
     if !isempty(ks3)
-        k6 = ComplexF64(fx.k); f6 = ComplexF64(fx.frq); vs6 = Float64(prod(fx.sS))
         setprecision(BigFloat, KSRPRC) do
             Threads.@threads :static for j in eachindex(ks3)
                 q = ks3[j]
                 copyto!(view(G, :, :, q), ksrCchX!(fx, Rs[q]))
-                cert && (cs[q] = KSRTOL * est(sqrt(sum(Float64(Rs[q][d])^2 for d in 1:3)), k6, f6, vs6))
             end
         end
     end
@@ -1981,14 +1850,11 @@ function farBlkX!(G::AbstractArray{Complex{T},3}, Rs::AbstractVector{NTuple{3,QI
         if rt[q] == 1
             Rr = ntuple(d -> T(Rs[q][d]), 3)
             tnsWhlX!(Gq, fx, wss[id], Rr, Ls[q])
-            cert && (cs[q] = bndWhlX(fx, sqrt(sum(Rr[i]^2 for i in 1:3)), Ls[q]))
         else
-            cs[q] = boxSum!(Gq, ego, cg, ms[q], fx.nT, fx.nS)
+            boxSum!(Gq, ego, ms[q], fx.nT, fx.nS)
         end
     end
-    cert || return rt
-    for q in 1:n; cs[q] += 20 * eps(T) * Float64(maximum(abs, view(G, :, :, q))); end
-    (rt, cs)
+    rt
 end
 
 # The quasistatic tensor S_ab(R) = lim_{f -> 0} f^2 T_ab(R) is the n = 0 slice of the same tables:

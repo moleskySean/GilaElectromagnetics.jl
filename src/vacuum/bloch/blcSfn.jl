@@ -45,12 +45,11 @@ function expM2(z::Complex{Float64})
 end
 expM2(z::Complex{T}) where {T} = rT(T, setprecision(() -> exp(-cB(z)^2), BG, precision(T) + 2 * max(0, exponent(abs(z))) + 16))
 cfOK(z) = abs(z) >= 3 && real(z) > 0 && (real(z) >= abs(imag(z)) / 4 || abs(z) >= 8)
-function erfcSer(z::Complex{T}, scl::Bool) where {T}
+function erfcSer(z::Complex{T}) where {T}
     p = wid(T, 1.45 * (abs2(z) + max(real(z^2), 0)) + log2(1 + abs(z)) + 8)
     r = setprecision(BG, p) do
         zb = cB(z)
-        S = 1 - 2 * serB(zb, k -> -zb^2 * (2k + 1) / ((k + 1) * (2k + 3)), p) / sqrt(BG(pi))
-        scl ? exp(zb^2) * S : S
+        1 - 2 * serB(zb, k -> -zb^2 * (2k + 1) / ((k + 1) * (2k + 3)), p) / sqrt(BG(pi))
     end
     rT(T, r)
 end
@@ -59,16 +58,8 @@ function erfcG(z::Complex{T}) where {T}
     if cfOK(z)
         c = cfW(cfErfc, z); c === nothing || return expM2(z) * c / sqrt(T(pi))
     end
-    erfcSer(z, false)
+    erfcSer(z)
 end
-function erfcxG(z::Complex{T}) where {T}
-    real(z) < 0 && return 2 / expM2(z) - erfcxG(-z)
-    if cfOK(z)
-        c = cfW(cfErfc, z); c === nothing || return c / sqrt(T(pi))
-    end
-    erfcSer(z, true)
-end
-erfcG(x::Real) = real(erfcG(complex(x))); erfcxG(x::Real) = real(erfcxG(complex(x)))
 # E_p(z) = int_1^inf e^{-zt} t^{-p} dt, p integer >= 1 or non-integer rational
 function expSer(p, z::Complex{T}, scl::Bool) where {T}
     q = wid(T, 1.45 * (abs(z) + max(real(z), 0)) + 2 * abs(p) + log2(1 + abs(z)))
@@ -116,4 +107,3 @@ function expintG(p::Union{Integer, Rational}, z::Complex{T}) where {T}
     cfExpOK(T, z) && return cfW(cfExp, z, p) * exp(-z)
     expSer(p, z, false)
 end
-expintG(p, x::Real) = expintG(p, complex(x))

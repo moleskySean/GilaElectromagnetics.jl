@@ -16,7 +16,7 @@ using Base.ScopedValues
 using ..GilaElectromagnetics: GlaVol, coordinates, regions, sepGrd
 using SpecialFunctions: gamma
 
-export blcTns, blcSet, blcFil, blcCmp, blcTwc, blcCrt, BlcSet
+export blcSet, blcFil, BlcSet
 
 # one Dict per thread for memo tables whose values are pure functions of the key: every thread builds the same values, no lock, and the
 # table never holds a Dict across the computation of a value (which may yield and move the task)
@@ -138,57 +138,20 @@ blcSet(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple{D,Int}; 
     BlcSet{T,D}(q3(s), f, ax, N, P, KapCache(nMax))
 
 """
-    blcFil(st::BlcSet, θ; form = :toe, kw...) -> (H, A, info)
+    blcFil(st::BlcSet, θ; kw...) -> (H, A, info)
 
-The Hermitian and anti-Hermitian kernels of the unit cell at Bloch phases `θ` (one per periodic axis), G = H + i A:
-- `form = :toe`: Toeplitz form, arrays (3, 3, n1, n2, n3) over m_i ∈ -(N_i-1):(N_i-1) on periodic axes, 0:(N_i-1) on open axes
-  (info[:ms] lists them); drops into Gila's 2N circulant with the half storage turned off.
-- `form = :twc` (P = N): twisted-circulant form, m_i ∈ 0:(N_i-1) on every axis, G(m + N_i e_i) = e^{-iθ_i} G(m); info[:twc] holds the
-  twist residual max|M(m) - e^{-iθ} M(m - N e_i)|/max|M| of H and A over the Toeplitz block.
+The Hermitian and anti-Hermitian kernels of the unit cell at Bloch phases `θ` (one per periodic axis), G = H + i A, in Toeplitz form:
+arrays (3, 3, n1, n2, n3) over m_i ∈ -(N_i-1):(N_i-1) on periodic axes, 0:(N_i-1) on open axes (info[:ms] lists them), which drop into
+Gila's 2N circulant with the half storage turned off.
 Keywords (defaults are the audited ones): `sheet = :J10 | :principal` (Im f < 0), `peRun = true` (J31: the entries flagged in info[:pe]
 rerun in the wider type, Double64 for Float64 and BigFloat for Double64 or BigFloat; false: only reported), `wmax = Inf` (work budget),
 `tol`, `entT = 1e-8` (entries below entT of their offset's max carry their κ, not the eps target), `qcert = true` (per-offset
 certification; false only for probes), `route = :auto`.
 """
-function blcFil(st::BlcSet, θ::Tuple; form::Symbol = :toe, kw...)
-    form in (:toe, :twc) || error("blcFil: form = $form is neither :toe nor :twc")
-    form == :twc && st.P != ntuple(j -> st.N[st.ax[j]], length(st.ax)) && error("blcFil: the twisted-circulant form needs P = N (P = $(st.P), N = $(st.N))")
+function blcFil(st::BlcSet, θ::Tuple; kw...)
     kcAge!(st.kc)
     H, A, inf = blcFil(st.s, st.f, st.ax, st.N, st.P, θ; cache = st.kc, kw...)
     inf[:cache] = length(st.kc)
-    form == :toe && return H, A, inf
-    Hw, eH = blcTwc(H, inf[:ms], st.ax, θ); Aw, eA = blcTwc(A, inf[:ms], st.ax, θ)
-    inf[:twc] = (H = eH, A = eA)
-    Hw, Aw, inf
-end
-
-
-"""
-    blcCrt(R, sT, sS, f, ax, L, θ; kw...) -> (H, A, info)
-
-blcTns in Float64 with a rigorous per-entry error certificate, at the cost of a second evaluation in Double64 at the same exact inputs with
-tol = eps(Double64). info[:cert] = (H, A), each a 3×3 matrix of relative error bounds |X - X_exact| / |X_exact| <= cert, from
-|X - X_D| + (truncation of the Double64 run, proven: 2 eps(Double64) of the offset's largest entry) + (its rounding: eps(Double64) (1 + 16 λ_D,e) |X_D|),
-over |X_D| minus that same Double64 error. The only measured ingredient, the per-term rounding (16 ulp here against at most 4 measured), enters at
-the eps(Double64) ≈ 5e-32 level, below the Float64 result's own rounding by ten orders. An entry exactly zero in Double64 gets cert = Inf
-unless the Float64 value is zero too.
-"""
-function blcCrt(R, sT, sS, f::ComplexF64, ax::NTuple{D,Int}, L::NTuple{D,<:Rational}, θ::NTuple{D,Any}; kw...) where {D}
-    H, A, inf = blcTns(R, sT, sS, f, ax, L, θ; kw...)
-    W = Double64; θW = map(t -> t isa Rational ? t : W(t), θ)
-    HW, AW, iW = blcTns(R, sT, sS, Complex{W}(f), ax, L, θW; kw..., tol = eps(W))
-    λW = get(iW, :λe, nothing)
-    m = max(maximum(abs, HW), maximum(abs, AW))
-    function crt(X, XW, l)
-        c = zeros(3, 3)
-        for i in 1:9
-            eW = 2 * eps(W) * m + eps(W) * (1 + 16 * (l === nothing ? 1 : l[i])) * abs(XW[i])
-            den = abs(XW[i]) - eW
-            c[i] = X[i] == 0 && XW[i] == 0 ? 0.0 : den <= 0 ? Inf : Float64((abs(Complex{W}(X[i]) - XW[i]) + eW) / den)
-        end
-        c
-    end
-    inf[:cert] = (H = crt(H, HW, λW === nothing ? nothing : λW[1]), A = crt(A, AW, λW === nothing ? nothing : λW[2]))
     H, A, inf
 end
 

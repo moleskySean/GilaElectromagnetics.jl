@@ -1113,8 +1113,6 @@ facMom(D::NTuple{3,Int}, F::Int, Fp::Int, s::NTuple{3,T}, mMax::Integer;
 # int_A int_B exp(2 pi i f r)/(4 pi r f^2) = (1/(4 pi f^2)) sum_n (2 pi i f)^n
 # I_{n-1}/n!, summed over every moment given. The second return value, |last term|/|sum|,
 # shows term decay, not an error bound: it does not see cancellation in the partial sum.
-momSer(pA, pB, frq, mMax::Integer) = momSer(parMom(pA, pB, mMax), frq)
-
 function momSer(mom::AbstractVector{T}, frq) where {T}
     F = Complex{T}
     f = F(frq)

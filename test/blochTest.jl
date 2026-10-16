@@ -1,7 +1,7 @@
 # Bloch-periodic operators: against the dense Bloch matrix of blcFil's Toeplitz block, the accuracy records of
 # ref/bloch.txt and the 256-bit composite references of ref/blochCmp.txt
 using JLD2
-import GilaElectromagnetics.Bloch: blcSet, blcFil, blcTns, blcCmp, QI
+import GilaElectromagnetics.Bloch: blcSet, blcFil, blcCmp, QI
 
 # dense Bloch matrix in Gila's vector layout (cells..., 3) of the Toeplitz block H + iA over the offsets ms
 function blcMat(H, A, ms, ax, N)
@@ -52,8 +52,18 @@ ptri(s) = Tuple(prat.(split(s, ",")))
                 ax = Tuple(parse.(Int, split(c[2], ","))); L = Tuple(prat.(split(c[3], ",")))
                 θ = Tuple(t == "pi" ? 1//2 : parse(Float64, t) for t in split(c[4], ","))
                 f = complex(parse(Float64, c[8]), parse(Float64, c[9])); κe = parse(Float64, c[11])
-                H, A, _ = blcTns(ptri(c[7]), ptri(c[5]), ptri(c[6]), f, ax, L, θ)
-                X = H .+ im .* A; Y = complex.(parse.(BigFloat, c[13:21]), parse.(BigFloat, c[22:30]))
+                sT, sS, R = ptri(c[5]), ptri(c[6]), ptri(c[7])
+                n = map((a, l) -> R[a] / l, ax, L)
+                if sT == sS && all(isinteger, n) && all(i -> i in ax || iszero(R[i]), 1:3)
+                    # whole periods from the origin: the fill's self entry, G(R + Λn) = e^{-iθ·n} G(R)
+                    H, A, _ = blcFil(sT, f, ax, (1, 1, 1), map((a, l) -> Int(l / sT[a]), ax, L), θ)
+                    X = cis(-sum(map((t, k) -> t isa Rational ? 2π * t * k : t * k, θ, n))) .* (H .+ im .* A)[:, :, 1, 1, 1]
+                else
+                    # a pair of single cells, the source's lower corner at the origin of blcCmp's lattice
+                    H, A = first(blcCmp([GlaVol((1, 1, 1), sT, R .+ sS .// 2), GlaVol((1, 1, 1), sS, sS .// 2)], f, ax, L, θ))[(1, 2)]
+                    X = (H .+ im .* A)[:, :, 1, 1, 1]
+                end
+                Y = complex.(parse.(BigFloat, c[13:21]), parse.(BigFloat, c[22:30]))
                 m = maximum(abs, Y)
                 ep = maximum(i -> abs(Y[i]) > 1e-8 * m ? Float64(abs(X[i] - Y[i]) / abs(Y[i])) / eps() : 0.0, 1:9)
                 @test ep <= 3 * (1 + κe)
@@ -158,10 +168,9 @@ ptri(s) = Tuple(prat.(split(s, ",")))
     end
 
     @testset "Rfs" begin
-        z3 = (QI(0), QI(0), QI(0)); s32 = (QI(1//32), QI(1//32), QI(1//32))
         # an exact Rayleigh-Wood anomaly (L f = 1 at θ = 0), a period off the cell lattice, a unit cell longer than its period
         for fun in (() -> GlaOprVac{Float64}(GlaVol((2, 2, 2), (1//8, 1//8, 1//8)); blc = (ax = (1,), P = (8,), θ = (0//1,))),
-                    () -> blcTns(z3, s32, s32, 1.0 + 0im, (1,), (QI(3//64),), (0.7,)),
+                    () -> blcCmp([GlaVol((1, 1, 1), s, s .// 2)], 1.0 + 0im, (1,), (3//64,), (0.7,)),
                     () -> GlaOprVac{Float64}(GlaVol((4, 2, 2), s); blc = (ax = (1,), P = (3,), θ)))
             rsl = @test_throws ErrorException fun()
             @test !occursin('\n', rsl.value.msg)
