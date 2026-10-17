@@ -361,12 +361,9 @@ kapL(A::AxK{T}, sT::T, k::Int, t::S, tol::T) where {T,S} = (c = KCS[]; c === not
 # κ at the lattice point x = k·s of an equal-cell axis (cp = s, cm = 0), integer kink bookkeeping, same formulas as kap
 function kapL0(A::AxK{T}, sT::T, k::Int, t::S, tol::T) where {T,S}
     cp = sT; ax = abs(k) * sT
-    # moment regime: kapV reads only (|x|, x) there; x = k a formed as toT does (one rounding of k·num/den), no Rational{BigInt} per node
+    # moment regime: x = k a formed as toT does (one rounding of k·num/den), no Rational{BigInt} per node
     xq = T(k * Int(numerator(A.a))) / T(Int(denominator(A.a)))
-    # (the regime test on |x| as kapV makes it: kapV re-tests and must take the same branch)
-    if momReg(cp, abs(xq), t)
-        return kapV(A, (abs(xq), xq, zero(T), zero(T), (zero(T), zero(T), zero(T), zero(T)), (0, 0, 0, 0)), t, tol)
-    end
+    momReg(cp, abs(xq), t) && return kapV(A, (abs(xq), xq), t, tol)
     u = sqrt(t)
     tri = sT * (abs(k + 1) - 2 * abs(k) + abs(k - 1)) / 2
     dtr = T(sign(k + 1) - 2 * sign(k) + sign(k - 1)) / 2
@@ -3293,8 +3290,6 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
     info[:φ] = φ; info[:U] = U
     nothing
 end
-
-blcFil(s, f::Number, ax::Tuple, N::Tuple, P::Tuple, θ::Tuple; kw...) = (inpChk("blcFil", f, ax, P, θ); error("blcFil: f must be complex (got $(typeof(f))), N three cell counts, P integer periods"))
 
 # the mixed route's per-entry choice (a function barrier over typed arrays, threaded over the last offset index; the same rule): every
 # entry of the route C sub-block (offsets beyond lo_) takes route C where its λ_e is smaller

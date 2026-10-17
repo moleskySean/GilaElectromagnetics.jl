@@ -11,9 +11,7 @@
 
 const QI = Rational{BigInt}
 q3(x) = ntuple(i -> QI(x[i]), 3)
-# e^{2πi ν_m R}, ν_m = (m - t)/L, with the lattice part 2 m R/L reduced exactly (rational mod 2)
-phsPer(::Type{T}, m::Integer, t::T, R::QI, L::QI) where {T} = cispi(T(mod(2 * m * R / L, 2))) * cispi(-2 * t * T(R / L))
-# exact twist t = θ/2π rational (θ = π is t = 1/2, as Gila's odd branch): the whole phase reduced exactly
+# e^{2πi ν_m R}, ν_m = (m - t)/L, at an exact twist t = θ/2π (θ = π is t = 1/2, as Gila's odd branch): the whole phase reduced exactly
 phsPer(::Type{T}, m::Integer, t::QI, R::QI, L::QI) where {T} = cispi(T(mod(2 * (m - t) * R / L, 2)))
 # ν_m = (m - t)/L, rounded once when t is exact
 nuPer(::Type{T}, m::Integer, t::T, L::QI) where {T} = (T(m) - t) / T(L)
@@ -85,13 +83,13 @@ struct AxK{T}
     a::QI; b::QI; cp::QI; cm::QI
     w0::T
     μf::Vector{T}
-    # per-call memo of the exact-x data of kap (|x|, x, tri, dtr, |x + ps_j|, sign(x + ps_j) rounded once to T): kap ran this
-    # Rational{BigInt} arithmetic at every quadrature node, and the GMP temporaries (freed only by finalizers) drove the RSS of long runs;
-    # an AxK lives for one blcTns/blcFil call, so the memo is bounded by that call's distinct image positions
-    xm::TMemo{Tuple{Int128,Int128},Tuple{T,T,T,T,NTuple{4,T},NTuple{4,Int}}}
+    # per-call memo of the exact x of kap (|x|, x rounded once to T): kap ran this Rational{BigInt} arithmetic at every quadrature
+    # node, and the GMP temporaries (freed only by finalizers) drove the RSS of long runs; an AxK lives for one blcFil call, so the
+    # memo is bounded by that call's distinct offsets
+    xm::TMemo{Tuple{Int128,Int128},Tuple{T,T}}
 end
 AxK(::Type{T}, a::QI, b::QI; MM::Int = precision(T) + 48) where {T} =
-    AxK{T}(a, b, (a + b) / 2, abs(a - b) / 2, toT(T, a * b), muF(T, a, b, MM), TMemo{Tuple{Int128,Int128},Tuple{T,T,T,T,NTuple{4,T},NTuple{4,Int}}}())
+    AxK{T}(a, b, (a + b) / 2, abs(a - b) / 2, toT(T, a * b), muF(T, a, b, MM), TMemo{Tuple{Int128,Int128},Tuple{T,T}}())
 # the normalized moments are frequency and phase independent: kept per (T, edges, order, BigFloat precision), at most MUFMAX entries
 const MUF = Dict{Any,Any}(); const MUFK = ReentrantLock(); const MUFMAX = 256
 function muF(::Type{T}, a::QI, b::QI, MM::Int) where {T}
@@ -101,18 +99,7 @@ function muF(::Type{T}, a::QI, b::QI, MM::Int) where {T}
     μf = [toT(T, μ / (factorial(big(m)) * ((a + b) / 2)^m)) for (m, μ) in zip(0:MM, trpMom(a, b, MM))]
     @lock MUFK (length(MUF) < MUFMAX ? get!(MUF, key, μf) : μf)::Vector{T}
 end
-function kapX(A::AxK{T}, x::QI) where {T}
-    get!(A.xm, qk(x)) do
-        ps = (A.cp, A.cm, -A.cm, -A.cp); sg = (1, -1, -1, 1)
-        tri = zero(QI); dtr = zero(QI)
-        for j in 1:4
-            y = x + ps[j]
-            tri += sg[j] * abs(y) / 2
-            dtr += sg[j] * sign(y) / 2
-        end
-        (toT(T, abs(x)), toT(T, x), toT(T, tri), toT(T, dtr), ntuple(j -> toT(T, abs(x + ps[j])), 4), ntuple(j -> Int(sign(x + ps[j])), 4))
-    end
-end
+kapX(A::AxK{T}, x::QI) where {T} = get!(() -> (toT(T, abs(x)), toT(T, x)), A.xm, qk(x))
 
 erfcC(v::Real) = erfc(v)
 erfcC(v::Complex) = erfcG(v)
@@ -193,38 +180,26 @@ momReg(cp, ax, t) = abs(t) >= cp * (ax + cp)
 """
     kap(A, x, t, tol) -> (κ, κ', κ'')
 
-κ(x,t) = (box_a * box_b * H1_t)(x) and its x-derivatives at real or complex t (Re √t > 0), x exact.
+κ(x,t) = (box_a * box_b * H1_t)(x) and its x-derivatives at real or complex t (Re √t > 0), x exact, in the moment regime
+momReg(cp, |x|, t) where every caller takes it.
 """
 kap(A::AxK{T}, x::QI, t::S, tol::T) where {T,S} = kapV(A, kapX(A, x), t, tol)
 function kapV(A::AxK{T}, dx, t::S, tol::T) where {T,S}
     wrk!(1)
-    cp = toT(T, A.cp); ax, xT, triT, dtrT, ay, sy = dx
-    if momReg(cp, ax, t)
-        u = sqrt(t); w = xT / (2 * u); s = 1 / (2 * u); g = 1 / sqrt(4 * T(π) * t); sc = s * cp
-        M = min(momM(T, tol), length(A.μf) - 3)
-        # H_m e^{-w²} by the recurrence H_{n+1} = 2w H_n - 2n H_{n-1}, three at a time (no vector per call)
-        ha = exp(-w^2); hb = 2 * w * ha; hc = 2 * w * hb - 2 * ha
-        k0 = zero(S); k1 = zero(S); k2 = zero(S); sm = one(S)
-        for m in 0:2:M
-            c = A.μf[m + 1] * sm * g
-            k0 += c * ha
-            k1 -= c * s * hb
-            k2 += c * s^2 * hc
-            sm *= sc^2
-            hd = 2 * w * hc - 2 * (m + 2) * hb; he = 2 * w * hd - 2 * (m + 3) * hc
-            ha, hb, hc = hc, hd, he
-        end
-        return k0, k1, k2
-    end
-    sg = (1, -1, -1, 1)
-    u = sqrt(t)
-    k0 = S(triT); k1 = S(dtrT); k2 = zero(S)
-    for j in 1:4
-        v = ay[j] / (2 * u)
-        ie, er, ev = erfTrio(v)
-        k0 += sg[j] * u * ie
-        sy[j] != 0 && (k1 -= (sy[j] > 0 ? sg[j] : -sg[j]) * er / 2)
-        k2 += sg[j] * ev / (2 * sqrt(T(π)) * u)
+    cp = toT(T, A.cp); _, xT = dx
+    u = sqrt(t); w = xT / (2 * u); s = 1 / (2 * u); g = 1 / sqrt(4 * T(π) * t); sc = s * cp
+    M = min(momM(T, tol), length(A.μf) - 3)
+    # H_m e^{-w²} by the recurrence H_{n+1} = 2w H_n - 2n H_{n-1}, three at a time (no vector per call)
+    ha = exp(-w^2); hb = 2 * w * ha; hc = 2 * w * hb - 2 * ha
+    k0 = zero(S); k1 = zero(S); k2 = zero(S); sm = one(S)
+    for m in 0:2:M
+        c = A.μf[m + 1] * sm * g
+        k0 += c * ha
+        k1 -= c * s * hb
+        k2 += c * s^2 * hc
+        sm *= sc^2
+        hd = 2 * w * hc - 2 * (m + 2) * hb; he = 2 * w * hd - 2 * (m + 3) * hc
+        ha, hb, hc = hc, hd, he
     end
     return k0, k1, k2
 end

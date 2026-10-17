@@ -14,7 +14,6 @@ module Bloch
 using LinearAlgebra, SpecialFunctions, DoubleFloats, QuadGK
 using Base.ScopedValues
 using ..GilaElectromagnetics: GlaVol, coordinates, regions, sepGrd
-using SpecialFunctions: gamma
 
 export blcSet, blcFil, BlcSet
 
@@ -113,7 +112,6 @@ function kcAge!(c::KapCache)
     c
 end
 Base.length(c::KapCache) = c.n[]
-Base.empty!(c::KapCache) = (for h in 1:NSH; @lock c.lk[h] empty!(c.sh[h]); end; c.n[] = 0; c)
 
 include("blcSfn.jl")
 include("blcTns.jl")

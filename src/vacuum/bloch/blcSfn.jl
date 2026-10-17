@@ -60,30 +60,19 @@ function erfcG(z::Complex{T}) where {T}
     end
     erfcSer(z)
 end
-# E_p(z) = int_1^inf e^{-zt} t^{-p} dt, p integer >= 1 or non-integer rational
-function expSer(p, z::Complex{T}, scl::Bool) where {T}
+# E_p(z) = int_1^inf e^{-zt} t^{-p} dt, p integer >= 1
+function expSer(p::Integer, z::Complex{T}, scl::Bool) where {T}
     q = wid(T, 1.45 * (abs(z) + max(real(z), 0)) + 2 * abs(p) + log2(1 + abs(z)))
     r = setprecision(BG, q) do
         zb = cB(z)
-        if isinteger(p)
-            j = Int(p)
-            psi = -BG(Base.MathConstants.eulergamma) + sum(BG(1) / k for k in 1:(j - 1); init = BG(0))
-            S = (-zb)^(j - 1) / factorial(big(j - 1)) * (psi - log(zb))
-            t = one(Complex{BG}); n = 0
-            while true
-                n != j - 1 && (S -= t / (n - j + 1))
-                n += 1; t *= -zb / n
-                n > j && abs(t) <= ldexp(abs(S), -q) && break
-            end
-        else
-            pb = BG(p)
-            S = gamma(1 - pb) * exp((pb - 1) * log(zb))
-            t = one(Complex{BG}); n = 0
-            while true
-                S -= t / (n + 1 - pb)
-                n += 1; t *= -zb / n
-                n > abs(p) + 1 && abs(t) <= ldexp(abs(S), -q) && break
-            end
+        j = Int(p)
+        psi = -BG(Base.MathConstants.eulergamma) + sum(BG(1) / k for k in 1:(j - 1); init = BG(0))
+        S = (-zb)^(j - 1) / factorial(big(j - 1)) * (psi - log(zb))
+        t = one(Complex{BG}); n = 0
+        while true
+            n != j - 1 && (S -= t / (n - j + 1))
+            n += 1; t *= -zb / n
+            n > j && abs(t) <= ldexp(abs(S), -q) && break
         end
         scl ? exp(zb) * S : S
     end
@@ -102,8 +91,8 @@ function cfExp(p, z::Complex{T}) where {T}
 end
 # the CF's rounding grows with its step count (~ precision^2/|z|): series below |z| = max(2, precision(T)/12)
 cfExpOK(::Type{T}, z) where {T} = abs(z) >= max(2, precision(T) / 12) && abs(angle(z)) < 3pi / 4
-function expintG(p::Union{Integer, Rational}, z::Complex{T}) where {T}
-    isinteger(p) && p < 1 && error("expintG: integer order must be >= 1")
+function expintG(p::Integer, z::Complex{T}) where {T}
+    p < 1 && error("expintG: integer order must be >= 1")
     cfExpOK(T, z) && return cfW(cfExp, z, p) * exp(-z)
     expSer(p, z, false)
 end
