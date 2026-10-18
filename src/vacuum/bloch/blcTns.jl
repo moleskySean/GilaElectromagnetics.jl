@@ -100,13 +100,21 @@ function ierfcCF(v::S) where {S}
     T = real(S)
     abs(v) < T(1) / 2 && return exp(-v^2) / sqrt(T(π)) - v * erfcC(v)
     real(v) > 0 || error("ierfcC: Re v <= 0 at v = $v")
+    first(ierfcC3(v))
+end
+# the backward continued fraction C at Re v > 0: (ierfc v = E/√π/(2vC + 1), C, E = e^{-v²})
+function ierfcC3(v::S) where {S}
+    T = real(S)
     cf(n) = (c = v; for j in n:-1:2; c = v + (T(j) / 2) / c; end; c)
     # the doubling starts lower at large |v| (|v| >= 3 is all that reaches here in Float64; converged within 16-64 terms there)
     n = abs(v) >= 6 ? 8 : 16; c1 = cf(n)
     while true
         n *= 2; c2 = cf(n)
         # e^{-v²} with v² formed exactly (expM2): the plain exp(-v^2) cost |v|² eps (33 eps at |v| = 6)
-        abs(c2 - c1) <= eps(T) * abs(c2) && return (S <: Complex ? expM2(v) : exp(-v^2)) / sqrt(T(π)) / (2 * v * c2 + 1)
+        if abs(c2 - c1) <= eps(T) * abs(c2)
+            E = S <: Complex ? expM2(v) : exp(-v^2)
+            return E / sqrt(T(π)) / (2 * v * c2 + 1), c2, E
+        end
         c1 = c2
         n > 1 << 18 && error("ierfcC: no convergence at v = $v")
     end
@@ -122,17 +130,8 @@ function erfTrio(v::Complex{Float64})
         return ComplexF64(E / SQPID - vd * er), ComplexF64(er), ComplexF64(E)
     end
     real(v) > 0 || return (ierfcC(v), erfcC(v), exp(-v^2))
-    cf(n) = (c = v; for j in n:-1:2; c = v + (j / 2) / c; end; c)
-    n = abs(v) >= 6 ? 8 : 16; c1 = cf(n)
-    while true
-        n *= 2; c2 = cf(n)
-        if abs(c2 - c1) <= eps() * abs(c2)
-            E = expM2(v); ie = E / sqrt(π) / (2 * v * c2 + 1)
-            return ie, 2 * c2 * ie, E
-        end
-        c1 = c2
-        n > 1 << 18 && error("erfTrio: no convergence at v = $v")
-    end
+    ie, c2, E = ierfcC3(v)
+    ie, 2 * c2 * ie, E
 end
 
 
@@ -252,28 +251,22 @@ function poiTrm(::Type{T}, m::Int, P::PerAx, x::QI, t::Number) where {T}
     return (pr[1] * e, pr[2] * e, pr[3] * e)
 end
 # the orders ever needed at t: 4π²(ν² - ν_min²) t <= α
-function poiRng(::Type{T}, P::PerAx, t::T, α::T) where {T}
+poiRng(::Type{T}, P::PerAx, t::T, α::T) where {T} = ordRng(T, P, sqrt(α / t) / (2 * T(π)) + 2 / toT(T, P.L), 1)
+# a float phase θ as w = θ/2π mod 1: its distance to the nearer of the twists 0 and 1/2, and that twist (0 or 1 for 1/2)
+twD(θ) = (w = mod(Float64(θ) / (2 * π), 1.0); min(w, 1 - w, abs(w - 0.5)))
+twI(θ) = (w = mod(Float64(θ) / (2 * π), 1.0); abs(w - 0.5) < min(w, 1 - w) ? 1 : 0)
+# the orders m with |m - tw| <= νm L on axis P, widened by k on each side
+function ordRng(::Type{T}, P::PerAx, νm, k::Int) where {T}
     tw = P.tw isa QI ? toT(T, P.tw) : P.tw
     L = toT(T, P.L)
-    νr = sqrt(α / t) / (2 * T(π)) + 2 / L
-    (floor(Int, tw - νr * L) - 1):(ceil(Int, tw + νr * L) + 1)
+    (floor(Int, tw - νm * L) - k):(ceil(Int, tw + νm * L) + k)
 end
 # the orders of an EV-only Poisson sum (the SP/SL orders removed): 4π²(ν² - ν2)t <= α around ν2 = the smallest ν² LEFT in the sum.
 # poiRng's reference is the smallest |ν| overall (<= 1/2L), which is a removed propagating order when fL is large: every EV order was then
 # dropped beyond t ~ α/(4π²ν_EV²) and the EV part lost its tail, under a certificate built on the same truncated sum (
 # d1 c32 f = 6 L = 1 θ = 0.7, 3.5e6 eps "certified"); the same absolute cut made κ_up vanish at far open offsets
-function poiRngE(::Type{T}, P::PerAx, t::T, α::T, ν2::T) where {T}
-    tw = P.tw isa QI ? toT(T, P.tw) : P.tw
-    L = toT(T, P.L)
-    νr = sqrt(max(ν2, zero(T)) + α / (4 * T(π)^2 * t)) + 2 / L
-    (floor(Int, tw - νr * L) - 1):(ceil(Int, tw + νr * L) + 1)
-end
-# smallest ν² over the orders not in excl (one periodic axis): the excluded set is a run of orders around the twist
-function nu2Ex(::Type{T}, P::PerAx, excl) where {T}
-    m0 = round(Int, P.tw isa QI ? toT(T, P.tw) : P.tw)
-    lo = min(m0, minimum(excl; init = m0)) - 2; hi = max(m0, maximum(excl; init = m0)) + 2
-    minimum(m -> nuP(T, m, P)^2, (m for m in lo:hi if !(m in excl)))
-end
+poiRngE(::Type{T}, P::PerAx, t::T, α::T, ν2::T) where {T} =
+    ordRng(T, P, sqrt(max(ν2, zero(T)) + α / (4 * T(π)^2 * t)) + 2 / toT(T, P.L), 1)
 useReal(::Type{T}, P::PerAx, t::T) where {T} = t <= toT(T, P.L)^2 / (4 * T(π))
 useRealC(::Type{T}, P::PerAx, t::Complex) where {T} = 1 / real(1 / t) <= toT(T, P.L)^2 / (4 * T(π))
 
@@ -571,7 +564,6 @@ function ellC(tm::Complex{T}, Δ::Complex{T}, ρ::T; neg::Bool = false) where {T
     (tlo = tlo, thi = thi, rlo = rlo, rinv = rlo > 0 ? rlo / thi^2 : rlo / tlo^2, rmax = rmax)
 end
 const RHOS = (1.05, 1.1, 1.2, 1.4, 1.7, 2.0, 2.5, 3.0, 4.0, 6.0, 8.0)
-kaddC(s, c, v) = (t = s + v; (t, c + complex(nmr(real(s), real(v), real(t)), nmr(imag(s), imag(v), imag(t)))))
 
 # input validation shared by blcTns, blcFil, blcCmp: axes distinct in 1:3, one period and one phase per axis, periods > 0,
 # f finite and nonzero, phases finite

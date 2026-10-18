@@ -55,7 +55,7 @@ function erfcG(z::Complex{T}) where {T}
     erfcSer(z)
 end
 # E_p(z) = int_1^inf e^{-zt} t^{-p} dt, p integer >= 1
-function expSer(p::Integer, z::Complex{T}, scl::Bool) where {T}
+function expSer(p::Integer, z::Complex{T}) where {T}
     q = wid(T, 1.45 * (abs(z) + max(real(z), 0)) + 2 * abs(p) + log2(1 + abs(z)))
     r = setprecision(BG, q) do
         zb = cB(z)
@@ -68,7 +68,7 @@ function expSer(p::Integer, z::Complex{T}, scl::Bool) where {T}
             n += 1; t *= -zb / n
             n > j && abs(t) <= ldexp(abs(S), -q) && break
         end
-        scl ? exp(zb) * S : S
+        S
     end
     rT(T, r)
 end
@@ -88,5 +88,5 @@ cfExpOK(::Type{T}, z) where {T} = abs(z) >= max(2, precision(T) / 12) && abs(ang
 function expintG(p::Integer, z::Complex{T}) where {T}
     p < 1 && error("expintG: integer order must be >= 1")
     cfExpOK(T, z) && return cfExp(p, z) * exp(-z)
-    expSer(p, z, false)
+    expSer(p, z)
 end

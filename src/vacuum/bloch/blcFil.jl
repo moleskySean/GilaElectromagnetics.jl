@@ -2,6 +2,14 @@
 # bitwise the same on any number of threads), each block keeping its slice of the output in cache across the node chunks; per-block buffers
 # instead of per-chunk temporaries. BLAS is called with its own threads at 1 from the Julia threads (J27).
 const KCB = 256
+# s + v and its Neumaier compensation c, complex
+kaddC(s, c, v) = (t = s + v; (t, c + complex(nmr(real(s), real(v), real(t)), nmr(imag(s), imag(v), imag(t)))))
+# smallest ν² over the orders not in excl (one periodic axis): the excluded set is a run of orders around the twist
+function nu2Ex(::Type{T}, P::PerAx, excl) where {T}
+    m0 = round(Int, P.tw isa QI ? toT(T, P.tw) : P.tw)
+    lo = min(m0, minimum(excl; init = m0)) - 2; hi = max(m0, maximum(excl; init = m0)) + 2
+    minimum(m -> nuP(T, m, P)^2, (m for m in lo:hi if !(m in excl)))
+end
 # tFor over n slabs of a loop of w elements in all, run serially below 2^15 elements (the thread fan-out cost more than the loop in small fills)
 tForW(f, n::Int, w::Int) = w < 32768 ? (for i in 1:n; f(i); end; nothing) : tFor(f, n)
 # acc[a,b] += Σ_t w[t] V1[:,t] ⊗ V2[:,t] ⊗ V3[:,t]: chunks of KCH nodes, each chunk's BLAS partial sum added with Neumaier compensation (Cc)
@@ -48,31 +56,106 @@ function krAddAB!(M::AbstractArray{T,3}, A1, A2, A3, w) where {T}
     M
 end
 # X * Y over the inner index in chunks of KCH, the chunk products added with Neumaier compensation, threaded over fixed row blocks of X
-function cMulB(X::AbstractMatrix{Complex{T}}, Y::AbstractMatrix) where {T}
-    n, k = size(X); p = size(Y, 2)
-    S = zeros(Complex{T}, n, p); C = zeros(Complex{T}, n, p)
-    tFor(cld(n, 512)) do b
-        rows = ((b - 1) * 512 + 1):min(b * 512, n)
-        P = Matrix{Complex{T}}(undef, length(rows), p)
-        for c0 in 1:KCH:k
-            r = c0:min(c0 + KCH - 1, k)
-            mul!(P, view(X, rows, r), view(Y, r, :))
-            @inbounds for jj in 1:p, (ii, i) in enumerate(rows)
-                S[i, jj], C[i, jj] = kaddC(S[i, jj], C[i, jj], P[ii, jj])
+cMul(X::AbstractMatrix{Complex{T}}, Y::AbstractMatrix) where {T} =
+    (S = zeros(Complex{T}, size(X, 1), size(Y, 2)); C = zero(S); cMulAcc!(S, C, X, Y); S .+ C)
+# the mode products E[3] ×₃ E[2] ×₂ E[1] ×₁ Cm of a d = 3 coefficient array with nq orders per axis
+function modPrd(Cm, E, nq = size(Cm))
+    m1, m2, m3 = size(E[1], 1), size(E[2], 1), size(E[3], 1)
+    X1 = reshape(E[1] * reshape(Cm, nq[1], :), m1, nq[2], nq[3])
+    X2 = permutedims(reshape(E[2] * reshape(permutedims(X1, (2, 1, 3)), nq[2], :), m2, m1, nq[3]), (2, 1, 3))
+    permutedims(reshape(E[3] * reshape(permutedims(X2, (3, 1, 2)), nq[3], :), m3, m1, m2), (2, 3, 1))
+end
+# the groups of orders in G closed under the reflections g_j -> m0[ax[j]] - g_j on the hot axes (both hot axes if they close, else one):
+# per order g its group's leader, members and per-axis values
+function hotGrp(G, hot, ax, m0, D)
+    Gs = Set(G); grp = Dict{NTuple{D,Int},Any}()
+    for g in G
+        hs = [j for j in 1:D if haskey(hot, ax[j]) && m0[ax[j]] - g[j] != g[j]]
+        for S in (length(hs) == 2 ? [hs, [hs[1]], [hs[2]]] : length(hs) == 1 ? [hs] : Vector{Int}[])
+            mem = vec([ntuple(j -> j in S && b[findfirst(==(j), S)] ? m0[ax[j]] - g[j] : g[j], D) for b in Iterators.product(ntuple(_ -> (false, true), length(S))...)])
+            if all(in(Gs), mem)
+                grp[g] = (leader = minimum(mem), members = sort(unique(mem)), vals = [j in S ? sort(unique([g[j], m0[ax[j]] - g[j]])) : [g[j]] for j in 1:D]); break
             end
         end
     end
-    S .+ C
+    grp
 end
-# real product threaded over fixed row blocks
-function rMulB(X::AbstractMatrix{T}, Y::AbstractMatrix{T}) where {T}
-    n = size(X, 1); p = size(Y, 2); S = Matrix{T}(undef, n, p)
-    tFor(cld(n, 512)) do b
-        rows = ((b - 1) * 512 + 1):min(b * 512, n)
-        mul!(view(S, rows, :), view(X, rows, :), Y)
+# one node chunk of a pole ray contracted over its nodes, per pattern: the open-axis factors KK[o] = (values, magnitudes) weighted by ewc,
+# Σ_t K(t) ewc(t) K'(t) for the two open axes of d = 1 (compensated, cMul) or Σ_t K(t) ewc(t) for the one of d = 2, and the Σ|terms|
+# companion with ewa
+function chkCon(KK, op, pats, D, ewc, ewa)
+    part = Dict(pt => (D == 1 ? vec(cMul(KK[op[1]][1][pt[op[1]] + 1] .* transpose(ewc), transpose(KK[op[2]][1][pt[op[2]] + 1]))) : vec(cMul(KK[op[1]][1][pt[op[1]] + 1], reshape(ewc, :, 1)))) for pt in pats)
+    partA = Dict(pt => (D == 1 ? vec((KK[op[1]][2][pt[op[1]] + 1] .* transpose(ewa)) * transpose(KK[op[2]][2][pt[op[2]] + 1])) : vec(KK[op[1]][2][pt[op[1]] + 1] * reshape(ewa, :, 1))) for pt in pats)
+    part, partA
+end
+# v laid along axis i of a 3-d array, for broadcasting
+onAx(v, i) = reshape(v, ntuple(k -> k == i ? length(v) : 1, 3))
+# the hot rows h1 (x_{i1} ≡ 0) and hot columns h2 (x_{i2} ≡ 0) of the d = 2 E block k at node it from their Double64 parts, each value
+# rounded once into E and its Σ|terms| into EA as |value| + rD Σ|terms|_D. hotPoi!: the full Poisson pair sum, rows (Φ1[h1, :] C) Φ2ᵀ and
+# columns Φ1 (C Φ2[h2, :]ᵀ) with the order coefficients C; hotSub!: S1 ⊗ S2 - A1 A2ᵀ, the real-space sums less the SP orders' columns
+function hotPoi!(E, EA, k, it, h1, h2, n1, n2, Φ1, Φ2, Cd, rD)
+    T = eltype(EA[k]); ca = T(sum(abs, Cd)) * rD
+    if !isempty(h1)
+        Wr = (Φ1[h1, :] * Cd) * transpose(Φ2)
+        for (q, j1) in enumerate(h1), j2 in 1:n2
+            vr = Complex{T}(Wr[q, j2]); E[k][j1 + n1 * (j2 - 1), it] = vr; EA[k][j1 + n1 * (j2 - 1), it] = abs(vr) + ca
+        end
     end
-    S
+    if !isempty(h2)
+        Wc = Φ1 * (Cd * transpose(Φ2[h2, :]))
+        for (q, j2) in enumerate(h2), j1 in 1:n1
+            vc = Complex{T}(Wc[j1, q]); E[k][j1 + n1 * (j2 - 1), it] = vc; EA[k][j1 + n1 * (j2 - 1), it] = abs(vc) + ca
+        end
+    end
 end
+function hotSub!(E, EA, k, it, h1, h2, n1, n2, S1v, S2v, S1w, S2w, A1, A2, rD)
+    T = eltype(EA[k]); aA1 = abs.(A1); aA2 = abs.(A2)
+    if !isempty(h1)
+        Vr = S1v[h1] * transpose(S2v) .- A1[h1, :] * transpose(A2)
+        Va = S1w[h1] * transpose(S2w) .+ aA1[h1, :] * transpose(aA2)
+        for (q, j1) in enumerate(h1), j2 in 1:n2
+            v_ = Complex{T}(Vr[q, j2]); E[k][j1 + n1 * (j2 - 1), it] = v_; EA[k][j1 + n1 * (j2 - 1), it] = abs(v_) + T(Va[q, j2]) * rD
+        end
+    end
+    if !isempty(h2)
+        Vc = S1v * transpose(S2v[h2]) .- A1 * transpose(A2[h2, :])
+        Va = S1w * transpose(S2w[h2]) .+ aA1 * transpose(aA2[h2, :])
+        for (q, j2) in enumerate(h2), j1 in 1:n1
+            v_ = Complex{T}(Vc[j1, q]); E[k][j1 + n1 * (j2 - 1), it] = v_; EA[k][j1 + n1 * (j2 - 1), it] = abs(v_) + T(Va[j1, q]) * rD
+        end
+    end
+end
+# the d = 3 spectral coefficient of pattern p at one order of wave vector ν (in Float64, or in Double64 for the hot slabs) and its Σ|terms|.
+# The diagonal entry a (pattern 2e_a) carries the δ part too: 4π²W - 4π²ν_a²W/f² = (-E + 4π² S_a W)/f², E = e^{-pτ}, S_a = Σ_{d≠a} ν_d²
+# (blcTns: both forms carry the pole 1/p and cancel it near a mode along axis a; pattern 0 is empty); elsewhere (2πiν)^p, the spectral ∂∂
+# factor -4π² ν_a ν_b. cqR: route R's real node, W = ReW + i ImW, 1/f² = cr + i ci, (Re, Im) of the value and of Σ|terms|; cqC: route C's
+# complex node
+function cqR(p, ν::NTuple{3,X}, ReW, ImW, ReWf, ImWf, ReE, ImE, e, cr, ci, c) where {X}
+    if any(==(2), p)
+        a = findfirst(==(2), p); Sa = 4 * X(π)^2 * sum(d -> d == a ? zero(X) : ν[d]^2, 1:3); νa = 4 * X(π)^2 * ν[a]^2
+        if dgE(Sa, νa, hypot(ReW, ImW), e, hypot(cr, ci))
+            zr = Sa * ReW - ReE; zi = Sa * ImW - ImE; azr = Sa * abs(ReW) + abs(ReE); azi = Sa * abs(ImW) + abs(ImE)
+            return c * (zr * cr - zi * ci), c * (zr * ci + zi * cr), c * (azr * abs(cr) + azi * abs(ci)), c * (azr * abs(ci) + azi * abs(cr))
+        end
+        return c * (4 * X(π)^2 * ReW - νa * ReWf), c * (4 * X(π)^2 * ImW - νa * ImWf),
+               c * (4 * X(π)^2 * abs(ReW) + νa * (abs(ReW * cr) + abs(ImW * ci))), c * (4 * X(π)^2 * abs(ImW) + νa * (abs(ReW * ci) + abs(ImW * cr)))
+    end
+    νν = prod(i -> (2 * X(π) * ν[i])^p[i], 1:3)
+    -c * νν * ReWf, -c * νν * ImWf, c * abs(νν) * (abs(ReW * cr) + abs(ImW * ci)), c * abs(νν) * (abs(ReW * ci) + abs(ImW * cr))
+end
+function cqC(p, ν::NTuple{3,X}, W, E_, f2i, c) where {X}
+    if any(==(2), p)
+        a = findfirst(==(2), p); Sa = 4 * X(π)^2 * sum(d -> d == a ? zero(X) : ν[d]^2, 1:3); νa = 4 * X(π)^2 * ν[a]^2
+        dgE(Sa, νa, abs(W), abs(E_), abs(f2i)) && return c * (Sa * W - E_) * f2i, c * (Sa * abs(W) + abs(E_)) * abs(f2i)
+        return c * (4 * X(π)^2 * W - νa * W * f2i), c * abs(W) * (4 * X(π)^2 + νa * abs(f2i))
+    end
+    v = -c * prod(i -> (2 * X(π) * ν[i])^p[i], 1:3) * W * f2i
+    v, abs(v)
+end
+# the patterns grouped by their orders (p[i1], p[i2]) on the two E axes, the groups sorted
+evGrp(pats, i1, i2) = [(kk, [p for p in pats if (p[i1], p[i2]) == kk]) for kk in sort(unique([(p[i1], p[i2]) for p in pats]))]
+# real product threaded over fixed row blocks
+rMulB(X::AbstractMatrix{T}, Y::AbstractMatrix{T}) where {T} = mMulB!(Matrix{T}(undef, size(X, 1), size(Y, 2)), X, Y)
 # D .+= permutedims(X, perm) without the temporary (threaded over the last dimension of D)
 function addPerm!(D::AbstractArray{S,3}, X::AbstractArray{S,3}, perm) where {S}
     Xp = PermutedDimsArray(X, perm)
@@ -310,10 +393,6 @@ function krAdd!(C::AbstractArray{Complex{T},3}, V1, V2, V3, w) where {T}
 end
 fold!(C) = (c = pop!(CMPS[], C, nothing); c === nothing || (C .+= c); C)
 cmpGet(C) = get(CMPS[], C, nothing)
-# M[a,b,c] += Σ_t w[t] A1[a,t] A2[b,t] A3[c,t] for nonnegative real arrays (the Σ|terms| companion of krAdd!; no compensation needed)
-krAddA!(M::AbstractArray{T,3}, A1, A2, A3, w) where {T} = krAddAB!(M, A1, A2, A3, w)
-# X * Y summed over the inner index in chunks of KCH, the chunk products added with Neumaier compensation
-cMul(X::AbstractMatrix{Complex{T}}, Y::AbstractMatrix) where {T} = cMulB(X, Y)
 
 # phase matrices E[row, order] of one axis of a d = 3 spectral tail for the entries even / odd in ν (prTab on a block of rows): on an axis with
 # an exact twist 0 or 1/2 (prTw) the order m > tw carries its partner 2tw - m as 2 cos(2πνx) / 2i sin(2πνx) and the partner's column is 0 (the ± pairs
@@ -426,7 +505,7 @@ function nearSym(ms, s, ax, P, θ, I, a, b)
     for (j, i) in enumerate(ax)
         θ[j] isa Rational && continue
         mod(ms[i][I[i]], P[j]) == 0 || continue
-        w = mod(Float64(θ[j]) / (2 * π), 1.0); d0 = min(w, 1 - w, abs(w - 0.5))
+        d0 = twD(θ[j])
         0 < d0 < DHOT && zSig(a, b, i) == -1 && return true
     end
     false
@@ -561,7 +640,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
     if T === Float64
         for (jj, i) in enumerate(ax)
             tw = pers[i].tw; tw isa QI && continue
-            w = mod(Float64(θ[jj]) / (2 * π), 1.0); d0 = min(w, 1 - w, abs(w - 0.5))
+            d0 = twD(θ[jj])
             (tw == 0 || d0 >= DHOT) && continue
             # x ≡ 0 and x ≡ L/2 (the L/2 plane alone is covered by κ, a one-ulp shift of R off the plane, but an entry on the L/2 planes of two
             # hot axes is ∝ (θ₁ - θ₀)(θ₂ - θ₀) while κ covers one factor: d2 c4 P = (4,4), H_xy at (L/2, L/2), 4.6e3 eps(1+κ_up))
@@ -597,43 +676,38 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
         end
         Vr, Vra
     end
-    function perRowD1n(i, m_, xq_, t0s)
-        local V1, V1a = perRowD1x(i, m_, xq_, [t0s])
-        (V1[1, 1], V1[2, 1], V1[3, 1]), (V1a[1, 1], V1a[2, 1], V1a[3, 1])
-    end
-    function perRowD1x(i, m_, xq_, tv)
+    # one row at one node t0
+    function perRowD1n(i, m_, xq_, t0)
         local Pq_ = persD[i]
         local A_ = axkD[i]
         local sT_ = sTaD[i]
         local P__ = P[findfirst(==(i), ax)]
-        local Vr = zeros(Complex{TD}, 3, length(tv))
-        local Vra = zeros(TD, 3, length(tv))
+        local Vr = zeros(Complex{TD}, 3)
+        local Vra = zeros(TD, 3)
         local αD = -log(tolD) + 3
-        for (it, t0) in enumerate(tv)
-            local tt = TD(t0)
-            if useReal(TD, Pq_, tt)
-                dnD(n) = max(abs(m_ + n * P__) - 1, 0) * sT_
-                local n0_ = round(Int, -m_ / P__)
-                local dm_ = min(dnD(n0_), dnD(n0_ - 1), dnD(n0_ + 1))
-                local D2_ = dm_^2 + 4 * tt * αD
-                local nl_ = n0_
-                local nh_ = n0_
-                while dnD(nl_ - 1)^2 <= D2_; nl_ -= 1; end
-                while dnD(nh_ + 1)^2 <= D2_; nh_ += 1; end
-                for n in nl_:nh_
-                    local kk_ = kapL(A_, sT_, m_ + n * P__, tt, tolD)
-                    local ph_ = phsN(TD, n, Pq_)
-                    for q in 1:3; Vr[q, it] += ph_ * kk_[q]; Vra[q, it] += abs(kk_[q]); end
-                end
-            else
-                for mq in poiRng(TD, Pq_, tt, αD)
-                    local pr_, ν_ = poiPre(TD, mq, Pq_, xq_)
-                    local e_ = exp(-4 * TD(π)^2 * ν_^2 * tt)
-                    for q in 1:3; Vr[q, it] += pr_[q] * e_; Vra[q, it] += abs(pr_[q] * e_); end
-                end
+        local tt = TD(t0)
+        if useReal(TD, Pq_, tt)
+            dnD(n) = max(abs(m_ + n * P__) - 1, 0) * sT_
+            local n0_ = round(Int, -m_ / P__)
+            local dm_ = min(dnD(n0_), dnD(n0_ - 1), dnD(n0_ + 1))
+            local D2_ = dm_^2 + 4 * tt * αD
+            local nl_ = n0_
+            local nh_ = n0_
+            while dnD(nl_ - 1)^2 <= D2_; nl_ -= 1; end
+            while dnD(nh_ + 1)^2 <= D2_; nh_ += 1; end
+            for n in nl_:nh_
+                local kk_ = kapL(A_, sT_, m_ + n * P__, tt, tolD)
+                local ph_ = phsN(TD, n, Pq_)
+                for q in 1:3; Vr[q] += ph_ * kk_[q]; Vra[q] += abs(kk_[q]); end
+            end
+        else
+            for mq in poiRng(TD, Pq_, tt, αD)
+                local pr_, ν_ = poiPre(TD, mq, Pq_, xq_)
+                local e_ = exp(-4 * TD(π)^2 * ν_^2 * tt)
+                for q in 1:3; Vr[q] += pr_[q] * e_; Vra[q] += abs(pr_[q] * e_); end
             end
         end
-        Vr, Vra
+        (Vr[1], Vr[2], Vr[3]), (Vra[1], Vra[2], Vra[3])
     end
     phED = Dict(i => TMemo{Int,Vector{Complex{TD}}}() for i in hax)
     pcolD(i, m) = get!(() -> [sum(c_ * phsP(TD, m, persD[i], x_) for (_, x_, c_) in rowC(i, j)) for j in eachindex(xs[i])], phED[i], m)
@@ -667,10 +741,10 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
             route = :C
         else
             kw = (; tol = tol0, cache, entT, sel = Tuple(ms), symAx)
-            # where route C may be needed (d < 3, Im f > 0, affordable), it starts on its own task while route R runs (PARRC); its
+            # where route C may be needed (d < 3, Im f > 0, affordable), it starts on its own task while route R runs; its
             # result, or the error it raised, is used below exactly as the sequential call's; it is discarded when route R alone suffices
             npC0 = abs(complex(x, y)) * (T(12) + x * τR) / (2 * T(π) * abs(f) * 2 * T(π) * fb) / T(3 // 2)
-            tC = (PARRC && cOK && D < 3 && npC0 <= NPCMAX && Threads.nthreads() > 1) ?
+            tC = (cOK && D < 3 && npC0 <= NPCMAX && Threads.nthreads() > 1) ?
                 Threads.@spawn(try blcFil(s, f, ax, N, P, θ; kw..., route = :C, sel = Tuple(ms)) catch e_; e_ end) : nothing
             HR, AR, iR = try
                 blcFil(s, f, ax, N, P, θ; kw..., route = :R)
@@ -695,8 +769,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
                 need = falses(length.(ms)...)
             end
             # route C unaffordable at small Im f (rteAuto NPCMAX): route R with its λ reported
-            npC = abs(complex(x, y)) * (T(12) + x * τR) / (2 * T(π) * abs(f) * 2 * T(π) * fb) / T(3 // 2)
-            npC > NPCMAX && (tC === nothing || wait(tC); return HR, AR, iR)
+            npC0 > NPCMAX && (tC === nothing || wait(tC); return HR, AR, iR)
             op_ = Tuple(setdiff(1:3, ax))
             lo_ = (0, 0, 0)
             rC = try
@@ -736,10 +809,10 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
     # FILMAX is refused at once (refused after 361 s of RS and EV work); per order panels ~ max(graded, X√S/π) times nG nodes
     # times M(√S) angular nodes times the per-node angular factors and products over the open-offset grid
     if D == 1 && route == :R
-        P0_ = pers[ax[1]]; tw0_ = P0_.tw isa QI ? toT(T, P0_.tw) : P0_.tw; L0_ = toT(T, P0_.L)
-        νm0_ = max(sqrt(max(x + abs(y), zero(T))) / (2 * T(π)), abs(fa)) + 1 / L0_
+        P0_ = pers[ax[1]]
+        νm0_ = max(sqrt(max(x + abs(y), zero(T))) / (2 * T(π)), abs(fa)) + 1 / toT(T, P0_.L)
         Xs_ = [maximum(abs, toT.(T, xs[o])) for o in op]; X_ = sum(k -> Xs_[k] + sTa[op[k]], 1:2)
-        for m_ in (floor(Int, tw0_ - νm0_ * L0_) - 1):(ceil(Int, tw0_ + νm0_ * L0_) + 1)
+        for m_ in ordRng(T, P0_, νm0_, 1)
             up_ = uOrd((nuP(T, m_, P0_),), fa, fb); up_ < 0 || continue
             S0_ = -up_ + (α + 12) / τ
             M0_ = maximum(circM([axk[o] for o in op], Xs_, [p_[1], p_[2]], sqrt(S0_), tol) for p_ in ((0, 0), (1, 0), (0, 1), (2, 0), (0, 2), (1, 1)))
@@ -810,8 +883,8 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
             wh, wa = p == (0, 0, 0) ? (wHd, wAd) : (wHp, wAp)
             krAdd!(CH[p], Vs[1][p[1] + 1], Vs[2][p[2] + 1], Vs[3][p[3] + 1], complex.(wh))
             krAdd!(CA[p], Vs[1][p[1] + 1], Vs[2][p[2] + 1], Vs[3][p[3] + 1], complex.(wa))
-            krAddA!(MH[p], Va[1][p[1] + 1], Va[2][p[2] + 1], Va[3][p[3] + 1], abs.(wh))
-            krAddA!(MA[p], Va[1][p[1] + 1], Va[2][p[2] + 1], Va[3][p[3] + 1], abs.(wa))
+            krAddAB!(MH[p], Va[1][p[1] + 1], Va[2][p[2] + 1], Va[3][p[3] + 1], abs.(wh))
+            krAddAB!(MA[p], Va[1][p[1] + 1], Va[2][p[2] + 1], Va[3][p[3] + 1], abs.(wa))
         end
         # the (0,0,0) pattern also carries the ∂∂ weight for the diagonal: K00 with wHp is not needed (the diagonal ∂a² term is pattern 2e_a)
     end
@@ -1028,7 +1101,6 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
         if !isempty(spRecF)
             xo = [[QI(xv) for xv in xs[o]] for o in op]
             Xof = [[abs(toT(T, xv)) + toT(T, axk[o].cp) for xv in xo[k]] for (k, o) in enumerate(op)]
-            pdOrd = [p_ for p_ in pats]
             Smin = reshape([SH[j] > 0 && SA[j] > 0 ? min(SH[j], SA[j]) : max(SH[j], SA[j]) for j in eachindex(SH)], size(SH))
             nOp = Tuple(length.(xo))
             function ordBnd(r, lo, hi)
@@ -1040,13 +1112,13 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
                         e_ = ellC(tm, Δ, T(ρ); neg = true); e_ === nothing && continue
                         vo = [[axMajV(axk[o], xo[k], nothing, kk, e_, tol) for kk in 0:2] for (k, o) in enumerate(op)]
                         g = (64 / T(15)) * abs(Δ) * T(ρ)^(-2nG) / (T(ρ)^2 - 1) * exp(e_.rmax(-r.p))
-                        sep = g * maximum(p_ -> prod(k -> maximum(vo[k][p_[op[k]] + 1]), eachindex(op)), pdOrd)
+                        sep = g * maximum(p_ -> prod(k -> maximum(vo[k][p_[op[k]] + 1]), eachindex(op)), pats)
                         isfinite(sep) || continue
                         sep < bv && (bv = sep; best = (g, vo))
                     end
                     best === nothing && return nothing
                     g, vo = best
-                    for p_ in pdOrd
+                    for p_ in pats
                         out[p_] = length(op) == 2 ? g .* vo[1][p_[op[1]] + 1] .* transpose(vo[2][p_[op[2]] + 1]) : g .* vo[1][p_[op[1]] + 1]
                     end
                     return out
@@ -1055,7 +1127,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
                 Xall = length(op) == 2 ? vec([a_ + b_ for a_ in Xof[1], b_ in Xof[2]]) : Xof[1]
                 lv = sort(unique([maximum(Xall); [quantile_(Xall, q) for q in (0.5, 0.75, 0.875, 0.94, 0.97)]; minimum(Xall)]))
                 w0s = [axk[o].w0 for o in op]
-                for p_ in pdOrd
+                for p_ in pats
                     bl = map(lv) do X
                         local pd = PoleDat{T}(collect(op), w0s, length(op) == 2 ? [X, zero(T)] : [X], τ, ysp)
                         gBndR(lo, hi, nG, (δm, hA, hB) -> poleMaj(pd, p_, r.p, r.up, δm, hA, hB))
@@ -1085,7 +1157,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
                     Bs = Dict{NTuple{3,Int},Array{T}}()
                     for (q, b) in enumerate(bnds[g])
                         b === nothing && (push!(bad0, (g, q)); continue)
-                        for p_ in pdOrd; haskey(Bs, p_) ? (Bs[p_] .+= b[p_]) : (Bs[p_] = copy(b[p_])); end
+                        for p_ in pats; haskey(Bs, p_) ? (Bs[p_] .+= b[p_]) : (Bs[p_] = copy(b[p_])); end
                     end
                     for (p_, B_) in Bs; tAdd!(*, E, perW(spRecF[g], p_), opA(B_)); end
                 end
@@ -1103,7 +1175,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
                     split = Set(q for (g_, q) in bad0 if g_ == g)
                     for (q, b) in enumerate(bnds[g])
                         b === nothing && continue
-                        bq = sum(perW(spRecF[g], p_)[min(jc[1], end), min(jc[2], end), min(jc[3], end)] * opA(b[p_])[min(jc[1], size(opA(b[p_]), 1)), min(jc[2], size(opA(b[p_]), 2)), min(jc[3], size(opA(b[p_]), 3))] for p_ in pdOrd)
+                        bq = sum(perW(spRecF[g], p_)[min(jc[1], end), min(jc[2], end), min(jc[3], end)] * opA(b[p_])[min(jc[1], size(opA(b[p_]), 1)), min(jc[2], size(opA(b[p_]), 2)), min(jc[3], size(opA(b[p_]), 3))] for p_ in pats)
                         bq / sc_ > tol / (2 * ntot) && push!(split, q)
                     end
                     isempty(split) && continue
@@ -1152,9 +1224,8 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
         uS0 = uOrd(ntuple(i -> νmn(Pv[i]), 3), fa, fb); uS = max(uS0, zero(T))
         function cqTab(τq)
             local rngs = [begin
-                twv = Pv[i].tw isa QI ? toT(T, Pv[i].tw) : Pv[i].tw
                 νm = sqrt(max(x, zero(T)) + uS + kS / τq) / (2 * T(π)) + 1 / toT(T, Pv[i].L)
-                collect((floor(Int, twv - νm * toT(T, Pv[i].L)) - 1):(ceil(Int, twv + νm * toT(T, Pv[i].L)) + 1))
+                collect(ordRng(T, Pv[i], νm, 1))
             end for i in 1:3]
             # coefficient tensors per pattern, then three mode products with the phase matrices E_i[m, q] = e^{2πiν_q x_m}
             local nq = length.(rngs)
@@ -1175,25 +1246,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
                 c = V^2 / VΛ * prod(i -> sinc(ν[i] * toT(T, s[i]))^2, 1:3)
                 for p in pats
                     p == (0, 0, 0) && continue
-                    local a, Sa, νa, zr, zi, azr, azi, νν
-                    if any(==(2), p)
-                        # the diagonal entry a (pattern 2e_a) carries the δ part too: 4π²W - 4π²ν_a²W/f² = (-E + 4π² S_a W)/f², E = e^{-pτ},
-                        # S_a = Σ_{d≠a} ν_d² (blcTns,: both forms carry the pole 1/p and cancel it near a mode along axis a); pattern 0 empty
-                        a = findfirst(==(2), p); Sa = 4 * T(π)^2 * sum(d -> d == a ? zero(T) : ν[d]^2, 1:3); νa = 4 * T(π)^2 * ν[a]^2
-                        if dgE(Sa, νa, hypot(ReW, ImW), e, hypot(cr, ci))
-                            zr = Sa * ReW - ReE; zi = Sa * ImW - ImE; azr = Sa * abs(ReW) + abs(ReE); azi = Sa * abs(ImW) + abs(ImE)
-                            Cq[p][1][i1, i2, i3] = c * (zr * cr - zi * ci); Cq[p][2][i1, i2, i3] = c * (zr * ci + zi * cr)
-                            CqM[p][1][i1, i2, i3] = c * (azr * abs(cr) + azi * abs(ci)); CqM[p][2][i1, i2, i3] = c * (azr * abs(ci) + azi * abs(cr))
-                        else
-                            Cq[p][1][i1, i2, i3] = c * (4 * T(π)^2 * ReW - νa * ReWf); Cq[p][2][i1, i2, i3] = c * (4 * T(π)^2 * ImW - νa * ImWf)
-                            CqM[p][1][i1, i2, i3] = c * (4 * T(π)^2 * abs(ReW) + νa * (abs(ReW * cr) + abs(ImW * ci))); CqM[p][2][i1, i2, i3] = c * (4 * T(π)^2 * abs(ImW) + νa * (abs(ReW * ci) + abs(ImW * cr)))
-                        end
-                    else
-                        # (2πiν)^{p}: the spectral ∂∂ factor is -4π² ν_a ν_b
-                        νν = prod(i -> (2 * T(π) * ν[i])^p[i], 1:3)
-                        Cq[p][1][i1, i2, i3] = -c * νν * ReWf; Cq[p][2][i1, i2, i3] = -c * νν * ImWf
-                        CqM[p][1][i1, i2, i3] = c * abs(νν) * (abs(ReW * cr) + abs(ImW * ci)); CqM[p][2][i1, i2, i3] = c * abs(νν) * (abs(ReW * ci) + abs(ImW * cr))
-                    end
+                    Cq[p][1][i1, i2, i3], Cq[p][2][i1, i2, i3], CqM[p][1][i1, i2, i3], CqM[p][2][i1, i2, i3] = cqR(p, ν, ReW, ImW, ReWf, ImWf, ReE, ImE, e, cr, ci, c)
                 end
             end
             rngs, Cq, CqM
@@ -1246,11 +1299,6 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
         EpP = [prMat(T, Pv[i], rngs[i], [((xq, 1),) for xq in xs[i]], Ep[i]) for i in 1:3]
         Epp(p) = [isodd(p[i]) ? EpP[i][2] : EpP[i][1] for i in 1:3]
         EpA = [(abs.(EpP[i][1]), abs.(EpP[i][2])) for i in 1:3]
-        mode(Cm, E) = begin
-            X1 = reshape(E[1] * reshape(Cm, nq[1], :), nn[1], nq[2], nq[3])
-            X2 = permutedims(reshape(E[2] * reshape(permutedims(X1, (2, 1, 3)), nq[2], :), nn[2], nn[1], nq[3]), (2, 1, 3))
-            permutedims(reshape(E[3] * reshape(permutedims(X2, (3, 1, 2)), nq[3], :), nn[3], nn[1], nn[2]), (2, 3, 1))
-        end
         # hot slabs (x_i ≡ 0 rows of a hot axis): coefficients and all three mode products in Double64 (the order pairs (ν, -ν) of the hot
         # axis cancel in the first product; where two axes are hot, in two)
         CqD = nothing
@@ -1270,38 +1318,21 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
                 c = VD^2 / VΛD * prod(i -> sinc(ν[i] * toT(TD, s[i]))^2, 1:3)
                 for p in pats
                     p == (0, 0, 0) && continue
-                    if any(==(2), p)
-                        a = findfirst(==(2), p); Sa = 4 * TD(π)^2 * sum(d -> d == a ? zero(TD) : ν[d]^2, 1:3); νa = 4 * TD(π)^2 * ν[a]^2
-                        if dgE(Sa, νa, hypot(ReW, ImW), e, hypot(crD, ciD))
-                            zr = Sa * ReW - ReE; zi = Sa * ImW - ImE
-                            CqD[p][1][i1, i2, i3] = c * (zr * crD - zi * ciD); CqD[p][2][i1, i2, i3] = c * (zr * ciD + zi * crD)
-                        else
-                            CqD[p][1][i1, i2, i3] = c * (4 * TD(π)^2 * ReW - νa * ReWf); CqD[p][2][i1, i2, i3] = c * (4 * TD(π)^2 * ImW - νa * ImWf)
-                        end
-                    else
-                        νν = prod(i -> (2 * TD(π) * ν[i])^p[i], 1:3)
-                        CqD[p][1][i1, i2, i3] = -c * νν * ReWf; CqD[p][2][i1, i2, i3] = -c * νν * ImWf
-                    end
+                    CqD[p][1][i1, i2, i3], CqD[p][2][i1, i2, i3] = cqR(p, ν, ReW, ImW, ReWf, ImWf, ReE, ImE, e, crD, ciD, c)
                 end
             end
             EpD = [[sum(c_ * phsP(TD, mq, PvD[i], x_) for (_, x_, c_) in rowC(i, j)) for j in eachindex(xs[i]), mq in rngs[i]] for i in 1:3]
             EpDP = [prMat(TD, PvD[i], rngs[i], [[(x_, c_) for (_, x_, c_) in rowC(i, j)] for j in eachindex(xs[i])], EpD[i]) for i in 1:3]
         end
-        modeE(Cm, E) = begin
-            m1, m2, m3 = size(E[1], 1), size(E[2], 1), size(E[3], 1)
-            X1 = reshape(E[1] * reshape(Cm, nq[1], :), m1, nq[2], nq[3])
-            X2 = permutedims(reshape(E[2] * reshape(permutedims(X1, (2, 1, 3)), nq[2], :), m2, m1, nq[3]), (2, 1, 3))
-            permutedims(reshape(E[3] * reshape(permutedims(X2, (3, 1, 2)), nq[3], :), m3, m1, m2), (2, 3, 1))
-        end
         # the mode products of every pattern, and of every hot slab in Double64, on the threads; consumed in the original order below
         hl_ = collect(hot); pd_ = [p for p in pats if p != (0, 0, 0)]
         XHA_ = Dict(zip(pd_, tMap(pd_) do p
             local E_ = Epp(p); local Ea_ = [isodd(p[i]) ? EpA[i][2] : EpA[i][1] for i in 1:3]
-            prA ? (mode(Cq[p][1], E_), mode(Cq[p][2], E_), mode(CqM[p][1], Ea_), mode(CqM[p][2], Ea_)) : (mode(Cq[p][1], E_), mode(Cq[p][2], E_))
+            prA ? (modPrd(Cq[p][1], E_, nq), modPrd(Cq[p][2], E_, nq), modPrd(CqM[p][1], Ea_, nq), modPrd(CqM[p][2], Ea_, nq)) : (modPrd(Cq[p][1], E_, nq), modPrd(Cq[p][2], E_, nq))
         end))
         YD_ = CqD === nothing ? nothing : Dict(zip([(p, i) for p in pd_ for (i, _) in hl_], tMap([(p, i, hj) for p in pd_ for (i, hj) in hl_]) do (p, i, hj)
             local Es = [k == i ? EpDP[k][isodd(p[k]) ? 2 : 1][hj, :] : EpDP[k][isodd(p[k]) ? 2 : 1] for k in 1:3]
-            (Complex{T}.(modeE(CqD[p][1], Es)), Complex{T}.(modeE(CqD[p][2], Es)))
+            (Complex{T}.(modPrd(CqD[p][1], Es, nq)), Complex{T}.(modPrd(CqD[p][2], Es, nq)))
         end))
         for p in pats
             # (pattern 0 of the spectral tail is empty: its δ part sits in the diagonal patterns)
@@ -1326,9 +1357,8 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
     else
         Pv = [pers[ax[i]] for i in 1:D]
         ordR = [begin
-            twv = Pv[i].tw isa QI ? toT(T, Pv[i].tw) : Pv[i].tw
             νm = max(sqrt(max(x + abs(y), zero(T))) / (2 * T(π)), abs(fa)) + 1 / toT(T, Pv[i].L)
-            (floor(Int, twv - νm * toT(T, Pv[i].L)) - 1):(ceil(Int, twv + νm * toT(T, Pv[i].L)) + 1)
+            ordRng(T, Pv[i], νm, 1)
         end for i in 1:D]
         SP = NTuple{D,Int}[]
         for mm in Iterators.product(ordR...)
@@ -1336,9 +1366,8 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
             (uOrd(νq, fa, fb) <= abs(y) || (fb < 0 && abs(fa) >= sqrt(sum(abs2, νq)))) && push!(SP, mm)
         end
         box = [begin
-            twv = Pv[i].tw isa QI ? toT(T, Pv[i].tw) : Pv[i].tw
             νm = sqrt(max(x, zero(T)) + 2 * abs(y)) / (2 * T(π)) + 3 / toT(T, Pv[i].L)
-            (floor(Int, twv - νm * toT(T, Pv[i].L)) - 2):(ceil(Int, twv + νm * toT(T, Pv[i].L)) + 2)
+            ordRng(T, Pv[i], νm, 2)
         end for i in 1:D]
         umin = T(Inf)
         for mm in Iterators.product(box...)
@@ -1443,7 +1472,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
             E = Dict(k => view(v, :, 1:length(te)) for (k, v) in evBf[][1]); EA = Dict(k => view(v, :, 1:length(te)) for (k, v) in evBf[][2])
             tFor(length(te)) do it
                 local t = te[it]
-                local r1, r2, Φ1, Φ2, eu, C, M, Ma, c1_, c2_
+                local r1, r2, Φ1, Φ2, eu, C, M, Ma
                 if allP(t)
                     r1 = collect(poiRngE(T, Pv[1], t, αq, νe2)); r2 = collect(poiRngE(T, Pv[2], t, αq, νe2))
                     Φ1 = hcat([pcol(i1, m) for m in r1]...); Φ2 = hcat([pcol(i2, m) for m in r2]...)
@@ -1474,7 +1503,6 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
                 local h2 = get(hot, i2, Int[])
                 local S1d = Dict(j => perRowD(i1, j, te) for j in h1)
                 local S2d = Dict(j => perRowD(i2, j, te) for j in h2)
-                local prs = unique(vcat([(j1, j2) for j1 in h1 for j2 in 1:n2], [(j1, j2) for j1 in 1:n1 for j2 in h2]))
                 for (it, t) in enumerate(te)
                     local tD = TD(t)
                     if allP(t)
@@ -1486,21 +1514,8 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
                         local Φ2 = reduce(hcat, [pcolD(i2, m) for m in r2])
                         local eu = [(g1, g2) in SP ? zero(TD) : exp(-uOrd((q1c[a][2], q2c[b][2]), faD, fbD) * tD) for (a, g1) in enumerate(r1), (b, g2) in enumerate(r2)]
                         for (k1, k2) in keys(E)
-                            local Cd = [q1c[a][1][k1 + 1] * q2c[b][1][k2 + 1] * eu[a, b] for a in eachindex(r1), b in eachindex(r2)]
-                            local ca = T(sum(abs, Cd)) * T(eps(TD) / eps(T))
-                            # hot rows: (Φ1[h1, :] C) Φ2ᵀ; hot columns: Φ1 (C Φ2[h2, :]ᵀ)
-                            if !isempty(h1)
-                                local Wr = (Φ1[h1, :] * Cd) * transpose(Φ2)
-                                for (q, j1) in enumerate(h1), j2 in 1:n2
-                                    local vr = Complex{T}(Wr[q, j2]); E[(k1, k2)][j1 + n1 * (j2 - 1), it] = vr; EA[(k1, k2)][j1 + n1 * (j2 - 1), it] = abs(vr) + ca
-                                end
-                            end
-                            if !isempty(h2)
-                                local Wc = Φ1 * (Cd * transpose(Φ2[h2, :]))
-                                for (q, j2) in enumerate(h2), j1 in 1:n1
-                                    local vc = Complex{T}(Wc[j1, q]); E[(k1, k2)][j1 + n1 * (j2 - 1), it] = vc; EA[(k1, k2)][j1 + n1 * (j2 - 1), it] = abs(vc) + ca
-                                end
-                            end
+                            hotPoi!(E, EA, (k1, k2), it, h1, h2, n1, n2, Φ1, Φ2,
+                                [q1c[a][1][k1 + 1] * q2c[b][1][k2 + 1] * eu[a, b] for a in eachindex(r1), b in eachindex(r2)], T(eps(TD) / eps(T)))
                         end
                     else
                         # per SP order the two per-axis columns (Double64): A1[j1, g] = c1_g φ1_g(j1), A2[j2, g] = c2_g φ2_g(j2) e^{-4π²(ν1² + ν2²)t}; the
@@ -1515,22 +1530,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
                             local S2v = [haskey(S2d, j) ? S2d[j][1][k2 + 1, it] : Complex{TD}(S2[k2 + 1][j, it]) for j in 1:n2]
                             local S1w = [haskey(S1d, j) ? S1d[j][2][k1 + 1, it] : TD(S1a[k1 + 1][j, it]) for j in 1:n1]
                             local S2w = [haskey(S2d, j) ? S2d[j][2][k2 + 1, it] : TD(S2a[k2 + 1][j, it]) for j in 1:n2]
-                            local aA1 = abs.(A1)
-                            local aA2 = abs.(A2)
-                            if !isempty(h1)
-                                local Vr = S1v[h1] * transpose(S2v) .- A1[h1, :] * transpose(A2)
-                                local Va = S1w[h1] * transpose(S2w) .+ aA1[h1, :] * transpose(aA2)
-                                for (q, j1) in enumerate(h1), j2 in 1:n2
-                                    local v_ = Complex{T}(Vr[q, j2]); E[(k1, k2)][j1 + n1 * (j2 - 1), it] = v_; EA[(k1, k2)][j1 + n1 * (j2 - 1), it] = abs(v_) + T(Va[q, j2]) * T(eps(TD) / eps(T))
-                                end
-                            end
-                            if !isempty(h2)
-                                local Vc = S1v * transpose(S2v[h2]) .- A1 * transpose(A2[h2, :])
-                                local Va = S1w * transpose(S2w[h2]) .+ aA1 * transpose(aA2[h2, :])
-                                for (q, j2) in enumerate(h2), j1 in 1:n1
-                                    local v_ = Complex{T}(Vc[j1, q]); E[(k1, k2)][j1 + n1 * (j2 - 1), it] = v_; EA[(k1, k2)][j1 + n1 * (j2 - 1), it] = abs(v_) + T(Va[j1, q]) * T(eps(TD) / eps(T))
-                                end
-                            end
+                            hotSub!(E, EA, (k1, k2), it, h1, h2, n1, n2, S1v, S2v, S1w, S2w, A1, A2, T(eps(TD) / eps(T)))
                         end
                     end
                 end
@@ -1538,9 +1538,9 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
             ex = exE
             wHd = 4 * T(π)^2 .* ex .* cos.(y .* te) .* we; wAd = 4 * T(π)^2 .* ex .* sin.(y .* te) .* we
             wHp = ex .* (cos.(y .* te) .* cr .- sin.(y .* te) .* ci) .* we; wAp = ex .* (sin.(y .* te) .* cr .+ cos.(y .* te) .* ci) .* we
-            # per E block (k1, k2) one product over the node chunk for every pattern and kernel that uses it (the columns of evG2), added
+            # per E block (k1, k2) one product over the node chunk for every pattern and kernel that uses it (the columns of evGrp), added
             # into evAc (compensated across all chunks of the call, folded into CH/CA by evAdd!)
-            for (kk, ps_) in evG2(i1, i2)
+            for (kk, ps_) in evGrp(pats, i1, i2)
                 local Y, Ya, ac_
                 Y = reduce(vcat, [Vo[o][1][p[o] + 1] .* transpose(h_ == 1 ? (p == (0, 0, 0) ? wHd : wHp) : (p == (0, 0, 0) ? wAd : wAp)) for p in ps_ for h_ in 1:2])
                 Ya = reduce(vcat, [Vo[o][2][p[o] + 1] .* transpose(abs.(h_ == 1 ? (p == (0, 0, 0) ? wHd : wHp) : (p == (0, 0, 0) ? wAd : wAp))) for p in ps_ for h_ in 1:2])
@@ -1550,20 +1550,19 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
         end
         end
         # the patterns that read E block (k1, k2), in pats order
-        evG2(i1, i2) = [(kk, [p for p in pats if (p[i1], p[i2]) == kk]) for kk in sort(unique([(p[i1], p[i2]) for p in pats]))]
         evAc = Ref{Any}(nothing)
         # in chunks of 64 nodes: the node-by-offset arrays (E: n1·n2 × nodes × 6 in d = 2) held GBs at 64³ (7 GB RSS)
         evAdd! = function (te, we)
             local i1, i2, o, n12, perm, n3
             if D == 2
                 i1, i2 = ax; o = op[1]; n12 = nn[i1] * nn[i2]
-                evAc[] = Dict(kk => (zeros(Complex{T}, n12, 2 * nn[o] * length(ps_)), zeros(Complex{T}, n12, 2 * nn[o] * length(ps_)), zeros(T, n12, 2 * nn[o] * length(ps_))) for (kk, ps_) in evG2(i1, i2))
+                evAc[] = Dict(kk => (zeros(Complex{T}, n12, 2 * nn[o] * length(ps_)), zeros(Complex{T}, n12, 2 * nn[o] * length(ps_)), zeros(T, n12, 2 * nn[o] * length(ps_))) for (kk, ps_) in evGrp(pats, i1, i2))
                 evBf[] = (Dict((k1, k2) => Matrix{Complex{T}}(undef, n12, 64) for k1 in 0:2, k2 in 0:2 if k1 + k2 <= 2), Dict((k1, k2) => Matrix{T}(undef, n12, 64) for k1 in 0:2, k2 in 0:2 if k1 + k2 <= 2))
             end
             for r in Iterators.partition(eachindex(te), 64); evAdd1!(te[r], we[r]); end
             if D == 2
                 perm = invperm([i1, i2, o]); n3 = nn[o]
-                for (kk, ps_) in evG2(i1, i2), (q, p) in enumerate(ps_), (h_, Cd, Md) in ((1, CH, MH), (2, CA, MA))
+                for (kk, ps_) in evGrp(pats, i1, i2), (q, p) in enumerate(ps_), (h_, Cd, Md) in ((1, CH, MH), (2, CA, MA))
                     local cols = (2 * (q - 1) + h_ - 1) * n3 .+ (1:n3); local ac_ = evAc[][kk]
                     addPerm!(Cd[p], reshape(view(ac_[1], :, cols) .+ view(ac_[2], :, cols), nn[i1], nn[i2], n3), perm)
                     addPerm!(Md[p], reshape(ac_[3][:, cols], nn[i1], nn[i2], n3), perm)
@@ -1585,8 +1584,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
                 W0 = pt == (0, 0, 0) ? 4 * T(π)^2 .* Io : Io .* complex(cr, ci)
                 # outer product: periodic prefactor vectors along their axes, the open-axis array along the open axes
                 pv = [[PP[i][j][pt[ax[i]] + 1] for j in eachindex(PP[i])] for i in 1:D]
-                shp(v, i) = reshape(v, ntuple(k -> k == i ? length(v) : 1, 3))
-                cper = D == 1 ? shp(pv[1], ax[1]) : shp(pv[1], ax[1]) .* shp(pv[2], ax[2])
+                cper = D == 1 ? onAx(pv[1], ax[1]) : onAx(pv[1], ax[1]) .* onAx(pv[2], ax[2])
                 Wr = real.(W0); Wi = imag.(W0)
                 if IaR !== nothing
                     aR = IaR[ko]; aI = IaI[ko]
@@ -1629,22 +1627,9 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
         hot2 = D == 2 && !isempty(hot)
         # d = 2: the groups of orders related by the reflections g_j -> m0_j - g_j along the hot axes (the whole product set in SP); only
         # grouped orders are left out of spAdd! and formed after the certification (singles have no reflected partner to cancel against)
-        grp2 = Dict{NTuple{D,Int},Any}()
-        if hot2
-            m02 = Dict(i => (w_ = mod(Float64(θ[j]) / (2 * π), 1.0); abs(w_ - 0.5) < min(w_, 1 - w_) ? 1 : 0) for (j, i) in enumerate(ax) if haskey(hot, i))
-            SPs2 = Set(SP)
-            for g in SP
-                hs = [j for j in 1:D if haskey(hot, ax[j]) && m02[ax[j]] - g[j] != g[j]]
-                for Sc in (length(hs) == 2 ? [hs, [hs[1]], [hs[2]]] : length(hs) == 1 ? [hs] : Vector{Int}[])
-                    memc = [ntuple(j -> j in Sc && b[findfirst(==(j), Sc)] ? m02[ax[j]] - g[j] : g[j], D) for b in Iterators.product(ntuple(_ -> (false, true), length(Sc))...)]
-                    if all(in(SPs2), memc)
-                        grp2[g] = (vals = [j in Sc ? sort(unique([g[j], m02[ax[j]] - g[j]])) : [g[j]] for j in 1:D], leader = minimum(memc)); break
-                    end
-                end
-            end
-        end
+        grp2 = hot2 ? hotGrp(SP, hot, ax, Dict(i => twI(θ[j]) for (j, i) in enumerate(ax) if haskey(hot, i)), D) : Dict{NTuple{D,Int},Any}()
         if D == 1 && haskey(hot, ax[1])
-            w_ = mod(Float64(θ[1]) / (2 * π), 1.0); m0 = abs(w_ - 0.5) < min(w_, 1 - w_) ? 1 : 0
+            m0 = twI(θ[1])
             for g in SP
                 g2 = (m0 - g[1],); (g2 != g && g2 in SP) && (pairOf[g] = g2)
             end
@@ -1660,16 +1645,10 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
             fb < 0 && abs(abs(fa) - sqrt(sum(abs2, ν))) <= 64 * eps(T) * abs(fa) && error("blcFil: Im f < 0 on the cut Re k = |q∥| of order $(g) (J10 continuation undefined there)")
             local ap = angle(p); ysp == 0 && up < 0 && (ap = -T(π)); cont && (ap -= 2 * T(π))
             local own = !(haskey(pairOf, g) || haskey(grp2, g))
-            spFil(T, axk, op, xs, p, up, cont, ysp, τ, α, tol, nG, ap, s; panOnly = !own, s0z = (D == 2 && own) ? (fa, fb) : nothing)
+            (spFil(T, axk, op, xs, p, up, cont, ysp, τ, α, tol, nG, ap, s; panOnly = !own, s0z = (D == 2 && own) ? (fa, fb) : nothing), ν, up, p, cont, ap)
         end
         for (gq, g) in enumerate(SP)
-            ν = ntuple(i -> nuP(T, g[i], Pv[i]), D)
-            up = uOrdX(T, g, Pv, fa, fb)
-            p = complex(up, -ysp)
-            abs(p) <= 64 * eps(T) * max(abs(x), one(T)) && error("blcFil: Rayleigh-Wood anomaly at rounding distance, order $g")
-            cont = fb < 0 && ysp != 0 && abs(fa) > sqrt(sum(abs2, ν))
-            fb < 0 && abs(abs(fa) - sqrt(sum(abs2, ν))) <= 64 * eps(T) * abs(fa) && error("blcFil: Im f < 0 on the cut Re k = |q∥| of order $(g) (J10 continuation undefined there)")
-            ap = angle(p); ysp == 0 && up < 0 && (ap = -T(π)); cont && (ap -= 2 * T(π))
+            (Iop, IaR, IaI, pinf), ν, up, p, cont, ap = spPre[gq]
             # periodic prefactor vectors per derivative order
             PP = [ax[i] == symAx ? [Complex{T}.(ppD(g[i], ax[i], j)) for j in eachindex(xs[ax[i]])] : [poiPre(T, g[i], Pv[i], xq)[1] for xq in xs[ax[i]]] for i in 1:D]
             # every row, not only the hot ones: at any row the pair's two terms may cancel (e.g. an even pattern at x = L/4 for m = ±1, where
@@ -1677,8 +1656,6 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
             # leave 3.9e3 eps (10 eps(1 + κ_up)) on an entry 6.7e-3 of its max (d2 c8 L = 3λ/2 f = 1 θ = (1.26e-5, 0.7), q/c21, c22)
             PPa = (haskey(pairOf, g) || haskey(grp2, g)) ? [[zero.(PP[i][j]) for j in eachindex(PP[i])] for i in 1:D] : PP
             upD = isempty(hot) ? zero(TD) : uOrd(ntuple(i -> nuP(TD, g[i], persD[ax[i]]), D), faD, fbD)
-            # open-axis integrals I[pt] over all open offsets (arrays over the open axes)
-            Iop, IaR, IaI, pinf = spPre[gq]
             zzD = nothing
             # (up <= 0 only: the closed-part coefficient 4π²Σν² + i y is 4π²f² - ξc² with ξc² = -up; a J10 order with up > 0 (Im f < 0 near
             # grazing) has ξc = 0 and no near-normal cancellation: Double64 fill d2 L = λ f = 1-0.1i H_zz 73% off)
@@ -1689,8 +1666,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
                 o_ = op[1]; k0 = (0, 0, 0); koo = ntuple(i -> i == o_ ? 2 : 0, 3)
                 qz = qzGet(o_)
                 cl0 = pinf.cl[k0]
-                shq_(v, i) = reshape(v, ntuple(k -> k == i ? length(v) : 1, 3))
-                cp0 = shq_([PP[1][j][1] for j in eachindex(PP[1])], ax[1]) .* shq_([PP[2][j][1] for j in eachindex(PP[2])], ax[2])
+                cp0 = onAx([PP[1][j][1] for j in eachindex(PP[1])], ax[1]) .* onAx([PP[2][j][1] for j in eachindex(PP[2])], ax[2])
                 begin
                     # OODIAG2: the order's patterns 0 and oo leave CH altogether: the periodic-axis diagonals get the whole pattern-0 term
                     # (closed part + remainder) from qz[1:2], the open-axis diagonal the whole combined term (cl0 s0 + rmZ)/f² from qz[3:4]
@@ -1701,13 +1677,13 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
                     # 2.9e5 eps); the remainder keeps sz, its identity's own coefficient)
                     clz = cl0 .* complex(4 * T(π)^2 * sum(abs2, ν), ysp)
                     Wz = (clz .+ rz) .* c_
-                    tAdd!(*, qz[1], cp0, shq_(real.(Wq), o_)); tAdd!(*, qz[2], cp0, shq_(imag.(Wq), o_))
-                    tAdd!(*, qz[3], cp0, shq_(real.(Wz), o_)); tAdd!(*, qz[4], cp0, shq_(imag.(Wz), o_))
+                    tAdd!(*, qz[1], cp0, onAx(real.(Wq), o_)); tAdd!(*, qz[2], cp0, onAx(imag.(Wq), o_))
+                    tAdd!(*, qz[3], cp0, onAx(real.(Wz), o_)); tAdd!(*, qz[4], cp0, onAx(imag.(Wz), o_))
                     acp = abs.(cp0)
                     aRq = 4 * T(π)^2 .* IaR[k0]; aIq = 4 * T(π)^2 .* IaI[k0]
                     aRz = abs.(real.(clz)) .+ zR; aIz = abs.(imag.(clz)) .+ zI
-                    tAdd!(*, qz[6], acp, shq_(aRq, o_)); tAdd!(*, qz[7], acp, shq_(aIq, o_))
-                    tAdd!(*, qz[8], acp, shq_(aRz .* abs(cr) .+ aIz .* abs(ci), o_)); tAdd!(*, qz[9], acp, shq_(aRz .* abs(ci) .+ aIz .* abs(cr), o_))
+                    tAdd!(*, qz[6], acp, onAx(aRq, o_)); tAdd!(*, qz[7], acp, onAx(aIq, o_))
+                    tAdd!(*, qz[8], acp, onAx(aRz .* abs(cr) .+ aIz .* abs(ci), o_)); tAdd!(*, qz[9], acp, onAx(aRz .* abs(ci) .+ aIz .* abs(cr), o_))
                     zO = zeros(Complex{T}, size(cl0)); zS = zeros(T, size(cl0))
                     IaR2 = copy(IaR); IaI2 = copy(IaI); IaR2[k0] = zS; IaR2[koo] = zS; IaI2[k0] = zS; IaI2[koo] = zS
                     spAdd!(PPa, Iop, IaR2, IaI2, 1, Dict(k0 => zO, koo => zO))
@@ -1719,7 +1695,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
                     λo = maximum(j -> max((aRz[j] * abs(cr) + aIz[j] * abs(ci)) / max(abs(real(Wz[j])), floatmin(T)),
                                           (aRz[j] * abs(ci) + aIz[j] * abs(cr)) / max(abs(imag(Wz[j])), floatmin(T))), eachindex(aRz))
                     if T === Float64 && λo > LAMZ
-                        zzD = (Wq = Wq, Wz = Wz, cp0 = cp0, o = o_, sz = (qzS8 = acp .* shq_(aRz .* abs(cr) .+ aIz .* abs(ci), o_), qzS9 = acp .* shq_(aRz .* abs(ci) .+ aIz .* abs(cr), o_)), λo = λo)
+                        zzD = (Wq = Wq, Wz = Wz, cp0 = cp0, o = o_, sz = (qzS8 = acp .* onAx(aRz .* abs(cr) .+ aIz .* abs(ci), o_), qzS9 = acp .* onAx(aRz .* abs(ci) .+ aIz .* abs(cr), o_)), λo = λo)
                     end
                 end
             else
@@ -1752,6 +1728,8 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
             local r = spRecF[q]
             local pl = get(spPlF, q, r.pinf.pl)
             local upq = uOrd(ntuple(i -> nuP(TD, r.g[i], persZ[ax[i]]), D), faD, fbD)
+            # (panels in δ = ξ - ξc: moved from the Float64 centre to the Double64 one, as hot2's IoD, else the Double64 integral starts at
+            # ξc_D - ξc_F ≠ 0)
             local scF = sqrt(max(-r.up, zero(T))); local scD = sqrt(max(-upq, zero(TD)))
             local plD = [(TD(scF) + TD(a) - scD, TD(scF) + TD(b) - scD) for (a, b) in pl]
             spFil(TD, axkDz, op, xs, complex(upq, -yD), upq, r.cont, yD, TD(τ), TD(α), TD(tol), nG, TD(r.ap), s; pans = plD)
@@ -1759,29 +1737,22 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
         zzID = Dict(zip(zzQ, zzV))
         for (q, r) in enumerate(spRecF)
             z = r.zzD; z === nothing && continue
-            pl = get(spPlF, q, r.pinf.pl)
-            upq = uOrd(ntuple(i -> nuP(TD, r.g[i], persZ[ax[i]]), D), faD, fbD)
-            # (panels in δ = ξ - ξc: moved from the Float64 centre to the Double64 one, as hot2's IoD, else the Double64 integral starts at
-            # ξc_D - ξc_F ≠ 0)
-            scF = sqrt(max(-r.up, zero(T))); scD = sqrt(max(-upq, zero(TD)))
-            plD = [(TD(scF) + TD(a) - scD, TD(scF) + TD(b) - scD) for (a, b) in pl]
             ID = zzID[q]
             o_ = z.o; k0 = (0, 0, 0); koo = ntuple(i -> i == o_ ? 2 : 0, 3)
             WqD = 4 * TD(π)^2 .* ID[1][k0]; WzD = WqD .+ ID[1][koo] .* cD
             dq = Complex{T}.(WqD .- Complex{TD}.(z.Wq)); dz = Complex{T}.(WzD .- Complex{TD}.(z.Wz))
-            shz(v) = reshape(v, ntuple(k -> k == o_ ? length(v) : 1, 3))
             qz = QZ[1]
-            qz[1] .+= z.cp0 .* shz(real.(dq)); qz[2] .+= z.cp0 .* shz(imag.(dq))
-            qz[3] .+= z.cp0 .* shz(real.(dz)); qz[4] .+= z.cp0 .* shz(imag.(dz))
+            qz[1] .+= z.cp0 .* onAx(real.(dq), o_); qz[2] .+= z.cp0 .* onAx(imag.(dq), o_)
+            qz[3] .+= z.cp0 .* onAx(real.(dz), o_); qz[4] .+= z.cp0 .* onAx(imag.(dz), o_)
             # Σ|terms| of the zz term: the Float64 one replaced by |value| + (eps(D64)/eps(F64)) Σ
             sD = T.(abs.(WzD)) .+ rDz .* (4 * T(π)^2 .* (ID[2][k0] .+ ID[3][k0]) .+ abs(complex(cr, ci)) .* (ID[2][koo] .+ ID[3][koo]))
-            qz[8] .+= abs.(z.cp0) .* shz(sD) .- z.sz.qzS8; qz[9] .+= abs.(z.cp0) .* shz(sD) .- z.sz.qzS9
+            qz[8] .+= abs.(z.cp0) .* onAx(sD, o_) .- z.sz.qzS8; qz[9] .+= abs.(z.cp0) .* onAx(sD, o_) .- z.sz.qzS9
         end
     end
     # the propagating-order pairs on the hot rows (d = 1): (PP + PP')(I + I')/2 + (PP - PP') D with PP ± PP' in Double64 and
     # D = (I - I')/2 from spPair2, on the union of both orders' certified panels
     if pairOf !== nothing && !isempty(pairOf)
-        i1 = ax[1]; hj = hot[i1]; done_ = Set{NTuple{D,Int}}()
+        i1 = ax[1]; done_ = Set{NTuple{D,Int}}()
         gi = Dict(r.g => q for (q, r) in enumerate(spRecF))
         hj = collect(1:nn[i1])
         # every pair's open-axis integrals on the threads (the pairs in pairOf's order), consumed in that order below
@@ -1797,8 +1768,6 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
         for (g, g2) in pairOf
             (g in done_ || g2 in done_) && continue
             push!(done_, g); push!(done_, g2)
-            rp = spRecF[gi[g]]; rm = spRecF[gi[g2]]
-            plp = get(spPlF, gi[g], rp.pinf.pl); plm = get(spPlF, gi[g2], rm.pinf.pl)
             Ip, Im_, Dv, DA = prD[(g, g2)]
             shpO = ntuple(k -> k == op[1] ? nn[op[1]] : k == op[2] ? nn[op[2]] : 1, 3)
             for j in hj
@@ -1828,7 +1797,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
         # every row in Float64 (their products do not cancel)
         i1, i2 = ax; o = op[1]
         axkDo = [AxK(TD, s[i], s[i]) for i in 1:3]
-        m0 = Dict(i => (w_ = mod(Float64(θ[j]) / (2 * π), 1.0); abs(w_ - 0.5) < min(w_, 1 - w_) ? 1 : 0) for (j, i) in enumerate(ax) if haskey(hot, i))
+        m0 = Dict(i => twI(θ[j]) for (j, i) in enumerate(ax) if haskey(hot, i))
         SPs = Set(r.g for r in spRecF); gi = Dict(r.g => q for (q, r) in enumerate(spRecF))
         IoDc = Dict{Int,Any}()
         IoD(q) = get!(() -> IoD0(q), IoDc, q)
@@ -1846,7 +1815,6 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
             end
         end
         rD = T(eps(TD) / eps(T)); aw(pt) = pt == (0, 0, 0) ? 4 * T(π)^2 : abs(complex(cr, ci))
-        shq(v, i) = reshape(v, ntuple(k -> k == i ? length(v) : 1, 3))
         # the grouped orders' Double64 integrals on the threads first (IoD then reads them)
         let qs = unique([gi[(v1, v2)] for r in spRecF if haskey(grp2, r.g) for v1 in grp2[r.g].vals[1] for v2 in grp2[r.g].vals[2]])
             for (q, v) in zip(qs, tMap(IoD0, qs)); IoDc[q] = v; end
@@ -1880,20 +1848,20 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
                     Wc = W[ko] ./ nrm
                     W0 = Complex{T}.(pt == (0, 0, 0) ? 4 * TD(π)^2 .* Wc : Wc .* complex(TD(cr), TD(ci)))
                     p1 = [Complex{T}(v[pt[i1] + 1]) for v in Pc[1][c1]]; p2 = [Complex{T}(v[pt[i2] + 1]) for v in Pc[2][c2]]
-                    cper = shq(p1, i1) .* shq(p2, i2)
+                    cper = onAx(p1, i1) .* onAx(p2, i2)
                     sa = abs.(W0) .+ (aw(pt) * rD / nrm) .* sumAbs[ko]
                     if oz
                         qz = qzGet(o)
                         Wz = Complex{T}.(4 * TD(π)^2 .* Wc .+ (W[koo2] ./ nrm) .* complex(TD(cr), TD(ci)))
                         saz = abs.(Wz) .+ (rD / nrm) .* (4 * T(π)^2 .* sumAbs[ko] .+ abs(complex(cr, ci)) .* sumAbs[koo2])
-                        tAdd!(*, qz[1], cper, shq(real.(W0), o)); tAdd!(*, qz[2], cper, shq(imag.(W0), o))
-                        tAdd!(*, qz[3], cper, shq(real.(Wz), o)); tAdd!(*, qz[4], cper, shq(imag.(Wz), o))
-                        tAdd!((c_, w_) -> abs(c_) * w_, qz[6], cper, shq(sa, o)); tAdd!((c_, w_) -> abs(c_) * w_, qz[7], cper, shq(sa, o))
-                        tAdd!((c_, w_) -> abs(c_) * w_, qz[8], cper, shq(saz, o)); tAdd!((c_, w_) -> abs(c_) * w_, qz[9], cper, shq(saz, o))
+                        tAdd!(*, qz[1], cper, onAx(real.(W0), o)); tAdd!(*, qz[2], cper, onAx(imag.(W0), o))
+                        tAdd!(*, qz[3], cper, onAx(real.(Wz), o)); tAdd!(*, qz[4], cper, onAx(imag.(Wz), o))
+                        tAdd!((c_, w_) -> abs(c_) * w_, qz[6], cper, onAx(sa, o)); tAdd!((c_, w_) -> abs(c_) * w_, qz[7], cper, onAx(sa, o))
+                        tAdd!((c_, w_) -> abs(c_) * w_, qz[8], cper, onAx(saz, o)); tAdd!((c_, w_) -> abs(c_) * w_, qz[9], cper, onAx(saz, o))
                         continue
                     end
-                    tAdd!(*, CH[pt], cper, shq(real.(W0), o)); tAdd!(*, CA[pt], cper, shq(imag.(W0), o))
-                    tAdd!((c_, w_) -> abs(c_) * w_, MH[pt], cper, shq(sa, o)); tAdd!((c_, w_) -> abs(c_) * w_, MA[pt], cper, shq(sa, o))
+                    tAdd!(*, CH[pt], cper, onAx(real.(W0), o)); tAdd!(*, CA[pt], cper, onAx(imag.(W0), o))
+                    tAdd!((c_, w_) -> abs(c_) * w_, MH[pt], cper, onAx(sa, o)); tAdd!((c_, w_) -> abs(c_) * w_, MA[pt], cper, onAx(sa, o))
                 end
             end
         end
@@ -1937,8 +1905,6 @@ const FILMAX = 4.0e12
 # the largest d = 1 blocks of the coverage need <= 5.1e13 (c4 (16,64,64), 4λ period, 1+1e-3i: 976 s at 8 threads)
 const FILTOT = 1.0e14
 const FILACC = ScopedValue{Union{Nothing,Threads.Atomic{Float64}}}(nothing)
-# route C of the mixed route on its own task concurrently with route R (the threaded build sets it; the sources run sequentially)
-const PARRC = true
 const LAMZ = 16
 # one ray node of an SP order into the open-offset arrays (function barrier, as remAcc!)
 function rayAcc!(O, OR, ep, ks, pt, nO)
@@ -1964,7 +1930,7 @@ function remAcc!(S_, C_, R_, I_, Ak, Ck, wq, rw, iw)
 end
 # open-axis integrals of one SP order for every open offset: Dict(pattern over the open axes => array over the open offsets),
 # the same formulas as blcTns's spcSP (spectral pole route) or its evanescent steepest-descent ray
-function spFil(::Type{T}, axk, op, xs, p, up, cont, y, τ, α, tol, nGt, ap, s; pans = nothing, Mx::Int = 0, panOnly::Bool = false, s0z = nothing) where {T}
+function spFil(::Type{T}, axk, op, xs, p, up, cont, y, τ, α, tol, nGt, ap, s; pans = nothing, panOnly::Bool = false, s0z = nothing) where {T}
     xt, wt = glq(T, nGt)
     xsO = [toT.(T, xs[o]) for o in op]; nO = length.(xsO)
     # the open offsets in cells and the edges once, not one Rational{BigInt} division per node and offset
@@ -2021,9 +1987,9 @@ function spFil(::Type{T}, axk, op, xs, p, up, cont, y, τ, α, tol, nGt, ap, s; 
     wRI(v) = (local e = exp(-v * τ) / (v^2 + y^2); (e * (v * cy - y * sy), e * (v * sy + y * cy)))
     if length(op) == 2
         # angular nodes per panel (spcSP): circM at the panel's largest radius, one rule M_in = M(√(2 s_c)) for s <= 2 s_c and
-        # the closed part, M(2√S) for the continuation only; Mx (spPair2's shared rule) forces one M everywhere
-        Mr(r_) = max(Mx, maximum(circM([axk[o] for o in op], [maximum(abs, xsO[k]) for k in 1:2], [pt[1], pt[2]], r_, tol) for pt in pats))
-        M2 = Mr(sqrt(S) * 2); Min = Mx > 0 ? M2 : Mr(sqrt(2 * sc))
+        # the closed part, M(2√S) for the continuation only
+        Mr(r_) = maximum(circM([axk[o] for o in op], [maximum(abs, xsO[k]) for k in 1:2], [pt[1], pt[2]], r_, tol) for pt in pats)
+        M2 = Mr(sqrt(S) * 2); Min = Mr(sqrt(2 * sc))
         csT = Dict{Int,Tuple{Vector{T},Vector{T}}}()
         cs_(M) = get!(() -> ([cospi(2 * T(j) / M) for j in 0:M-1], [sinpi(2 * T(j) / M) for j in 0:M-1]), csT, M)
         # (the wide tables, in Double64)
@@ -2279,7 +2245,7 @@ end
 # (the rearrangement is exact only if the closed part and the remainder see the same p and σ). Near the poles A₊ΔΦ and ΔaΦ₋ are each
 # O(Δa/(s - σ)) and cancel: their rounding eps·Δa/h enters with the node weight ~h, i.e. eps·Δa per node, O(eps) of D.
 # Returns (I₊, I₋, D, Σ|terms| of D) as Dicts pattern key => array over the open offsets.
-function spPair2(::Type{T}, axk, op, xs, rp, rm, y::T, τ::T, α, tol::T, nGt::Int, s, plp, plm; Mx::Int = 0) where {T}
+function spPair2(::Type{T}, axk, op, xs, rp, rm, y::T, τ::T, α, tol::T, nGt::Int, s, plp, plm) where {T}
     TD = T === Float64 ? Double64 : T
     xt, wt = glq(T, nGt)
     xsO = [toT.(T, xs[o]) for o in op]; nO = length.(xsO)
@@ -2292,7 +2258,7 @@ function spPair2(::Type{T}, axk, op, xs, rp, rm, y::T, τ::T, α, tol::T, nGt::I
     upD = (TD(rp.upD), TD(rm.upD)); pD = (complex(upD[1], -TD(y)), complex(upD[2], -TD(y)))
     σ = (max(-T(upD[1]), zero(T)), max(-T(upD[2]), zero(T)))
     Smax = max(σ[1], σ[2]) + (α + 12) / τ
-    M = max(Mx, maximum(circM([axk[o] for o in op], [maximum(abs, xsO[k]) for k in 1:2], [pt[1], pt[2]], sqrt(Smax) * 2, tol) for pt in pats))
+    M = maximum(circM([axk[o] for o in op], [maximum(abs, xsO[k]) for k in 1:2], [pt[1], pt[2]], sqrt(Smax) * 2, tol) for pt in pats)
     cM = [cospi(2 * T(j) / M) for j in 0:M-1]; sM = [sinpi(2 * T(j) / M) for j in 0:M-1]
     cMD = TD.(cM); sMD = TD.(sM)
     rB = sqrt(σ[1]); b1 = rB .* cM; b2 = rB .* sM; b1D = TD.(b1); b2D = TD.(b2); rBD = TD(rB)
@@ -2539,7 +2505,7 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
         wD = 4 * T(π)^2 .* ew; wP = ew .* f2i
         for p in pats
             krAdd!(CC[p], Vs[1][p[1] + 1], Vs[2][p[2] + 1], Vs[3][p[3] + 1], p == (0, 0, 0) ? wD : wP)
-            krAddA!(CCa[p], Va[1][p[1] + 1], Va[2][p[2] + 1], Va[3][p[3] + 1], abs.(p == (0, 0, 0) ? wD : wP))
+            krAddAB!(CCa[p], Va[1][p[1] + 1], Va[2][p[2] + 1], Va[3][p[3] + 1], abs.(p == (0, 0, 0) ? wD : wP))
         end
     end
     # segment
@@ -2559,15 +2525,14 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
     segAdd!(tv, wv) = isempty(tv) || (VV = [isper(i) ? axVecH(i, tv) : axVecC(T, i, tv, xs, ms, axk, sTa, pers, get(Pc, i, 0), tol; ab = true) for i in 1:3]; addC!([v[1] for v in VV], tv, wv, falses(length(tv)), [v[2] for v in VV]))
     tn, tw = segNod(segP); segAdd!(tn, tw)
     ordRec = Any[]; evCP = Tuple{T,T}[]; evCAdd! = nothing; SLc = Any[]; νE2c = T(Inf)
-    ordPlF = Dict{Int,Any}(); grpOf = Dict{Any,Any}(); rayOf = Dict{Any,Any}(); ordConF = nothing
+    ordPlF = Dict{Int,Any}(); grpOf = Dict{Any,Any}(); rayOf = Dict{Any,Any}()
     τc = τ1 + sc * eφ
     if D == 3
         VΛ = prod(i -> toT(T, pers[i].L), 1:3)
         Pv = [pers[i] for i in 1:3]; rτ = real(τc)
         rngs = [begin
-            twv = Pv[i].tw isa QI ? toT(T, Pv[i].tw) : Pv[i].tw
             νm = sqrt(max(x, zero(T)) + αp / rτ) / (2 * T(π)) + 1 / toT(T, Pv[i].L)
-            collect((floor(Int, twv - νm * toT(T, Pv[i].L)) - 1):(ceil(Int, twv + νm * toT(T, Pv[i].L)) + 1))
+            collect(ordRng(T, Pv[i], νm, 1))
         end for i in 1:3]
         Ep = [[phsP(T, mq, Pv[i], xq) for xq in xs[i], mq in rngs[i]] for i in 1:3]
         # ±m pairs at exact twists 0, 1/2 (prMat, as filBlk's route R d = 3 tail)
@@ -2586,23 +2551,8 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
             c = V^2 / VΛ * prod(i -> sinc(ν[i] * sTa[i])^2, 1:3)
             for p in pats
                 p == (0, 0, 0) && continue
-                if any(==(2), p)
-                    # the diagonal with its δ part, (-E + 4π² S_a W)/f² (filBlk route R d = 3)
-                    a = findfirst(==(2), p); Sa = 4 * T(π)^2 * sum(d -> d == a ? zero(T) : ν[d]^2, 1:3); νa = 4 * T(π)^2 * ν[a]^2
-                    if dgE(Sa, νa, abs(W), abs(E_), abs(f2i))
-                        Cq[p][i1, i2, i3] = c * (Sa * W - E_) * f2i; CqM[p][i1, i2, i3] = c * (Sa * abs(W) + abs(E_)) * abs(f2i)
-                    else
-                        Cq[p][i1, i2, i3] = c * (4 * T(π)^2 * W - νa * W * f2i); CqM[p][i1, i2, i3] = c * abs(W) * (4 * T(π)^2 + νa * abs(f2i))
-                    end
-                else
-                    Cq[p][i1, i2, i3] = -c * prod(i -> (2 * T(π) * ν[i])^p[i], 1:3) * W * f2i; CqM[p][i1, i2, i3] = abs(Cq[p][i1, i2, i3])
-                end
+                Cq[p][i1, i2, i3], CqM[p][i1, i2, i3] = cqC(p, ν, W, E_, f2i, c)
             end
-        end
-        mode(Cm, E) = begin
-            X1 = reshape(E[1] * reshape(Cm, nq[1], :), nn[1], nq[2], nq[3])
-            X2 = permutedims(reshape(E[2] * reshape(permutedims(X1, (2, 1, 3)), nq[2], :), nn[2], nn[1], nq[3]), (2, 1, 3))
-            permutedims(reshape(E[3] * reshape(permutedims(X2, (3, 1, 2)), nq[3], :), nn[3], nn[1], nn[2]), (2, 3, 1))
         end
         # hot slabs in Double64 (as filBlk's route R d = 3)
         CqD = nothing
@@ -2618,30 +2568,19 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
                 ED = exp(-pq * τcD); W = ED / pq; c = VD^2 / VΛD * prod(i -> sinc(ν[i] * toT(TD, s[i]))^2, 1:3)
                 for p in pats
                     p == (0, 0, 0) && continue
-                    if any(==(2), p)
-                        a = findfirst(==(2), p); Sa = 4 * TD(π)^2 * sum(d -> d == a ? zero(TD) : ν[d]^2, 1:3); νa = 4 * TD(π)^2 * ν[a]^2
-                        CqD[p][i1, i2, i3] = dgE(Sa, νa, abs(W), abs(ED), abs(f2iD)) ? c * (Sa * W - ED) * f2iD : c * (4 * TD(π)^2 * W - νa * W * f2iD)
-                    else
-                        CqD[p][i1, i2, i3] = -c * prod(i -> (2 * TD(π) * ν[i])^p[i], 1:3) * W * f2iD
-                    end
+                    CqD[p][i1, i2, i3] = first(cqC(p, ν, W, ED, f2iD, c))
                 end
             end
             EpD = [[sum(c_ * phsP(TD, mq, PvD[i], x_) for (_, x_, c_) in hotC.rowC(i, j)) for j in eachindex(xs[i]), mq in rngs[i]] for i in 1:3]
             EpDP = [prMat(TD, PvD[i], rngs[i], [[(x_, c_) for (_, x_, c_) in hotC.rowC(i, j)] for j in eachindex(xs[i])], EpD[i]) for i in 1:3]
         end
-        modeE(Cm, E) = begin
-            m1, m2, m3 = size(E[1], 1), size(E[2], 1), size(E[3], 1)
-            X1 = reshape(E[1] * reshape(Cm, nq[1], :), m1, nq[2], nq[3])
-            X2 = permutedims(reshape(E[2] * reshape(permutedims(X1, (2, 1, 3)), nq[2], :), m2, m1, nq[3]), (2, 1, 3))
-            permutedims(reshape(E[3] * reshape(permutedims(X2, (3, 1, 2)), nq[3], :), m3, m1, m2), (2, 3, 1))
-        end
         # mode products of every pattern and hot slab on the threads, consumed in order below
         hl_ = collect(hot); pd_ = [p for p in pats if p != (0, 0, 0)]
         XC_ = Dict(zip(pd_, tMap(pd_) do p
-            prA ? (mode(Cq[p], Epp(p)), mode(CqM[p], [isodd(p[i]) ? EpA[i][2] : EpA[i][1] for i in 1:3])) : (mode(Cq[p], Ep), nothing)
+            prA ? (modPrd(Cq[p], Epp(p), nq), modPrd(CqM[p], [isodd(p[i]) ? EpA[i][2] : EpA[i][1] for i in 1:3], nq)) : (modPrd(Cq[p], Ep, nq), nothing)
         end))
         YC_ = CqD === nothing ? nothing : Dict(zip([(p, i) for p in pd_ for (i, _) in hl_], tMap([(p, i, hj) for p in pd_ for (i, hj) in hl_]) do (p, i, hj)
-            Complex{T}.(modeE(CqD[p], [k == i ? EpDP[k][isodd(p[k]) ? 2 : 1][hj, :] : EpDP[k][isodd(p[k]) ? 2 : 1] for k in 1:3]))
+            Complex{T}.(modPrd(CqD[p], [k == i ? EpDP[k][isodd(p[k]) ? 2 : 1][hj, :] : EpDP[k][isodd(p[k]) ? 2 : 1] for k in 1:3], nq))
         end))
         for p in pats
             # (pattern 0 of the spectral tail is empty: its δ part sits in the diagonal patterns)
@@ -2661,9 +2600,8 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
     else
         Pv = [pers[ax[i]] for i in 1:D]
         ordR = [begin
-            twv = Pv[i].tw isa QI ? toT(T, Pv[i].tw) : Pv[i].tw
             νm = sqrt(max(x + U, zero(T))) / (2 * T(π)) + 1 / toT(T, Pv[i].L)
-            (floor(Int, twv - νm * toT(T, Pv[i].L)) - 1):(ceil(Int, twv + νm * toT(T, Pv[i].L)) + 1)
+            ordRng(T, Pv[i], νm, 1)
         end for i in 1:D]
         SL = NTuple{D,Int}[]
         for mm in Iterators.product(ordR...)
@@ -2698,7 +2636,6 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
             end
             best
         end
-        shp(v, i) = reshape(v, ntuple(k -> k == i ? length(v) : 1, 3))
         ordA = Dict{Any,Vector{Vector{Complex{T}}}}(); ordB = Dict{Any,Vector{Vector{Complex{T}}}}(); npanC = Ref(0)
         ordAa = Dict{Any,Vector{Vector{T}}}(); ordBa = Dict{Any,Vector{Vector{T}}}()
         # one order on given (lo, hi, n) panels of its ray t = τc + s ep: per pattern the periodic column and the open row
@@ -2715,9 +2652,7 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
             for rg in Iterators.partition(eachindex(tr), 2048)
                 trc = tr[rg]; ewc = ew[rg]; ewa = abs.(ewc)
                 KK = Dict(o => axVecC(T, o, trc, xs, ms, axk, sTa, pers, 0, tol; ab = true) for o in op)
-                Ko = Dict(o => KK[o][1] for o in op); Ka = Dict(o => KK[o][2] for o in op)
-                part = Dict(pt => (D == 1 ? vec(cMul(Ko[op[1]][pt[op[1]] + 1] .* transpose(ewc), transpose(Ko[op[2]][pt[op[2]] + 1]))) : vec(cMul(Ko[op[1]][pt[op[1]] + 1], reshape(ewc, :, 1)))) for pt in pats)
-                partA = Dict(pt => (D == 1 ? vec((Ka[op[1]][pt[op[1]] + 1] .* transpose(ewa)) * transpose(Ka[op[2]][pt[op[2]] + 1])) : vec(Ka[op[1]][pt[op[1]] + 1] * reshape(ewa, :, 1))) for pt in pats)
+                part, partA = chkCon(KK, op, pats, D, ewc, ewa)
                 if out === nothing
                     out = part; outA = partA
                 else
@@ -2731,17 +2666,7 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
         # share the leader's ray; their sum Σ_g PP_g e^{-p_g t} = e^{-p_L t} Π_j [Σ_v PP_j(v) e^{-4π²(ν_v² - ν_L,j²) t}] is formed per axis in
         # Double64 after the certification (the reflected orders' separate terms cancel on every row: the route R pairs)
         m0 = Dict(i => (w_ = mod(Float64(pers[i].tw isa QI ? toT(T, pers[i].tw) : pers[i].tw), 1.0); abs(w_ - 0.5) < min(w_, 1 - w_) ? 1 : 0) for i in keys(hot))
-        grpOf = Dict{NTuple{D,Int},Any}(); SLs = Set(SL)
-        for g in SL
-            hs = [j for j in 1:D if haskey(hot, ax[j]) && m0[ax[j]] - g[j] != g[j]]
-            cands_ = length(hs) == 2 ? [hs, [hs[1]], [hs[2]]] : length(hs) == 1 ? [hs] : Vector{Int}[]
-            for S in cands_
-                mem = vec([ntuple(j -> j in S && b[findfirst(==(j), S)] ? m0[ax[j]] - g[j] : g[j], D) for b in Iterators.product(ntuple(_ -> (false, true), length(S))...)])
-                if all(in(SLs), mem)
-                    grpOf[g] = (leader = minimum(mem), members = sort(unique(mem)), vals = [j in S ? sort(unique([g[j], m0[ax[j]] - g[j]])) : [g[j]] for j in 1:D]); break
-                end
-            end
-        end
+        grpOf = hotGrp(SL, hot, ax, m0, D)
         rayOf = Dict{NTuple{D,Int},Any}()
         SL = sort(SL; by = g -> (haskey(grpOf, g) ? grpOf[g].leader : g, g))
         for g in SL
@@ -2821,9 +2746,8 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
         # the other orders: t = τc + s
         spProj = [unique(g[i] for g in SL) for i in 1:D]
         boxE = [begin
-            twv = Pv[i].tw isa QI ? toT(T, Pv[i].tw) : Pv[i].tw
             νm = sqrt(max(x + U, zero(T))) / (2 * T(π)) + 3 / toT(T, Pv[i].L)
-            (floor(Int, twv - νm * toT(T, Pv[i].L)) - 2):(ceil(Int, twv + νm * toT(T, Pv[i].L)) + 2)
+            ordRng(T, Pv[i], νm, 2)
         end for i in 1:D]
         uEV = minimum((uOrd(ntuple(i -> nuP(T, mm[i], Pv[i]), D), fa, fb) for mm in Iterators.product(boxE...) if !(mm in SL)); init = U)
         uSL = minimum((uOrd(ntuple(i -> nuP(T, g[i], Pv[i]), D), fa, fb) for g in SL); init = U)
@@ -2865,7 +2789,7 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
             pcS1 = [pcol(i1, g[1]) for g in SL]; pcS2 = [pcol(i2, g[2]) for g in SL]
             tFor(length(te)) do it
                 local t = te[it]
-                local r1, r2, Φ1, Φ2, c1v, c2v, C, M, Ma, c1_, c2_
+                local r1, r2, Φ1, Φ2, c1v, c2v, C, M, Ma
                 if aP[it]
                     # EV-only Poisson pairs with e^{xt} folded, e^{-u_G t} (the weight below is then e^{iyt}; evC!)
                     r1 = collect(poiRngE(T, Pv[1], real(t), αq, νE2)); r2 = collect(poiRngE(T, Pv[2], real(t), αq, νE2))
@@ -2899,7 +2823,6 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
                 local S2D = isempty(h2) ? nothing : rowD(i2, h2)
                 local pcD = Dict{Tuple{Int,Int},Vector{Complex{TD}}}()
                 pcolD(i, m) = get!(() -> [sum(c_ * phsP(TD, m, hotC.persD[i], x_) for (_, x_, c_) in hotC.rowC(i, j)) for j in eachindex(xs[i])], pcD, (i, m))
-                local prs = unique(vcat([(j1, j2) for j1 in h1 for j2 in 1:n2], [(j1, j2) for j1 in 1:n1 for j2 in h2]))
                 for (it, t) in enumerate(te)
                     if aP[it]
                         local r1 = collect(poiRngE(T, Pv[1], real(t), αq, νE2))
@@ -2910,20 +2833,8 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
                         local Φ2 = reduce(hcat, [pcolD(i2, m) for m in r2])
                         local eu = [(g1, g2) in SL ? zero(Complex{TD}) : exp(-uOrd((q1c[a][2], q2c[b][2]), hotC.faD, hotC.fbD) * tD[it]) for (a, g1) in enumerate(r1), (b, g2) in enumerate(r2)]
                         for (k1, k2) in keys(E)
-                            local Cd = [q1c[a][1][k1 + 1] * q2c[b][1][k2 + 1] * eu[a, b] for a in eachindex(r1), b in eachindex(r2)]
-                            local ca = T(sum(abs, Cd)) * rD
-                            if !isempty(h1)
-                                local Wr = (Φ1[h1, :] * Cd) * transpose(Φ2)
-                                for (q, j1) in enumerate(h1), j2 in 1:n2
-                                    local vr = Complex{T}(Wr[q, j2]); E[(k1, k2)][j1 + n1 * (j2 - 1), it] = vr; EA[(k1, k2)][j1 + n1 * (j2 - 1), it] = abs(vr) + ca
-                                end
-                            end
-                            if !isempty(h2)
-                                local Wc = Φ1 * (Cd * transpose(Φ2[h2, :]))
-                                for (q, j2) in enumerate(h2), j1 in 1:n1
-                                    local vc = Complex{T}(Wc[j1, q]); E[(k1, k2)][j1 + n1 * (j2 - 1), it] = vc; EA[(k1, k2)][j1 + n1 * (j2 - 1), it] = abs(vc) + ca
-                                end
-                            end
+                            hotPoi!(E, EA, (k1, k2), it, h1, h2, n1, n2, Φ1, Φ2,
+                                [q1c[a][1][k1 + 1] * q2c[b][1][k2 + 1] * eu[a, b] for a in eachindex(r1), b in eachindex(r2)], rD)
                         end
                     else
                         # per SP order the two per-axis columns (Double64): A1[j1, g] = c1_g φ1_g(j1), A2[j2, g] = c2_g φ2_g(j2) e^{-4π²(ν1² + ν2²)t}; the
@@ -2938,29 +2849,14 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
                             local S2v = [(r_ = findfirst(==(j), h2); r_ !== nothing ? S2D[1][k2 + 1][r_, it] : Complex{TD}(S2[k2 + 1][j, it])) for j in 1:n2]
                             local S1w = [(r_ = findfirst(==(j), h1); r_ !== nothing ? S1D[2][k1 + 1][r_, it] : TD(S1a[k1 + 1][j, it])) for j in 1:n1]
                             local S2w = [(r_ = findfirst(==(j), h2); r_ !== nothing ? S2D[2][k2 + 1][r_, it] : TD(S2a[k2 + 1][j, it])) for j in 1:n2]
-                            local aA1 = abs.(A1)
-                            local aA2 = abs.(A2)
-                            if !isempty(h1)
-                                local Vr = S1v[h1] * transpose(S2v) .- A1[h1, :] * transpose(A2)
-                                local Va = S1w[h1] * transpose(S2w) .+ aA1[h1, :] * transpose(aA2)
-                                for (q, j1) in enumerate(h1), j2 in 1:n2
-                                    local v_ = Complex{T}(Vr[q, j2]); E[(k1, k2)][j1 + n1 * (j2 - 1), it] = v_; EA[(k1, k2)][j1 + n1 * (j2 - 1), it] = abs(v_) + T(Va[q, j2]) * rD
-                                end
-                            end
-                            if !isempty(h2)
-                                local Vc = S1v * transpose(S2v[h2]) .- A1 * transpose(A2[h2, :])
-                                local Va = S1w * transpose(S2w[h2]) .+ aA1 * transpose(aA2[h2, :])
-                                for (q, j2) in enumerate(h2), j1 in 1:n1
-                                    local v_ = Complex{T}(Vc[j1, q]); E[(k1, k2)][j1 + n1 * (j2 - 1), it] = v_; EA[(k1, k2)][j1 + n1 * (j2 - 1), it] = abs(v_) + T(Va[j1, q]) * rD
-                                end
-                            end
+                            hotSub!(E, EA, (k1, k2), it, h1, h2, n1, n2, S1v, S2v, S1w, S2w, A1, A2, rD)
                         end
                     end
                 end
             end
             ew = [(aP[j] ? exp(complex(zero(T), y) * te[j]) : exp(z * te[j])) * we[j] for j in eachindex(te)]
             # per E block one product over the chunk for every pattern that reads it, into evCAc (compensated across the call's chunks)
-            for (kk, ps_) in evG2C(i1, i2)
+            for (kk, ps_) in evGrp(pats, i1, i2)
                 local Y = reduce(vcat, [Vo[o][p[o] + 1] .* transpose(p == (0, 0, 0) ? 4 * T(π)^2 .* ew : ew .* f2i) for p in ps_])
                 local Ya = reduce(vcat, [VoA[o][2][p[o] + 1] .* transpose(abs.(p == (0, 0, 0) ? 4 * T(π)^2 .* ew : ew .* f2i)) for p in ps_])
                 local ac_ = evCAc[][kk]
@@ -2968,20 +2864,19 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
             end
         end
         end
-        evG2C(i1, i2) = [(kk, [p for p in pats if (p[i1], p[i2]) == kk]) for kk in sort(unique([(p[i1], p[i2]) for p in pats]))]
         evCAc = Ref{Any}(nothing)
         # in chunks of 64 nodes: the node-by-offset arrays (E: n1·n2 × nodes × 6 in d = 2) held GBs at 64³ (7 GB RSS)
         evCAdd! = function (te, we)
             local i1, i2, o, n12, perm, n3
             if D == 2
                 i1, i2 = ax; o = op[1]; n12 = nn[i1] * nn[i2]
-                evCAc[] = Dict(kk => (zeros(Complex{T}, n12, nn[o] * length(ps_)), zeros(Complex{T}, n12, nn[o] * length(ps_)), zeros(T, n12, nn[o] * length(ps_))) for (kk, ps_) in evG2C(i1, i2))
+                evCAc[] = Dict(kk => (zeros(Complex{T}, n12, nn[o] * length(ps_)), zeros(Complex{T}, n12, nn[o] * length(ps_)), zeros(T, n12, nn[o] * length(ps_))) for (kk, ps_) in evGrp(pats, i1, i2))
                 evBf[] = (Dict((k1, k2) => Matrix{Complex{T}}(undef, n12, 64) for k1 in 0:2, k2 in 0:2 if k1 + k2 <= 2), Dict((k1, k2) => Matrix{T}(undef, n12, 64) for k1 in 0:2, k2 in 0:2 if k1 + k2 <= 2))
             end
             for r in Iterators.partition(eachindex(te), 64); evCAdd1!(te[r], we[r]); end
             if D == 2
                 perm = invperm([i1, i2, o]); n3 = nn[o]
-                for (kk, ps_) in evG2C(i1, i2), (q, p) in enumerate(ps_)
+                for (kk, ps_) in evGrp(pats, i1, i2), (q, p) in enumerate(ps_)
                     local cols = (q - 1) * n3 .+ (1:n3); local ac_ = evCAc[][kk]
                     addPerm!(CC[p], reshape(view(ac_[1], :, cols) .+ view(ac_[2], :, cols), nn[i1], nn[i2], n3), perm)
                     addPerm!(CCa[p], reshape(ac_[3][:, cols], nn[i1], nn[i2], n3), perm)
@@ -3131,7 +3026,6 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
     # the hot-axis groups (d < 3): on the union of the members' certified panels of the common ray
     if !isempty(grpOf)
         recIdx = Dict(r.g => q for (q, (r, _)) in enumerate(ordRec))
-        xgn, wgn = glq(T, nG)
         for ld in unique(v.leader for v in values(grpOf))
             grp = grpOf[ld]
             rL = ordRec[recIdx[ld]][1]
@@ -3139,7 +3033,7 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
             tr = Complex{T}[]; wr = Complex{T}[]
             for q in 1:length(bps)-1
                 tm = τc + (bps[q + 1] + bps[q]) / 2 * rL.ep; Δ = (bps[q + 1] - bps[q]) / 2 * rL.ep
-                for j in 1:nG; push!(tr, tm + Δ * xgn[j]); push!(wr, Δ * wgn[j]); end
+                for j in 1:nG; push!(tr, tm + Δ * xg[j]); push!(wr, Δ * wg[j]); end
             end
             ew = exp.(-rL.p .* tr) .* wr
             # per periodic axis j the sum/difference components: Σ_v PP_v(x) E_v(t) = Σ_c P_c(x) E_c(t) with (P_s, E_s) = (PP₁ + PP₂, (E₁ + E₂)/2),
@@ -3165,8 +3059,7 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
                 KK = Dict(o => axVecC(T, o, trc, xs, ms, axk, sTa, pers, 0, tol; ab = true) for o in op)
                 for (ic, cb) in enumerate(combos)
                     ewc = ew[rg] .* (D == 1 ? cb[1].E[rg] : cb[1].E[rg] .* cb[2].E[rg]); ewa = abs.(ewc) .* (1 + rD)
-                    part = Dict(pt => (D == 1 ? vec(cMul(KK[op[1]][1][pt[op[1]] + 1] .* transpose(ewc), transpose(KK[op[2]][1][pt[op[2]] + 1]))) : vec(cMul(KK[op[1]][1][pt[op[1]] + 1], reshape(ewc, :, 1)))) for pt in pats)
-                    partA = Dict(pt => (D == 1 ? vec((KK[op[1]][2][pt[op[1]] + 1] .* transpose(ewa)) * transpose(KK[op[2]][2][pt[op[2]] + 1])) : vec(KK[op[1]][2][pt[op[1]] + 1] * reshape(ewa, :, 1))) for pt in pats)
+                    part, partA = chkCon(KK, op, pats, D, ewc, ewa)
                     if Ios[ic] === nothing
                         Ios[ic] = part; IoAs[ic] = partA
                     else

@@ -113,8 +113,8 @@ const momSlv = (1//32, 1//32, 1//512)
         for D ∈ ((0, 0, 0), (1, 0, 0), (1, 1, 1)), F ∈ 1:6, Fp ∈ 1:6,
                 lam ∈ (3.0, 1 / 7), f ∈ (1.0 + 0.0im, 1.0 + 0.1im)
             s = (1 / 32, 1 / 32, 1 / 512)
-            v = first(GVM.momSer(GVM.parMom(GVM.parFac(D, F, Fp, s)..., 16), f))
-            w = first(GVM.momSer(GVM.parMom(GVM.parFac(D, F, Fp, lam .* s)..., 16), f / lam))
+            v = GVM.momSer(GVM.parMom(GVM.parFac(D, F, Fp, s)..., 16), f)
+            w = GVM.momSer(GVM.parMom(GVM.parFac(D, F, Fp, lam .* s)..., 16), f / lam)
             wst = max(wst, abs(w - lam^5 * v) / abs(w))
         end
         @test wst < 1e-12
@@ -189,9 +189,9 @@ const momSlv = (1//32, 1//32, 1//512)
             ref = zeros(Complex{BigFloat}, 3, 3)
             for D ∈ ((0, 0, 0), (0, 0, 1))
                 for fp ∈ 1:36
-                    srf[fp] = celInv * first(GVM.momSer(GVM.parMom(GVM.parFac(D,
+                    srf[fp] = celInv * GVM.momSer(GVM.parMom(GVM.parFac(D,
                         GVM.facPar[1, fp], GVM.facPar[2, fp], sB)..., mM),
-                        Complex{BigFloat}(frq)))
+                        Complex{BigFloat}(frq))
                 end
                 GVM.srfSum!(ref, srf)
                 got = view(toe, :, :, CartesianIndex((D .+ 1)...))
