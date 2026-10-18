@@ -1078,9 +1078,9 @@ function srfSum!(egoCrc::AbstractMatrix{<:Complex}, srfMat::AbstractVector{<:Com
 end
 
 const cntInd = CartesianIndices((2, 2, 2))
-# the moments carry no frequency, but the key holds the series length serOrd picks from it,
-# so a frequency that changes that length builds a new table; never evicted
-const momMem = Dict{Tuple{NTuple{3,Rational},NTuple{3,Rational},Int},
+# the moments carry no frequency: one table per shape, the longest series asked for (a shorter
+# table is an exact prefix of a longer one); never evicted
+const momMem = Dict{Tuple{NTuple{3,Rational},NTuple{3,Rational}},
     Array{Vector{Double64},4}}()
 const momLck = ReentrantLock()
 
@@ -1102,11 +1102,12 @@ function serOrd(scl::NTuple{3,Rational}, stp::NTuple{3,Rational}, frq::Number)
 end
 
 function cntMom(scl::NTuple{3,Rational}, stp::NTuple{3,Rational}, mMax::Int)
-    key = (scl, stp, mMax)
+    key = (scl, stp)
+    lng(tab) = !isnothing(tab) && length(first(tab)) >= mMax + 2
     hit = lock(momLck) do
         get(momMem, key, nothing)
     end
-    isnothing(hit) || return hit
+    lng(hit) && return hit
     # 288 face pairs of Double64 closed forms, so the table is built outside the lock
     sclDbl = Double64.(scl)
     stpDbl = Double64.(stp)
@@ -1118,7 +1119,8 @@ function cntMom(scl::NTuple{3,Rational}, stp::NTuple{3,Rational}, mMax::Int)
             sclDbl)..., mMax)
     end
     return lock(momLck) do
-        get!(momMem, key, mom)
+        old = get(momMem, key, nothing)
+        lng(old) ? old : (momMem[key] = mom)
     end
 end
 
@@ -1130,13 +1132,14 @@ function cntBlk!(egoToe::AbstractArray{<:Complex,5}, vol::GlaVol,
 
     stp = ntuple(itr -> Rational(step(vol.grd[itr])), 3)
     frq = ComplexDF64(cmpInf.frqPhz)
-    mom = cntMom(vol.scl, stp, serOrd(vol.scl, stp, cmpInf.frqPhz))
+    nSer = serOrd(vol.scl, stp, cmpInf.frqPhz)
+    mom = cntMom(vol.scl, stp, nSer)
     celInv = inv(prod(Double64.(vol.scl)))
     srfMat = zeros(MVector{36,ComplexDF64})
     egoCel = zeros(MMatrix{3,3,ComplexDF64})
     for posInd ∈ CartesianIndices(ntuple(itr -> min(vol.cel[itr], 2), 3))
         for fp ∈ 1:36
-            srfMat[fp] = celInv * momSer(mom[posInd, fp], frq)
+            srfMat[fp] = celInv * momSer(view(mom[posInd, fp], 1:nSer + 2), frq)
         end
         srfSum!(egoCel, srfMat)
         view(egoToe, :, :, posInd) .= egoCel

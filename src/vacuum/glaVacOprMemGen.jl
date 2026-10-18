@@ -63,7 +63,7 @@ function genEgoSlf!(egoCrc::AbstractArray{<:Complex,5}, slfVol::GlaVol, cmpInf::
         frq = cmpInf.frqPhz
         # one BlcSet per frequency and unit cell, kept for setBlc!
         st = cmpInf.blcSet
-        st !== nothing && (st.f, st.N) == (frq, slfVol.cel) ||
+        st !== nothing && (st.s, st.f, st.ax, st.N, st.P) == (slfVol.scl, frq, blc.ax, slfVol.cel, blc.P) ||
             (st = cmpInf.blcSet = blcSet(slfVol.scl, frq, blc.ax, slfVol.cel, blc.P))
         H, A, _ = blcFil(st, blc.θ)
         egoToe = blcKer(cmpInf.hrmPrt, H, A)

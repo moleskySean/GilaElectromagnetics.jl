@@ -210,28 +210,28 @@ _cntChk(trgReg::GlaVol, srcReg::GlaVol) =
     all(max.(_lwrEdg(trgReg), _lwrEdg(srcReg)) .<= min.(_uprEdg(trgReg), _uprEdg(srcReg)))
 
 # The cross-scale contact block, computed on the finer of the two meshes
-function _sndBlk(::Type{T}, trgReg::GlaVol, srcReg::GlaVol; frqPhz, blc, blk = nothing, kw...) where T<:AbstractFloat
+function _sndBlk(::Type{T}, trgReg::GlaVol, srcReg::GlaVol; frqPhz, blc, kc, blk = nothing, kw...) where T<:AbstractFloat
     sclFin = min.(trgReg.scl, srcReg.scl)
     trgRat = ntuple(dir -> Int(trgReg.scl[dir] // sclFin[dir]), 3)
     srcRat = ntuple(dir -> Int(srcReg.scl[dir] // sclFin[dir]), 3)
     trgFin = GlaVol(Tuple(trgReg.cel .* trgRat), sclFin, trgReg.org)
     srcFin = GlaVol(Tuple(srcReg.cel .* srcRat), sclFin, srcReg.org)
     # a periodic pair's block is the fine pair's, equal cells
-    blc === nothing || (blk = _blcCmp([trgFin, srcFin], ComplexF64(frqPhz), blc)[(1, 2)])
+    blc === nothing || (blk = _blcCmp([trgFin, srcFin], ComplexF64(frqPhz), blc, kc)[(1, 2)])
     innOpr = GlaOprVac{T}(trgFin, srcFin; frqPhz, blc, blk, kw..., prxWrn=false)
     return GlaSndOprVac{T}(innOpr, trgRat, srcRat,
         _nrmWgt(trgReg, srcReg) / prod(trgRat))
 end
 
 function _cmpBlk(::Type{T}, trgReg::GlaVol, srcReg::GlaVol, isSlf::Bool,
-    slfCmp::Bool, trgIdx::Integer, srcIdx::Integer; blc, kw...) where T<:AbstractFloat
+    slfCmp::Bool, trgIdx::Integer, srcIdx::Integer; blc, kc, kw...) where T<:AbstractFloat
     isSlf && return GlaOprVac{T}(trgReg; blc, kw...)
     if !slfCmp && _ovrLap(trgReg, srcReg)
         throw(ArgumentError("Target region $trgIdx spans $(_lwrEdg(trgReg)) to $(_uprEdg(trgReg)) and source region $srcIdx spans $(_lwrEdg(srcReg)) to $(_uprEdg(srcReg)), so the two overlap. A composite operator between two bodies needs the bodies to be disjoint."))
     end
     # periodic images put every cross-scale pair in contact
     trgReg.scl != srcReg.scl && (blc !== nothing || _cntChk(trgReg, srcReg)) &&
-        return _sndBlk(T, trgReg, srcReg; blc, kw...)
+        return _sndBlk(T, trgReg, srcReg; blc, kc, kw...)
     opr = GlaOprVac{T}(trgReg, srcReg; blc, kw..., prxWrn=false)
     nrm = _nrmWgt(trgReg, srcReg)
     # A real scalar on the Fourier coefficients survives adjoint! untouched
@@ -247,8 +247,8 @@ function _prxCmpChk(trgRegs, srcRegs)
     return prxChk(1.0, trgReg, srcReg)
 end
 
-# blcCmp's blocks of every ordered region pair of a periodic composite of periods L
-_blcCmp(regs, frq, blc) = Bloch.blcCmp(regs, frq, blc.ax, blc.L, blc.θ)
+# blcCmp's blocks of every ordered region pair of a periodic composite of periods L, with the composite's κ cache
+_blcCmp(regs, frq, blc, kc) = Bloch.blcCmp(regs, frq, blc.ax, blc.L, blc.θ; cache = kc)
 
 """
     GlaCmpOprVac{T}(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol; kwargs...)
@@ -268,17 +268,19 @@ function GlaCmpOprVac{T}(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol;
     slfCmp = trgCvl == srcCvl
     trgRegs, srcRegs = regions(trgCvl), regions(srcCvl)
     prxWrn && !slfCmp && _prxCmpChk(trgRegs, srcRegs)
+    kc = blc === nothing ? nothing : Bloch.KapCache()
     if blc !== nothing
         slfCmp || throw(ArgumentError("A Bloch lattice is self volume only."))
         blc = (; blc.ax, L = ntuple(j -> blc.P[j] * minimum(reg -> reg.scl[blc.ax[j]], trgRegs), length(blc.ax)), blc.θ)
-        blcBlk = _blcCmp(trgRegs, ComplexF64(frqPhz), blc)
+        blcBlk = _blcCmp(trgRegs, ComplexF64(frqPhz), blc, kc)
     end
     blkMat = Matrix{AbstractGlaOpr{T}}(undef, length(trgRegs), length(srcRegs))
     for trgIdx in eachindex(trgRegs), srcIdx in eachindex(srcRegs)
         blk = blc === nothing ? nothing : blcBlk[(trgIdx, srcIdx)]
         blkMat[trgIdx, srcIdx] = _cmpBlk(T, trgRegs[trgIdx], srcRegs[srcIdx],
-            slfCmp && trgIdx == srcIdx, slfCmp, trgIdx, srcIdx; dev, frqPhz, qssApx, shpCch, hrmPrt, blc, blk)
+            slfCmp && trgIdx == srcIdx, slfCmp, trgIdx, srcIdx; dev, frqPhz, qssApx, shpCch, hrmPrt, blc, kc, blk)
     end
+    blc === nothing || (first(blkMat).mem.cmpInf.kapCch = kc)
     return GlaCmpOprVac{T}(trgCvl, srcCvl, blkMat)
 end
 GlaCmpOprVac{T}(cvol::GlaCmpVol; kw...) where T<:AbstractFloat = GlaCmpOprVac{T}(cvol, cvol; kw...)
@@ -359,22 +361,24 @@ isquasistatic(opr::GlaCmpOprVac) = all(isquasistatic, opr.blkMat)
 """
     setBlc!(opr::AbstractGlaOpr, θ::Tuple)
 
-Set the Bloch phases `θ` of a Bloch self operator, or of the one inside a scattering operator, in place. On a self operator a phase costs one fill and one transform and reuses the plans and the per-frequency `BlcSet`; a composite operator also rebuilds its per-frequency κ cache on every phase, and each fine-mesh block pays one more fill.
+Set the Bloch phases `θ` of a Bloch self operator, or of the one inside a scattering operator, in place. On a self operator a phase costs one fill and one transform and reuses the plans and the per-frequency `BlcSet`; a composite operator keeps one per-frequency κ cache for all its fills, and each fine-mesh block pays one more fill.
 """
 setBlc!(opr::AbstractGlaOpr, θ::Tuple) = (setBlc!(vac(opr), θ); opr)
 setBlc!(opr::AbstractGlaVacOpr, θ::Tuple) = (setBlc!(opr.mem, θ); opr)
 
 # One blcCmp call for every block, one per sandwich for its fine pair; a block in adjoint mode holds the adjoint of its transposed pair
 function setBlc!(opr::GlaCmpOprVac, θ::Tuple)
-    mem = first(opr.blkMat).mem
-    frq, blc = mem.cmpInf.frqPhz, merge(mem.cmpInf.blc, (; θ))
-    blcBlk = _blcCmp(regions(opr.trgCvl), frq, blc)
+    opt = first(opr.blkMat).mem.cmpInf
+    frq, blc = opt.frqPhz, merge(opt.blc, (; θ))
+    # an operator loaded from disk has no cache yet
+    kc = opt.kapCch === nothing ? (opt.kapCch = Bloch.KapCache()) : Bloch.kcAge!(opt.kapCch)
+    blcBlk = _blcCmp(regions(opr.trgCvl), frq, blc, kc)
     for idx in CartesianIndices(opr.blkMat)
         blk = opr.blkMat[idx]
         if blk isa GlaSndOprVac
             # adjoint! swaps the volumes of a sandwich's fine pair
             finMem = blk.opr.mem
-            finBlc = _blcCmp([finMem.trgVol, finMem.srcVol], frq, blc)
+            finBlc = _blcCmp([finMem.trgVol, finMem.srcVol], frq, blc, kc)
             setBlc!(finMem, θ, finBlc[isadjoint(blk) ? (2, 1) : (1, 2)])
         else
             setBlc!(blk.mem, θ, blcBlk[isadjoint(blk) ? (idx[2], idx[1]) : Tuple(idx)])
