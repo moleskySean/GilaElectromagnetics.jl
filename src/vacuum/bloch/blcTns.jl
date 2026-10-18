@@ -7,7 +7,7 @@
 # Split: [0, τ] real space for all orders (RS). d = 3: t > τ spectral, closed form per q. d < 3: t > τ per periodic
 # order G: EV orders (u_G = |q_G|² - x > c_th |y|) on the real t axis (exact cos/sin weights); SP orders
 # (u_G <= c_th |y|: propagating, grazing, near-grazing) on a complex ray from τ, T_G = ∫ e^{-p t} h_G, p = |q_G|² - z,
-# Herm_G = Re, AH_G = Im of that (analytic continuation; J10 sheet at Im f < 0).
+# Herm_G = Re, AH_G = Im of that (analytic continuation; at Im f < 0 continued at fixed Re f).
 
 const QI = Rational{BigInt}
 q3(x) = ntuple(i -> QI(x[i]), 3)
@@ -25,7 +25,7 @@ toT(::Type{T}, q::Rational) where {T} = (n = numerator(q); d = denominator(q); -
 toT(::Type{BigFloat}, q::Rational) = BigFloat(numerator(q)) / BigFloat(denominator(q))
 
 # Gauss-Legendre nodes/weights: QuadGK.gauss (Golub-Welsch-type eigen-Newton, generic) at precision(T) + 64 bits, rounded
-# once to T, memoized. A Newton Gauss-Legendre rule in Float64 has weight errors up to 142 eps; it is not used here.
+# once to T, memoized and never evicted (a few rules per fill). A Newton Gauss-Legendre rule in Float64 has weight errors up to 142 eps; it is not used here.
 const GLC = Dict{Tuple{DataType,Int},Tuple{Vector,Vector}}(); const GLCK = ReentrantLock()
 function glq(::Type{T}, n::Int) where {T}
     key = (T, n)
@@ -38,9 +38,8 @@ function glq(::Type{T}, n::Int) where {T}
 end
 
 
-# Rational{BigInt} memo keys hashed per lookup, and every BigInt made in a loop, cost heap that Julia 1.12.6 never returns (8-40 B per BigInt
-# after GC; 2.2 MB per trpMom call): a fill leaked 20-90 MB per call, which is what made the GC
-# time of a θ sweep grow 0.7 -> 5-8 s per phase (not the KapCache, which is isbits-typed). Memos are keyed by qk(x) (two Int128),
+# Rational{BigInt} memo keys hashed per lookup, and every BigInt made in a loop, cost heap that Julia (1.12) never returns (8-40 B per BigInt
+# after GC, 2.2 MB per trpMom call): 20-90 MB per fill, and the GC time of a θ sweep grows from 0.7 to 5-8 s per phase. Memos are keyed by qk(x) (two Int128),
 # the geometry moments are kept per (T, edges, order), and the hot loops make no BigInt
 qk(x::QI) = (Int128(numerator(x)), Int128(denominator(x)))
 const QI0 = QI(0)
@@ -50,14 +49,14 @@ function trpMom(a::QI, b::QI, mMx::Int)
 end
 
 # one axis: the trapezoid w = box_a * box_b, its exact moments normalized μ_m/(m! cp^m) (|.| <= w0/m!): the series runs in
-# (s cp)^m <= 2^{-m} (moment regime |t| >= cp²), so neither factor leaves the exponent range (μ_m/m! underflowed and s^m
-# overflowed for edges below ~λ/740 in Double64: NaN)
+# (s cp)^m <= 2^{-m} (moment regime |t| >= cp²), so neither factor leaves the exponent range (μ_m/m! underflows and s^m
+# overflows for edges below ~λ/740 in Double64: NaN)
 struct AxK{T}
     a::QI; b::QI; cp::QI; cm::QI
     w0::T
     μf::Vector{T}
-    # per-call memo of the exact x of kap (|x|, x rounded once to T): kap ran this Rational{BigInt} arithmetic at every quadrature
-    # node, and the GMP temporaries (freed only by finalizers) drove the RSS of long runs; an AxK lives for one blcFil call, so the
+    # per-call memo of the exact x of kap (|x|, x rounded once to T): without it kap runs this Rational{BigInt} arithmetic at every quadrature
+    # node, and the GMP temporaries (freed only by finalizers) grow the RSS of long runs; an AxK lives for one blcFil call, so the
     # memo is bounded by that call's distinct offsets
     xm::TMemo{Tuple{Int128,Int128},Tuple{T,T}}
 end
@@ -77,8 +76,8 @@ kapX(A::AxK{T}, x::QI) where {T} = get!(() -> (toT(T, abs(x)), toT(T, x)), A.xm,
 erfcC(v::Real) = erfc(v)
 erfcC(v::Complex) = erfcG(v)
 # Float64 at complex argument, |v| < 3, Re v >= 0: the Maclaurin series of erfc in Complex{Double64} (amplification <= e^{|v|²}/|erfc| <= 2^29
-# of Double64's 106 bits), rounded once: <= 0.49 eps against 256 bits in 4-9 µs; the BigFloat series of blcSfn cost 43-55 µs and
-# left heap garbage (route C: 53 GB allocated in 147 s, d3 c8 L = 4 1+0.01i). ierfc from the same numbers
+# of Double64's 106 bits), rounded once: <= 0.49 eps against 256 bits in 4-9 µs; the BigFloat series of blcSfn costs 43-55 µs and
+# leaves heap garbage (route C on a 3D lattice of λ/8 cells, period 4λ, f = 1 + 0.01i: 53 GB allocated in 147 s). ierfc from the same numbers
 const SQPID = sqrt(Double64(π))
 function erfcS(zd::Complex{Double64})
     z2 = zd * zd; t = zd; S = zd; k = 0
@@ -121,8 +120,8 @@ function ierfcC3(v::S) where {S}
 end
 
 # (ierfc v, erfc v, e^{-v²}) at once, the three numbers of one kink of kap. Float64 complex: |v| < 3 all three from one Double64 evaluation;
-# |v| >= 3 the backward continued fraction C (ierfc = E/(2vC + 1), erfc = 2C ierfc, E = e^{-v²}/√π with v² exact): gsf's forward Lentz
-# erfc lost 18 eps there
+# |v| >= 3 the backward continued fraction C (ierfc = E/(2vC + 1), erfc = 2C ierfc, E = e^{-v²}/√π with v² exact): erfcG's forward Lentz
+# erfc loses 18 eps there
 erfTrio(v) = (ierfcC(v), erfcC(v), exp(-v^2))
 function erfTrio(v::Complex{Float64})
     if abs(v) < 3 && real(v) >= 0
@@ -177,7 +176,7 @@ end
 
 # periodic axis: L, twist tw = θ/2π (QI exact or T), θ (T or QI)
 # per-call memos (an PerAx lives for one blcTns/blcFil call): phN, phX the twist phases; im the kapX data of the images x + nL of each
-# x met (Int keys: imgSum hashed a Rational{BigInt} and did BigInt arithmetic per image and node); rq x/L as a reduced Int128 pair
+# x met (Int keys: a Rational{BigInt} key costs a hash and BigInt arithmetic per image and node); rq x/L as a reduced Int128 pair
 const KXT{T} = Tuple{T,T,T,T,NTuple{4,T},NTuple{4,Int}}
 struct PerAx{T,W}
     A::AxK{T}; L::QI; tw::W; θ
@@ -262,9 +261,9 @@ function ordRng(::Type{T}, P::PerAx, νm, k::Int) where {T}
     (floor(Int, tw - νm * L) - k):(ceil(Int, tw + νm * L) + k)
 end
 # the orders of an EV-only Poisson sum (the SP/SL orders removed): 4π²(ν² - ν2)t <= α around ν2 = the smallest ν² LEFT in the sum.
-# poiRng's reference is the smallest |ν| overall (<= 1/2L), which is a removed propagating order when fL is large: every EV order was then
-# dropped beyond t ~ α/(4π²ν_EV²) and the EV part lost its tail, under a certificate built on the same truncated sum (
-# d1 c32 f = 6 L = 1 θ = 0.7, 3.5e6 eps "certified"); the same absolute cut made κ_up vanish at far open offsets
+# poiRng's reference is the smallest |ν| overall (<= 1/2L), which is a removed propagating order when fL is large: every EV order is then
+# dropped beyond t ~ α/(4π²ν_EV²) and the EV part loses its tail, under a certificate built on the same truncated sum
+# (3.5e6 eps on a 1D lattice of λ/32 cells, f = 6, period 1, θ = 0.7); the same absolute cut makes κ_up vanish at far open offsets
 poiRngE(::Type{T}, P::PerAx, t::T, α::T, ν2::T) where {T} =
     ordRng(T, P, sqrt(max(ν2, zero(T)) + α / (4 * T(π)^2 * t)) + 2 / toT(T, P.L), 1)
 useReal(::Type{T}, P::PerAx, t::T) where {T} = t <= toT(T, P.L)^2 / (4 * T(π))
@@ -289,8 +288,8 @@ function uEv3(::Type{T}, L, θ, fa::T, fb::T) where {T}
 end
 # u of one order (orders ms on the periodic axes Ps) formed in extended precision from the exact inputs (the binary θ, f; exact twist and
 # period) and rounded once: near grazing u is small against 4π²ν² and 4π²f², and the roundings of ν = (m - tw)/L and of the products, each
-# a few eps of the large terms, were a fixed multiple of the f-ulp sensitivity of u, i.e. of κ (per entry c ≈ 6 eps(1 + κ_e) at
-# d1 grazing, flat from 1e-4 to 1e-6 and also in Double64: a method constant). Float64 -> Double64, else BigFloat at precision + 64 bits
+# a few eps of the large terms, are a fixed multiple of the f-ulp sensitivity of u, i.e. of κ (per entry c ≈ 6 eps(1 + κ_e) at
+# a grazing order of a 1D lattice, flat from 1e-4 to 1e-6 and also in Double64: a method constant). Float64 -> Double64, else BigFloat at precision + 64 bits
 nuX(::Type{X}, m::Int, P::PerAx) where {X} = P.tw isa QI ? toT(X, (m - P.tw) / P.L) : (X(m) - X(P.θ) / (2 * X(π))) / toT(X, P.L)
 uOrdX(::Type{Float64}, ms::NTuple{N,Int}, Ps, fa::Float64, fb::Float64) where {N} =
     Float64(uOrd(ntuple(i -> nuX(Double64, ms[i], Ps[i]), N), Double64(fa), Double64(fb)))
@@ -300,7 +299,7 @@ end
 
 # the diagonal of one d = 3 spectral order, W = e^{-pτ}/p = E/p, S_a = 4π²Σ_{d≠a}ν_d², ν_a² as 4π²ν_a²: the exact rewrite (S_a W - E)/f²
 # (4π²W and 4π²ν_a²W/f² each carry the pole and cancel it near a mode along a) when its terms are smaller than the plain form's 4π²W - 4π²ν_a²W/f²,
-# which is kept where |q|² >> |k|² (there S_a W - E cancels: S_a W -> E S_a/|q|²; 1000-key regression 0.20 -> 19.6 eps on a d3 H entry before)
+# which is kept where |q|² >> |k|² (there S_a W - E cancels: S_a W -> E S_a/|q|²; the rewrite everywhere takes an H entry of a 3D lattice from 0.20 to 19.6 eps)
 dgE(Sa, νa, aW, aE, af2) = (Sa * aW + aE) * af2 < aW * (4 * oftype(aW, π)^2 + νa * af2)
 
 # an axis whose twist is exact with 2tw integer (Rational tw ∈ Z/2, or the binary θ = 0): the orders m and 2tw - m have ν and -ν, the same
@@ -354,7 +353,7 @@ end
 
 # parity-projected open-axis factor: [κ̂(ξ)(iξ)^k e^{iξx} + (ξ -> -ξ)]/2, κ̂ = w0 sinc(ξa/2π) sinc(ξb/2π); real for real ξ
 # all three k at once, the edges already in T (aT = toT(T, A.a), bT): the same operations as pFac, one sinc pair and one sin/cos per (ξ, x)
-# (pFac per k with toT of the Rational{BigInt} edges was 40% of a d1 fill)
+# (pFac per k with toT of the Rational{BigInt} edges is 40% of a d = 1 fill)
 function pFac3(A::AxK{T}, ξ::S, x::T, aT::T, bT::T) where {T,S}
     kh = A.w0 * sncH(ξ, aT) * sncH(ξ, bT)
     c, sn = csn(ξ * x)
@@ -455,7 +454,7 @@ function einQ(w::S) where {S}
 end
 # the grazing order's singular term, split into its Hermitian and anti-Hermitian parts. Propagating order in the anomaly window
 # (u < 0, |p|τ <= 1), p = u - iy, b = √(-p) (principal; b = √|u| > 0 at y = 0):
-# d_o = 1: C1 = π/(2√p) erfc(√(pτ)) = iπ/(2b) - (π√τ/2) E(-pτ) (√p = -ib at y >= 0; at y < 0 (J10, continued) the continuation term
+# d_o = 1: C1 = π/(2√p) erfc(√(pτ)) = iπ/(2b) - (π√τ/2) E(-pτ) (√p = -ib at y >= 0; at y < 0 (continued) the continuation term
 #            iπP(b)/b turns -iπ/(2b) into +iπ/(2b) plus iπ(P(b) - P(ξc))/b, added by the caller)
 #   d_o = 2: E_1(pτ) = -γ - log|pτ| - i arg(pτ) + Ein(pτ), arg = -π at y = 0 (the limit from Im f > 0)
 # so Re and Im of the singular terms are each formed from exact lattice data without the other's size: Re(iπ/(2b)) = π Im b/(2|b|²)
@@ -501,7 +500,7 @@ function grdPts(lo::T, hi::T, c::T, w::T) where {T}
 end
 # the pole-form panels split so that the open-axis phase ξX (ξ = √(sc + δ) for d_o = 2, ξ = ξc + δ for d_o = 1) turns by <= 4π per panel:
 # the remainder's integrand oscillates like e^{iξX}, and the certification otherwise bisected the wide outer panels round after round (84
-# bisections in 3 rounds, most of the 100 s of a 64³ d1 fill)
+# bisections in 3 rounds, most of the 100 s of a 64³ fill of a 1D lattice)
 function oscSplit(pts, X, sq::Bool, sc)
     X > 0 || return pts
     out = [pts[1]]
@@ -651,7 +650,7 @@ function poleMaj(d::PoleDat{T}, pt, p, up, δm, hA, hB) where {T}
             if r1 == 0
                 # real f, propagating: both roots are removable, (P(ξ) - P(ξc))/(ξ² - ξc²) = Q[s, sc] with Q(s) = P(√s) entire (P even), so
                 # |integrand| <= sup|Q'| over the hull of s(disk) and sc (Cauchy, |Q(u)| <= w0 |u|^{k/2} e^{|Im √u| X}); the pole form's
-                # "root" -2ξc is not a singularity (it forced panels of width ~ξc next to ξ = 0: SP uncertified in Double64, t_anmD)
+                # "root" -2ξc is not a singularity (as a root it forces panels of width ~ξc next to ξ = 0, and SP does not certify in Double64)
                 c0 = (ξc + δm)^2; R0 = 2 * abs(ξc + δm) * hA + hA^2 + abs(c0 - sc)
                 qQ = dMaj(d, (c, r) -> majQ(d, pt, c, r), complex(c0), R0)
                 bq = d2 > 0 ? (q1_ = dMaj(d, mf, complex(ξc + δm), hA + abs(δm - r1)); d1 > 0 ? min(q1_ / d2, (mf(complex(ξc + δm), hA) + mf(complex(ξc), zero(T))) / (d1 * d2)) : q1_ / d2) : T(Inf)
@@ -674,11 +673,11 @@ end
 #  1. Im f <= 0 or Re f <= 0: route R (route C needs the saddle direction of Im f > 0).
 # 2. route R's real-space part alone costs √2 e^{1 + 2 Im(k)² τ_R} (a priori): above LAM0, route C directly.
 #  3. otherwise route R; if every λ_e <= LAM0 it is returned; else route C too, and every entry of H and AH takes the route with the
-#     smaller λ_e (route R's small entries built from cancelling order sums, e.g. H_yz = 1.2e-4 of max at d2 L = 4λ, λ_e 1292, 162 eps; route
+#     smaller λ_e (route R's small entries built from cancelling order sums, e.g. H_yz = 1.2e-4 of max on a 2D lattice of period 4λ: λ_e 1292, 162 eps; route
 # C 2.2, 4.1 eps).
 # The returned entry's rounding is <= c eps min(λ_R,e, λ_C,e) |X_e|.
 const LAM0 = 16
 const NPCMAX = 10^4
-# complex-path panels of one cPart call (at open offsets of 300λ the order rays alone built millions of panels, 8.7 GB); beyond it
+# complex-path panels of one cPart call (at open offsets of 300λ the order rays alone build millions of panels, 8.7 GB); beyond it
 # route C is skipped (rteAuto) or refused (route = :C)
 const CPMAX = 200_000

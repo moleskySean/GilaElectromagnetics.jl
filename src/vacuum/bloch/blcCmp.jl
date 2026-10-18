@@ -91,7 +91,7 @@ function cmpBlk(regs, f::Complex{T}, ax::NTuple{D,Int}, L::NTuple{D,<:Rational},
     bxW(δ, rt, rs) = count(l -> 0 <= l + δ < rt, 0:rs-1)
     # the box sums of every pair; aligned slots of the axes in Sy from the symmetric-sum fills. needS: periodic axes not in Sy whose aligned
     # slots have an entry (> 1e-8 of its block max) with box rounding factor Σ w|G_fine| / |X| > LAMBOX (the ±d pairs cancel also at a generic
-    # twist when the entry is set by far images: cell A d1 θ = 0.7, H_xy 31 eps = 2.7 eps(1+κ_up))
+    # twist when the entry is set by far images: 31 eps on an H_xy entry of a 1D lattice at θ = 0.7)
     function boxAll(Sy)
         needS = Set{Int}()
         B = Dict{Tuple{Int,Int},Any}()

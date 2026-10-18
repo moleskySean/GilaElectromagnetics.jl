@@ -7,8 +7,10 @@
 # order in closed form (d = 3) or per order on the real axis (evanescent), on its steepest-descent ray or in the spectral pole form
 # (propagating); route C (Im f > Re f/20) puts the segment on the saddle direction of every image. Every truncation and Gauss rule is
 # certified per offset against a proven bound; the a posteriori rounding factor λ_e = Σ|terms|/|X| of every entry is tracked.
+# Errors quoted as c eps(1 + κ) compare with κ_e, the condition number of entry e in its inputs (f, θ, periods, offsets, edges), or
+# κ_up, an upper bound of it: c is then the error in units of what the rounding of the inputs alone costs.
 # Lengths in wavelengths, f a ComplexF64 (Double64 inside the fill's own reruns), exact Rational geometry (edges, offsets, periods), θ in radians
-# (T) or as an exact twist θ/2π (Rational: θ = π is 1//2). At Im f < 0 the operator is the continuation at fixed Re f (J10).
+# (T) or as an exact twist θ/2π (Rational: θ = π is 1//2). At Im f < 0 the operator is the continuation at fixed Re f.
 module Bloch
 
 using LinearAlgebra, SpecialFunctions, DoubleFloats, QuadGK
@@ -62,7 +64,7 @@ function tMap2(f, vv)
     [[fl[k[] += 1] for _ in v] for v in vv]
 end
 
-# J27: OpenBLAS threads called from several Julia threads crashed a fill once (signal 11 at 8 x 8 threads): with more than one
+# OpenBLAS threads called from several Julia threads crashed a fill with signal 11 (8 Julia x 8 BLAS threads): with more than one
 # Julia thread the entry points run BLAS on one thread and restore the caller's setting
 blasMt() = Threads.nthreads() > 1 && BLAS.get_num_threads() > 1
 function blas1(f)

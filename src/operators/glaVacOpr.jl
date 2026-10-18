@@ -112,7 +112,9 @@ on their union and masked, so they must sit on a common grid.
 - `dev::Backend=CPU()`: backend to compute on
 - `frqPhz=1.0+0.0im`: complex frequency phase factor
 - `qssApx::Bool=false`: use the quasistatic kernel
-- `shpCch::Bool=false`: cache the far-field geometry table of each cell shape, see `GlaVacOprMem`
+- `shpCch::Bool=false`: cache the far-field geometry table of each cell shape, see `GlaVacOprMem`.
+  The in-memory caches of the far-field and contact fills are never evicted: a process keeps
+  20-26 MB per cell shape and one far-field set per shape and frequency of a sweep
 - `prxWrn::Bool=true`: warn when two separated volumes are closer than a third of a wavelength
 - `hrmPrt=nothing`: `:asy` or `:sym` keeps only the anti-Hermitian or Hermitian part
   of a self operator, taken from the kernel before its transform; see `asym` and `sym`

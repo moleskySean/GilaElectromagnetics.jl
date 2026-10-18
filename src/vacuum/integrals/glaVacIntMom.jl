@@ -1079,7 +1079,7 @@ end
 
 const cntInd = CartesianIndices((2, 2, 2))
 # the moments carry no frequency, but the key holds the series length serOrd picks from it,
-# so a frequency that changes that length builds a new table
+# so a frequency that changes that length builds a new table; never evicted
 const momMem = Dict{Tuple{NTuple{3,Rational},NTuple{3,Rational},Int},
     Array{Vector{Double64},4}}()
 const momLck = ReentrantLock()

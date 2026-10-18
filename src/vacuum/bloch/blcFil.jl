@@ -1,6 +1,6 @@
 # block accumulation kernels of the fill, threaded over fixed blocks of output columns (independent of the thread count, so the result is
 # bitwise the same on any number of threads), each block keeping its slice of the output in cache across the node chunks; per-block buffers
-# instead of per-chunk temporaries. BLAS is called with its own threads at 1 from the Julia threads (J27).
+# instead of per-chunk temporaries. BLAS is called with its own threads at 1 from the Julia threads (more BLAS threads inside the threaded fill crashed it with signal 11).
 const KCB = 256
 # s + v and its Neumaier compensation c, complex
 kaddC(s, c, v) = (t = s + v; (t, c + complex(nmr(real(s), real(v), real(t)), nmr(imag(s), imag(v), imag(t)))))
@@ -349,7 +349,7 @@ certRR(E::AbstractArray{T}, Er, Smin, tol) where {T} = [Smin[j] > 0 ? (E[j] + Er
 
 # rs0Terms' exact kink data per axis and offset (certFil!: T0, C0, D1 and the kink distances), the same exact rational operations in
 # Rational{Int128} (no BigInt temporaries, whose heap Julia 1.12 does not return), in QI where Int128 overflows; one rounding
-# per value as before, so the same numbers
+# per value, so the same numbers as in QI
 function rs0Dat(::Type{T}, axk, xq, isper, pers) where {T}
     try
         rs0DatQ(T, Rational{Int128}, axk, xq, isper, pers)
@@ -396,7 +396,7 @@ cmpGet(C) = get(CMPS[], C, nothing)
 
 # phase matrices E[row, order] of one axis of a d = 3 spectral tail for the entries even / odd in ν (prTab on a block of rows): on an axis with
 # an exact twist 0 or 1/2 (prTw) the order m > tw carries its partner 2tw - m as 2 cos(2πνx) / 2i sin(2πνx) and the partner's column is 0 (the ± pairs
-# of the 6-fold d3 mode cancel exactly at x = ±L/4, and their separate rounded phases left an imaginary residue of 9.8e-6 on the real AH
+# of the 6-fold d = 3 mode cancel exactly at x = ±L/4, and their separate rounded phases leave an imaginary residue of 9.8e-6 on the real AH
 # relative); rows are lists of (x, weight); E0 the plain matrix, returned (twice) where nothing pairs
 # (cos, sin)(2π(m - tw)x/L) = csPiQ(2(m - tw)x/L); Float64: from the Int128 parts of the twist tn/td and of x/L (rqP), the same numbers bit for bit
 # without Rational{BigInt} arithmetic per element (which costs +0.06 s per 32³ fill at θ = 0)
@@ -485,12 +485,12 @@ end
 # eps(D64)·λ_e; a flagged entry whose Double64 λ_e·eps(D64) exceeds eps/4 is refused (the D64 run's own λ)
 # Only near-symmetric entries are recomputed: entry (a, b) on a plane x_i ≡ 0 or L_i/2 of a periodic axis i with the parity that
 # vanishes exactly at the nearer of the twists 0, 1/2 (zKill: x ≡ 0: σ_i = -1; x ≡ L/2: σ_i = -1 near twist 0, +1 near 1/2). Their κ_e is
-# O(1) (G ∝ θ - θ_0), so λ_e is method loss. Every other large λ_e measured so far is an intrinsic cancellation of the entry itself (d3 c32
-# L = λ/4 θ = 0.7: λ_e 264, error 274 eps, κ_up,e 2013), covered by its own κ, and a Double64 rerun there would cost the
+# O(1) (G ∝ θ - θ_0), so λ_e is method loss. The other large λ_e seen are intrinsic cancellations of the entry itself (a 3D lattice of
+# λ/32 cells, period λ/4, θ = 0.7: λ_e 264, error 274 eps, κ_up,e 2013), covered by their own κ, and a Double64 rerun there would cost the
 # whole block (185 s at 32³)
 # certification stall: bisection shrinks the worst bound/target geometrically when the target is genuine; when it is the rounding noise of
 # an entry that vanishes exactly by a symmetry the fill does not mark, the ratio stalls while every round doubles the panels (a composite
-# symAx row at x ≡ L/2: 2.7e12, 1.2e10, 7.3e9 over rounds of 9, 17, 35 s, refusal after 12 rounds and 3193 s). From round 3 on the call refuses once
+# symAx row at x ≡ L/2: 2.7e12, 1.2e10, 7.3e9 over rounds of 9, 17, 35 s; 12 rounds take 3193 s). From round 3 on the call refuses once
 # the decrease of two consecutive rounds cannot reach the target within the rounds left (one round alone is not a stall: the worst panel can
 # change between rounds, e.g. 8.1, 3.6e18, 3.9e6, then certified); st holds the previous round's worst bound/target and whether it failed
 function crtStl(st, w, round_, what)
@@ -595,7 +595,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
     V = prod(i -> toT(T, s[i]), 1:3)
     nG = ceil(Int, -log(tol) / T(2)) + 8
     # every truncation relative to the smallest reported entry (1e-8 of the tensor max), not to the max: at tol alone a
-    # 5e-8 entry carried 112 eps of spectral cutoff (d3 c8 L = 2λ 1+i); the Gauss order stays set by tol
+    # 5e-8 entry carries 112 eps of spectral cutoff (a 3D lattice of λ/8 cells, period 2λ, f = 1 + i); the Gauss order stays set by tol
     tol = tol * T(entT)
     α = -log(tol)
     axk = [AxK(T, s[i], s[i]) for i in 1:3]
@@ -643,7 +643,8 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
             d0 = twD(θ[jj])
             (tw == 0 || d0 >= DHOT) && continue
             # x ≡ 0 and x ≡ L/2 (the L/2 plane alone is covered by κ, a one-ulp shift of R off the plane, but an entry on the L/2 planes of two
-            # hot axes is ∝ (θ₁ - θ₀)(θ₂ - θ₀) while κ covers one factor: d2 c4 P = (4,4), H_xy at (L/2, L/2), 4.6e3 eps(1+κ_up))
+            # hot axes is ∝ (θ₁ - θ₀)(θ₂ - θ₀) while κ covers one factor: 4.6e3 eps(1+κ_up) on H_xy at (L/2, L/2) of a 2D lattice of
+            # λ/4 cells, 4 cells per period)
             js = findall(m -> mod(m, P[jj]) == 0 || 2 * mod(m, P[jj]) == P[jj], ms[i]); isempty(js) || (hot[i] = js)
         end
     end
@@ -665,7 +666,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
         Vr, Vra
     end
     # (memo of the Double64 rows per (axis, m, node): RS, EV and their refinements ask for the same rows at the same nodes several times; the
-    # Double64 κ of the images was a quarter of a 64³ d2 hot fill)
+    # Double64 κ of the images is otherwise a quarter of a 64³ hot fill of a 2D lattice)
     rowMemo = TMemo{Tuple{Int,Int,T},Tuple{NTuple{3,Complex{TD}},NTuple{3,TD}}}()
     function perRowD1(i, m_, xq_, tv)
         local Vr = zeros(Complex{TD}, 3, length(tv))
@@ -719,8 +720,8 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
             M[q][j, it] = Complex{T}(V[q, it]); Ma[q][j, it] = abs(M[q][j, it]) + T(Va[q, it]) * T(eps(TD) / eps(T))
         end
     end
-    # offsets whose whole tensor vanishes by reflection: exact zeros, no certification target (the target was their rounding noise:
-    # an anisotropic d2 cell at θ = π was refused "RS quadrature not certified" at m = (0,0,±1))
+    # offsets whose whole tensor vanishes by reflection: exact zeros, no certification target (the target would be their rounding noise:
+    # a 2D lattice of anisotropic cells at θ = π is otherwise refused "RS quadrature not certified" at m = (0,0,±1))
     zAll = [all(ab -> any(i -> zKl[i][I[i]] != 0 && zSig(ab[1], ab[2], i) == zKl[i][I[i]], 1:3), ((1, 1), (2, 2), (3, 3), (1, 2), (1, 3), (2, 3))) for I in CartesianIndices(Tuple(nn))]
     zRw === nothing || (for I in CartesianIndices(zAll); zRw[I[symAx]] && (zAll[I] = true); end)
     Lmx = maximum(i -> toT(T, L[i]), 1:D)
@@ -754,11 +755,11 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
             end
             cOK || (tC === nothing || wait(tC); return HR, AR, iR)
             # route C over the whole block whenever an entry of route R has λ_e > LAM0 (d < 3; d = 3 above LAMC3), then per entry the route of
-            # the smaller λ_e (at 1+0.1i most offsets carry such an entry, and the whole-block route C costs no more than
-            # the tail sub-block did: 64³ d2 28 s whole against 60 s mixed); the tail sub-block of the per-offset criterion only
+            # the smaller λ_e (at f = 1 + 0.1i most offsets carry such an entry, and the whole-block route C costs no more than
+            # the tail sub-block: 28 s whole against 60 s mixed for a 64³ fill of a 2D lattice); the tail sub-block of the per-offset criterion only
             # when the whole block exceeds route C's panel budget
             λemx = max(maximum(x -> isfinite(x) ? x : 0f0, iR[:λe][1]), maximum(x -> isfinite(x) ? x : 0f0, iR[:λe][2]))
-            # (d = 3 keeps route R: the whole-block route C at 1+0.1i cost 85 s and 6 GB at 64³; its entries with λ_R > 1e3 are few,
+            # (d = 3 keeps route R: the whole-block route C at f = 1 + 0.1i costs 85 s and 6 GB at 64³; its entries with λ_R > 1e3 are few,
             # 34 of 2.5e5 at 32³)
             (D < 3 && λemx > LAM0) || (tC === nothing || wait(tC); return HR, AR, iR)
             mx(M) = dropdims(maximum(abs, M; dims = (1, 2)); dims = (1, 2))
@@ -792,7 +793,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
             # route C's |C(m)| + |C(-m)| against route R's propagating-order Σ|terms|, both relative to the offset's max)
             eR = iR[:λe]; eC = iC[:λe]
             # every offset of the route C sub-block takes, entry by entry, the route of the smaller λ_e (not only the offsets the per-offset
-            # criterion asked for: a small entry of a near offset, e.g. G_yx at y = 0 with L = 8 at 0.37+0.1i, λ_R 1.8e4 (872 eps, 4.6-12.6
+            # criterion asked for: a small entry of a near offset, e.g. G_yx at y = 0 with period 8 at f = 0.37 + 0.1i, λ_R 1.8e4 (872 eps, 4.6-12.6
             # eps(1+κ_up)) against λ_C 74 (7-14 eps))
             selEnt!(HR, AR, HC, AC, eR[1], eR[2], eC[1], eC[2], lo_)
             return HR, AR, iR
@@ -806,7 +807,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
     xg, wg = glq(T, nG)
     Csh = T(4)
     # a priori: the propagating orders' d_o = 2 pole forms (d = 1, route R) estimated before any other stage, so that a block beyond
-    # FILMAX is refused at once (refused after 361 s of RS and EV work); per order panels ~ max(graded, X√S/π) times nG nodes
+    # FILMAX is refused at once (not after 361 s of RS and EV work); per order panels ~ max(graded, X√S/π) times nG nodes
     # times M(√S) angular nodes times the per-node angular factors and products over the open-offset grid
     if D == 1 && route == :R
         P0_ = pers[ax[1]]
@@ -967,7 +968,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
         # Π(|P| + ε) - Π|P| <= Σ_i ε_i Π_{j != i}(|P_j| + ε_j)
         # the exact (Rational) part of rs0Terms' kink data per axis and offset, once per certification (it does not depend on the panel end hi):
         # T0, C0, D1 and the nonzero kink distances |y| in T; the bisection rounds then only redo the Gaussian part (the Rational
-        # arithmetic per round and offset was most of the BigInt churn left in a fill)
+        # arithmetic per round and offset is otherwise most of the BigInt churn of a fill)
         # in Rational{Int128} (rs0Dat): the same exact values without BigInt temporaries; QI where Int128 overflows
         rs0D = rs0Dat(T, axk, xq, isper, pers)
         function rs0Terms(hi)
@@ -1067,7 +1068,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
                 bad0 = findall(t_ -> t_ === nothing, tms)
                 tl = reduce(vcat, [t_ for t_ in tms if t_ !== nothing]; init = Tuple{T,T,Vector{T},Vector{T},Vector{T}}[])
                 EH, EA = accum(tl)
-                # ratios, not EH/(tol·SH): tol·SH underflowed at Im f = 1e-300 (AH ~ 1e-301, NaN "not certified")
+                # ratios, not EH/(tol·SH): tol·SH underflows at Im f = 1e-300 (AH ~ 1e-301, NaN "not certified")
                 rH = [SH[j] > 0 ? EH[j] / SH[j] / tol : zero(T) for j in eachindex(EH)]
                 rA = [SA[j] > 0 ? EA[j] / SA[j] / tol : (EA[j] > 0 ? T(Inf) : zero(T)) for j in eachindex(EA)]
                 rH[vec(zAll)] .= 0; rA[vec(zAll)] .= 0
@@ -1198,7 +1199,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
                         rmOf(z) = haskey(z[4], :rm) ? z[4].rm : z[1]
                         Iold = rmOf(spFil(T, axk, op, xs, r.p, r.up, r.cont, ysp, τ, α, tol, nG, r.ap, s; pans = oldS))
                         Inew = rmOf(spFil(T, axk, op, xs, r.p, r.up, r.cont, ysp, τ, α, tol, nG, r.ap, s; pans = newS))
-                        # (a ZZD order's patterns 0 and oo are recomputed on the final panels in Double64: no deltas for them here)
+                        # (the patterns 0 and oo of an order above LAMZ are recomputed on the final panels in Double64: no deltas for them here)
                         if r.zzD !== nothing
                             k0_ = (0, 0, 0); koo_ = ntuple(i -> i == op[1] ? 2 : 0, 3)
                             Iold = copy(Iold); Inew = copy(Inew); Iold[k0_] = zero.(Iold[k0_]); Iold[koo_] = zero.(Iold[koo_]); Inew[k0_] = zero.(Inew[k0_]); Inew[koo_] = zero.(Inew[koo_])
@@ -1219,8 +1220,8 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
         VΛ = prod(i -> toT(T, L[i]), 1:3)
         kS = α + 12
         Pv = [pers[i] for i in 1:3]
-        # cutoff relative to the largest term e^{-u_S τ} (blcTns,: with every order evanescent the absolute cutoff dropped all but
-        # the orders within e^{-5} of the largest, an unseen absolute floor)
+        # cutoff relative to the largest term e^{-u_S τ} (as blcTns: with every order evanescent an absolute cutoff drops all but
+        # the orders within e^{-5} of the largest, an unseen floor)
         uS0 = uOrd(ntuple(i -> νmn(Pv[i]), 3), fa, fb); uS = max(uS0, zero(T))
         function cqTab(τq)
             local rngs = [begin
@@ -1400,7 +1401,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
         pcol(i, m) = get!(() -> [phsP(T, m, pers[i], xq) for xq in xs[i]], phE[i], m)
         function pcoef(i, m, t; ex = false)
             Pq = pers[i]; ν = nuP(T, m, Pq)
-            # ex = true: e^{xt} folded into the exponent, e^{-(4π²ν² - x)t} (d = 1 EV Poisson form; e^{xt} alone overflowed: NaN)
+            # ex = true: e^{xt} folded into the exponent, e^{-(4π²ν² - x)t} (d = 1 EV Poisson form; e^{xt} alone overflows: NaN)
             c = Pq.A.w0 / toT(T, Pq.L) * sinc(ν * toT(T, Pq.A.a)) * sinc(ν * toT(T, Pq.A.b)) * (ex ? exp(-uOrd((ν,), fa, fb) * t) : exp(-4 * T(π)^2 * ν^2 * t))
             iq = complex(zero(T), 2 * T(π) * ν)
             (complex(c), c * iq, c * iq^2)
@@ -1520,7 +1521,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
                     else
                         # per SP order the two per-axis columns (Double64): A1[j1, g] = c1_g φ1_g(j1), A2[j2, g] = c2_g φ2_g(j2) e^{-4π²(ν1² + ν2²)t}; the
                         # hot rows/columns of E are then S1 ⊗ S2 - A1 A2ᵀ restricted to them (small Double64 products; per-entry loops over the orders
-                        # cost ~30 s per 64³ d2 hot fill). Typed: with every order evanescent (no SP order) the untyped n×0 comprehensions were Matrix{Any} and A1 A2ᵀ raised
+                        # cost ~30 s per 64³ hot fill of a 2D lattice). Typed: with every order evanescent (no SP order) untyped n×0 comprehensions are Matrix{Any} and A1 A2ᵀ raises
                         local spc = [(poiPre(TD, g[1], persD[i1], QI0), poiPre(TD, g[2], persD[i2], QI0)) for g in SP]
                         local spe = [exp(-4 * TD(π)^2 * (q1[2]^2 + q2[2]^2) * tD) for (q1, q2) in spc]
                         for (k1, k2) in keys(E)
@@ -1642,7 +1643,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
             local p = complex(up, -ysp)
             abs(p) <= 64 * eps(T) * max(abs(x), one(T)) && error("blcFil: Rayleigh-Wood anomaly at rounding distance, order $g")
             local cont = fb < 0 && ysp != 0 && abs(fa) > sqrt(sum(abs2, ν))
-            fb < 0 && abs(abs(fa) - sqrt(sum(abs2, ν))) <= 64 * eps(T) * abs(fa) && error("blcFil: Im f < 0 on the cut Re k = |q∥| of order $(g) (J10 continuation undefined there)")
+            fb < 0 && abs(abs(fa) - sqrt(sum(abs2, ν))) <= 64 * eps(T) * abs(fa) && error("blcFil: Im f < 0 on the cut Re k = |q∥| of order $(g) (the continuation at fixed Re f is undefined there)")
             local ap = angle(p); ysp == 0 && up < 0 && (ap = -T(π)); cont && (ap -= 2 * T(π))
             local own = !(haskey(pairOf, g) || haskey(grp2, g))
             (spFil(T, axk, op, xs, p, up, cont, ysp, τ, α, tol, nG, ap, s; panOnly = !own, s0z = (D == 2 && own) ? (fa, fb) : nothing), ν, up, p, cont, ap)
@@ -1653,28 +1654,28 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
             PP = [ax[i] == symAx ? [Complex{T}.(ppD(g[i], ax[i], j)) for j in eachindex(xs[ax[i]])] : [poiPre(T, g[i], Pv[i], xq)[1] for xq in xs[ax[i]]] for i in 1:D]
             # every row, not only the hot ones: at any row the pair's two terms may cancel (e.g. an even pattern at x = L/4 for m = ±1, where
             # PP₊ + PP₋ ∝ cos(2πx/L)), and the two orders' u, formed separately near grazing (Σν² - f² with relative error κ_u eps each), then
-            # leave 3.9e3 eps (10 eps(1 + κ_up)) on an entry 6.7e-3 of its max (d2 c8 L = 3λ/2 f = 1 θ = (1.26e-5, 0.7), q/c21, c22)
+            # leave 3.9e3 eps (10 eps(1 + κ_up)) on an entry 6.7e-3 of its max (a 2D lattice of λ/8 cells, period 3λ/2, f = 1, θ = (1.26e-5, 0.7))
             PPa = (haskey(pairOf, g) || haskey(grp2, g)) ? [[zero.(PP[i][j]) for j in eachindex(PP[i])] for i in 1:D] : PP
             upD = isempty(hot) ? zero(TD) : uOrd(ntuple(i -> nuP(TD, g[i], persD[ax[i]]), D), faD, fbD)
             zzD = nothing
-            # (up <= 0 only: the closed-part coefficient 4π²Σν² + i y is 4π²f² - ξc² with ξc² = -up; a J10 order with up > 0 (Im f < 0 near
-            # grazing) has ξc = 0 and no near-normal cancellation: Double64 fill d2 L = λ f = 1-0.1i H_zz 73% off)
+            # (up <= 0 only: the closed-part coefficient 4π²Σν² + i y is 4π²f² - ξc² with ξc² = -up; an order with up > 0 (Im f < 0 near
+            # grazing) has ξc = 0 and no near-normal cancellation: there the form is 73% off on H_zz of a 2D lattice, period λ, f = 1 - 0.1i)
             if D == 2 && PPa === PP && haskey(pinf, :cl) && up <= 0
                 # the closed parts of patterns 0 and oo (I_oo,cl = -ξc² I_0,cl exactly): 4π² I_0 + I_oo/f² = I_0 (4π² f² - ξc²)/f² with
-                # 4π² f² - ξc² = 4π² Σν² + i y (ξc² = -u = 4π²(fa² - fb² - Σν²)): no cancellation (d2 L_z = 1/512 θ = 1.26e-5 f = 1, AH_yy
-                # 1.1e-6 of its max, 8.6e5 eps at κ_up 12)
+                # 4π² f² - ξc² = 4π² Σν² + i y (ξc² = -u = 4π²(fa² - fb² - Σν²)): no cancellation (otherwise 8.6e5 eps at κ_up 12 on
+                # AH_yy, 1.1e-6 of its max, of a 2D lattice with L_z = 1/512, θ = 1.26e-5, f = 1)
                 o_ = op[1]; k0 = (0, 0, 0); koo = ntuple(i -> i == o_ ? 2 : 0, 3)
                 qz = qzGet(o_)
                 cl0 = pinf.cl[k0]
                 cp0 = onAx([PP[1][j][1] for j in eachindex(PP[1])], ax[1]) .* onAx([PP[2][j][1] for j in eachindex(PP[2])], ax[2])
                 begin
-                    # OODIAG2: the order's patterns 0 and oo leave CH altogether: the periodic-axis diagonals get the whole pattern-0 term
+                    # the order's patterns 0 and oo leave CH altogether: the periodic-axis diagonals get the whole pattern-0 term
                     # (closed part + remainder) from qz[1:2], the open-axis diagonal the whole combined term (cl0 s0 + rmZ)/f² from qz[3:4]
                     rz, zR, zI, sz = pinf.rmZ; c_ = complex(cr, ci)
                     Wq = 4 * T(π)^2 .* (cl0 .+ pinf.rm[k0])
                     # (the closed part with s = 4π²Σν² + i y from ν directly: at real f the anti-Hermitian zz term is Im(cl_0) s alone, and
-                    # 4π²f² - ξc² at the rounded ξc carries the eps|u| rounding of u against a small s (d2 L_z = 1/512 f = 1 θ = 1.26e-5: AH_yy
-                    # 2.9e5 eps); the remainder keeps sz, its identity's own coefficient)
+                    # 4π²f² - ξc² at the rounded ξc carries the eps|u| rounding of u against a small s (2.9e5 eps on
+                    # AH_yy of a 2D lattice with L_z = 1/512, f = 1, θ = 1.26e-5); the remainder keeps sz, its identity's own coefficient)
                     clz = cl0 .* complex(4 * T(π)^2 * sum(abs2, ν), ysp)
                     Wz = (clz .+ rz) .* c_
                     tAdd!(*, qz[1], cp0, onAx(real.(Wq), o_)); tAdd!(*, qz[2], cp0, onAx(imag.(Wq), o_))
@@ -1689,8 +1690,8 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
                     spAdd!(PPa, Iop, IaR2, IaI2, 1, Dict(k0 => zO, koo => zO))
                     # the zz term's own a posteriori λ (its Σ|terms| over its value, per open offset): above LAMZ its closed part and remainder
                     # cancel (far open offsets, the pole form's O(K(ξc)) closed part against a decayed value) and the order's patterns 0 and oo
-                    # are recomputed in Double64 after the certification (d2 c32 L = λ/2 θ = 1.26e-5 1±0.1i, AH_zz at 15 cells:
-                    # the SP piece lost 780-3450 eps of itself, 1.2-5 eps(1+κ_up) on the entry)
+                    # are recomputed in Double64 after the certification (in Float64 the SP piece loses 780-3450 eps of itself, 1.2-5
+                    # eps(1+κ_up) on AH_zz at 15 cells of a 2D lattice of λ/32 cells, period λ/2, θ = 1.26e-5, f = 1 ± 0.1i)
                     # (per part: the H entries take Re Wz, the anti-Hermitian ones Im Wz, each with its own Σ|terms|)
                     λo = maximum(j -> max((aRz[j] * abs(cr) + aIz[j] * abs(ci)) / max(abs(real(Wz[j])), floatmin(T)),
                                           (aRz[j] * abs(ci) + aIz[j] * abs(cr)) / max(abs(imag(Wz[j])), floatmin(T))), eachindex(aRz))
@@ -1713,7 +1714,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
     # separable products, accumulated by BLAS); every offset must meet tol·max|H(m)| and tol·max|AH(m)| (tol = eps·entT); failing
     # offsets bisect the panels that dominate their bound, the stage is recomputed on the new panels; after 12 rounds the fill raises
     certFil!()
-    # ZZD: the flagged d = 2 orders' patterns 0 and oo in Double64 on their certified panels; the difference to the Float64 values
+    # the d = 2 orders above LAMZ: their patterns 0 and oo in Double64 on their certified panels; the difference to the Float64 values
     # already in QZ formed in Double64 and added once (the pole centre is the Float64 one, u = up in both: the same p for closed part and
     # remainder, the consistency spPair2 needs)
     if D == 2 && any(r -> r.zzD !== nothing, spRecF)
@@ -1841,7 +1842,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
                 koo2 = ntuple(i -> i == o ? 2 : 0, 3)
                 for pt in pats
                     ko = ntuple(i -> i in op ? pt[i] : 0, 3)
-                    # OODIAG2: the open-axis diagonal of the group formed in Double64 (4π² W_0 + W_oo/f², rounded once) into QZ, pattern 0
+                    # the open-axis diagonal of the group formed in Double64 (4π² W_0 + W_oo/f², rounded once) into QZ, pattern 0
                     # into QZ's periodic-axis diagonals; neither enters CH (their separate roundings are O(max) and cancel on the zz entry)
                     oz = pt == (0, 0, 0) || pt == koo2
                     oz && pt == koo2 && continue
@@ -1874,7 +1875,7 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
     # the entry's arrays formed in place in four buffers (same operations in the same order)
     p0_ = patOf(ents[1]...); Hab = similar(CH[p0_]); Aab = similar(CA[p0_]); SHab = similar(MH[p0_]); SAab = similar(MA[p0_])
     # every twist exact 0 or 1/2: -θ ≡ θ, so H = [G + conj G]/2 and AH are real entry by entry (as the reflection zeros, an exact symmetry); their
-    # imaginary parts are rounding of the route (route C's complex path: 1e-14 relative at c8 θ = 0 1+0.1i)
+    # imaginary parts are rounding of the route (route C's complex path: 1e-14 relative for λ/8 cells at θ = 0, f = 1 + 0.1i)
     rlP = all(i -> prTw(pers[i]), ax)
     for (q, (a, b)) in enumerate(ents)
         p = patOf(a, b)
@@ -1897,12 +1898,12 @@ function filBlk(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
 end
 
 # per-order flops of the d_o = 2 pole form beyond which the fill refuses, as filBlk's a priori estimate counts them (M(√S) on every panel, an
-# upper bound of the per-panel rule): the largest d = 1 block of the coverage, c4 (16,64,64) at a 4λ period, f = 1, estimates 1.32e12 for its
-# costliest order; a cap of 1e11 refused far smaller blocks; open extents of 32λ estimate ~2e13
+# upper bound of the per-panel rule): a d = 1 block of (16,64,64) λ/4 cells at a 4λ period, f = 1, estimates 1.32e12 for its
+# costliest order; a cap of 1e11 refuses far smaller blocks; open extents of 32λ estimate ~2e13
 const FILMAX = 4.0e12
 # pole-form flops of one whole fill (every spFil call: first passes, certification re-evaluations, Double64 reruns) beyond which it refuses:
-# an out-of-coverage d = 1 block passes every per-order FILMAX check and then spends its time in the re-evaluations;
-# the largest d = 1 blocks of the coverage need <= 5.1e13 (c4 (16,64,64), 4λ period, 1+1e-3i: 976 s at 8 threads)
+# a d = 1 block can pass every per-order FILMAX check and then spend its time in the re-evaluations;
+# a d = 1 block of (16,64,64) λ/4 cells at a 4λ period, f = 1 + 1e-3i, needs 5.1e13 (976 s at 8 threads)
 const FILTOT = 1.0e14
 const FILACC = ScopedValue{Union{Nothing,Threads.Atomic{Float64}}}(nothing)
 const LAMZ = 16
@@ -2062,7 +2063,7 @@ function spFil(::Type{T}, axk, op, xs, p, up, cont, y, τ, α, tol, nGt, ap, s; 
         foreach(cs_, unique(Mpl)); cs_(M2)
         foreach(csW_, unique([Mpl; Min; M2]))
         # a priori flops of this order's remainder (angular factors and their products over the open-offset grid per node); the fill has no
-        # other budget, and at open extents of 32λ one order needed ~1e11 (> 25 min); 64³ in coverage needs <= ~2e10
+        # other budget, and at open extents of 32λ one order needs ~1e11 (> 25 min); a 64³ block at f = 1 needs <= ~2e10
         fl_ = nGt * sum(Mpl; init = 0) * (3 * (nO[1] + nO[2]) + 12 * nO[1] * nO[2])
         fl_ > FILMAX && error("blcFil: a priori cost of a propagating order's pole form, $(round(Float64(fl_); sigdigits = 3)) flops (M up to $(maximum(Mpl; init = Min)) angular nodes, $(length(pl)) panels, open extent $(maximum(abs, xsO[1]))λ x $(maximum(abs, xsO[2]))λ), exceeds $(FILMAX); refused")
         panOnly && return out, oR, oI, (kind = :pole, pl = pl, e = one(Complex{T}))
@@ -2115,8 +2116,8 @@ function spFil(::Type{T}, axk, op, xs, p, up, cont, y, τ, α, tol, nGt, ap, s; 
         # s0z = (fa, fb): the open-axis diagonal's remainder 4π² rm_0 + rm_oo/f² formed as one integral, ∫ [s D_0(δ) - δ(2ξc + δ) pF_0(ξc + δ)]
         # w dδ / f² with s = 4π² f² - ξc² at the remainder's own (rounded) subtraction point ξc (pF_2 = -ξ² pF_0 exactly; Re s in extended
         # precision, it is 4π²Σν² up to rounding and cancels), whose terms do not cancel; the separate remainders are O(max) and cancel to it
-        # (d2 c32 L = λ/2 θ = 1.26e-5 1+0.1i, AH_zz at 15 cells, 3.6e-6 of its max, 5.25e5 eps = 4.6 eps(1+κ_up))
-        # (Im f < 0, the J10 continuation term too: its zz combination (4π² f² - b²) pF_0(b)/f², b² = -p, is formed the same way below)
+        # (separately 5.25e5 eps = 4.6 eps(1+κ_up) on AH_zz at 15 cells, 3.6e-6 of its max, of a 2D lattice of λ/32 cells, period λ/2,
+        # θ = 1.26e-5, f = 1 + 0.1i) (Im f < 0, the continuation term too: its zz combination (4π² f² - b²) pF_0(b)/f², b² = -p, is formed the same way below)
         zq = (s0z === nothing || gap != 0) ? nothing : (zeros(Complex{T}, nO[1]), zeros(Complex{T}, nO[1]), zeros(T, nO[1]), zeros(T, nO[1]))
         TE = T === Float64 ? Double64 : T
         F2E = zq === nothing ? nothing : 4 * TE(π)^2 * complex(TE(s0z[1]), TE(s0z[2]))^2
@@ -2185,7 +2186,8 @@ end
 
 # a propagating-order pair on the steepest-descent ray of the + order (both evanescent-side or far-open orders take the ray form): I(p₊), I(p₋)
 # and D = [I(p₊) - I(p₋)]/2 on the same nodes, the weight (e^{-p₊t} - e^{-p₋t})/2 formed in Double64 from the Double64 u± (the ray
-# analogue of spPair2: d1 c32 L = λ, 1+0.1i, θ = 1.26e-5, the pair (1, -1) at far open offsets, 2e6 eps on the hot entries before, q/c28)
+# analogue of spPair2: the separate orders (1, -1) leave 2e6 eps on the hot entries at far open offsets of a 1D lattice of λ/32 cells,
+# period λ, f = 1 + 0.1i, θ = 1.26e-5)
 function spPairRay(::Type{T}, axk, op, xs, rp, rm, y::T, τ::T, tol::T, nGt::Int, s, e::Complex{T}, pl) where {T}
     TD = T === Float64 ? Double64 : T
     xt, wt = glq(T, nGt)
@@ -2238,7 +2240,7 @@ end
 # A propagating-order pair (ν, ν') of the d_o = 2 pole form (d = 1), ν + ν' ∝ θ - θ_0 small: I(p₊), I(p₋) and D = [I(p₊) - I(p₋)]/2
 # for every open offset and pattern, on one set of radial nodes s (the union of both orders' certified panels). With the pole subtraction
 # points σ± (the Float64 poles), a± = a(σ±) (angular average of the open factors), I(p) = a(σ)E(p) + ∫ (a(s) - a(σ)) Φ(s + p) ds,
-# Φ(w) = e^{-wτ}/w, E the closed part (E_1(pτ), its anomaly window, the J10 continuation term):
+# Φ(w) = e^{-wτ}/w, E the closed part (E_1(pτ), its anomaly window, the continuation term at Im f < 0):
 #   D = [a₊E₊ - a₋E₋]/2 + (1/2) ∫ [A₊(s) ΔΦ(s) - Δa Φ₋(s)] ds,  A₊ = a(s) - a₊ (pDif3 products), ΔΦ = Φ₊ - Φ₋, Δa = a₊ - a₋,
 # an exact rearrangement of (I₊ - I₋)/2 in which every term is O(ν + ν') and formed without cancellation: ΔΦ from
 # Φ(w + d) - Φ(w - d) = -2 e^{-wτ} (w sinh dτ + d cosh dτ)/(w² - d²) and the closed parts and a± in Double64, the same Double64 p± in both
@@ -2271,7 +2273,7 @@ function spPair2(::Type{T}, axk, op, xs, rp, rm, y::T, τ::T, α, tol::T, nGt::I
         P1 = [getindex.(Q1, k) for k in 1:3]; P2 = [getindex.(Q2, k) for k in 1:3]
         Dict(key(pt) => (P1[pt[1] + 1] * P2[pt[2] + 1]) ./ (4 * TD(π) * M) for pt in pats)
     end
-    # the exact circle at a (complex) radius: the J10 continuation term only (no subtraction pairs with it)
+    # the exact circle at a (complex) radius: the continuation term only (no subtraction pairs with it)
     function aVD(r)
         Q1 = [pFac3(axD[1], r * cMD[j], xq, abD[1][1], abD[1][2]) for xq in xsD[1], j in 1:M]
         Q2 = [pFac3(axD[2], r * sMD[j], xq, abD[2][1], abD[2][2]) for j in 1:M, xq in xsD[2]]
@@ -2314,7 +2316,7 @@ function spPair2(::Type{T}, axk, op, xs, rp, rm, y::T, τ::T, α, tol::T, nGt::I
             local d1 = δr .* cM; local d2 = δr .* sM
             # near the poles (|δr| <= rB/2) A = a_C(s) - a_C(rB) by pDif3 products (absolute error O(eps |δr|)); farther the plain difference of
             # the node's angular average and a_C(rB) (error eps|a|, multiplied there by ΔΦ = O(Δu) and by Φ₋ ~ 1/|s - σ| <= 2/σ: O(eps) of D;
-            # pDif3 everywhere cost 66 s for one pair of a 64³ d1 fill)
+            # pDif3 everywhere cost 66 s for one pair of a 64³ d = 1 fill)
             local near = abs(δr) <= rB / 2
             local Q2 = [pFac3(axk[op[2]], b2[jj] + d2[jj], xq, abT[2]...) for jj in 1:M, xq in xsO[2]]
             local Q2k = [getindex.(Q2, q_) for q_ in 1:3]
@@ -2717,7 +2719,7 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
                 Ior = Dict(pt => zeros(Complex{T}, nq_) for pt in pats); IorA = Dict(pt => zeros(T, nq_) for pt in pats)
             end
             # per order and pattern: the periodic column (over the periodic offsets) and the open row (over the open offsets); the sum
-            # over orders is one chunk-compensated product per pattern below (a full-array broadcast per order and pattern cost 139 s
+            # over orders is one chunk-compensated product per pattern below (a full-array broadcast per order and pattern costs 139 s
             # of the 160 s 64³ d = 2 1+i fill)
             for pt in pats
                 push!(get!(() -> Vector{Complex{T}}[], ordA, pt), cperOf(PPa, pt) .* (pt == (0, 0, 0) ? 4 * T(π)^2 : f2i))
@@ -2839,7 +2841,7 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
                     else
                         # per SP order the two per-axis columns (Double64): A1[j1, g] = c1_g φ1_g(j1), A2[j2, g] = c2_g φ2_g(j2) e^{-4π²(ν1² + ν2²)t}; the
                         # hot rows/columns of E are then S1 ⊗ S2 - A1 A2ᵀ restricted to them (small Double64 products; per-entry loops over the orders
-                        # cost ~30 s per 64³ d2 hot fill). Typed: with every order evanescent (no SP order) the untyped n×0 comprehensions were Matrix{Any} and A1 A2ᵀ raised
+                        # cost ~30 s per 64³ hot fill of a 2D lattice). Typed: with every order evanescent (no SP order) untyped n×0 comprehensions are Matrix{Any} and A1 A2ᵀ raises
                         local spc = [(poiPre(TD, g[1], hotC.persD[i1], QI0), poiPre(TD, g[2], hotC.persD[i2], QI0)) for g in SL]
                         local spe = [exp(-4 * TD(π)^2 * (q1[2]^2 + q2[2]^2) * tD[it]) for (q1, q2) in spc]
                         for (k1, k2) in keys(E)
@@ -2954,7 +2956,7 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
             end
             best
         end
-        # in chunks of 1024 terms: the (n2·n3) × #terms matrix B of all terms at once was GBs at 64³ (d2 1+i > 7.6 GB)
+        # in chunks of 1024 terms: the (n2·n3) × #terms matrix B of all terms at once is GBs at 64³ (> 7.6 GB for a 2D lattice at f = 1 + i)
         function accum(tl)
             E = zeros(T, nn...)
             isempty(tl) && return E

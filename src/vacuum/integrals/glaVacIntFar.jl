@@ -4,14 +4,14 @@
 #   1  the whole box by the spherical addition theorem, one expansion about R, even l only;
 #   2  the 8 octants of D with the affine weight, same theorem, all l;
 #   3  the k-series on the 36 face pairs of glaVacIntMom.jl, where neither expansion converges.
-# The l per offset and per sub-box comes from the proven tail bounds of Theorems A (whole box) and
-# B (sub-box); the route is the first of 1, 2 whose bound meets tol * est(R), else 3.  The geometry
-# table is exact rational, built lazily in l and extended in place; its k-series order N is chosen
-# per (shape, frequency) from the n-tail bound, and the library throws rather than
-# truncate silently.  Generic in T, every constant typed.
+# The l per offset and per sub-box comes from the proven tail bounds A (whole box) and B
+# (sub-box) stated below; the route is the first of 1, 2 whose bound meets tol * est(R), else
+# 3.  The geometry table is exact rational, built lazily in l and extended in place; its
+# k-series order N is chosen per (shape, frequency) from the n-tail bound, and the library
+# throws rather than truncate silently.  Generic in T, every constant typed.
 # Unequal cells (target edges sT at R, source edges sS at 0) change only the weight: per axis the
 # trapezoid w_i(t) = (b_i - |t|)_+ - (a_i - |t|)_+, a = |sT - sS|/2, b = (sT + sS)/2, D = prod[-b_i,
-# b_i], (1/V_t) int_D w = V_s.  Their routes are the whole trapezoid box (Theorem A'), the gcd
+# b_i], (1/V_t) int_D w = V_s.  Their routes are the whole trapezoid box (bound A'), the gcd
 # average of equal-cell tensors of g = min(sT, sS), and the k-series on the 36 unequal face pairs.
 
 using Scratch
@@ -305,8 +305,9 @@ const TABPRC = 192                  # precision at which the tables are stored a
 # a relative 2^-205, well under the 2^-192 the table is stored at
 const BLDPRC = 256
 const LEXT = 16                     # extra l levels summed so the "tail after L" is a real tail
-# Theorem A over-states the remainder by a median 49, so 1e-14 delivers 1e-15 to 1e-14 per entry
+# Bound A over-states the remainder by a median 49, so 1e-14 delivers 1e-15 to 1e-14 per entry
 const TOL = 1e-14                   # relative to est(R), the a priori scale of the tensor
+# never evicted: 20-26 MB of BigFloat per cell shape at 16^3
 const SHPC = Dict{Tuple{NTuple{3,QI},NTuple{3,QI},Int},ShpTab}()   # keyed (a, b, nMax)
 # empty until the disk cache is asked for, and then a Scratch space
 const TABDIR = Ref("")
@@ -551,7 +552,7 @@ function radMom(lTop::Int, m::NTuple{3,Vector{T}}) where {T}
     v
 end
 
-# Theorem A (whole box) and Theorem B (one octant).
+# Tail bounds A (whole box) and B (one octant).
 # Both bound the truncation this file performs: the derivatives sit on the REGULAR factor
 # j_l(k|d|) Y_lm(dhat), not on h_l(kR) Y_lm(Rhat).  Two exact identities do the work:
 #  (1) integration by parts onto the weight (w'' = delta_{-s} - 2 delta_0 + delta_s, w = 0 on dD),
@@ -583,11 +584,11 @@ function hnkBndS(L::Int, z::C, ak::T) where {T,C}
     out
 end
 
-# V^{ab}_l of Theorem A, split as fc[r][l/2+1] + (a == b ? |k|^2 W_l : 0); even l = 0..lTop
+# V^{ab}_l of bound A, split as fc[r][l/2+1] + (a == b ? |k|^2 W_l : 0); even l = 0..lTop
 farMomW(lTop::Int, s::NTuple{3,T}) where {T} = farMomW(lTop, ntuple(_ -> zero(T), 3), s)
-# Theorem A' (trapezoid a, b): |w'| is the flat measure on the ramps only, lam_n = 2 (b^{n+1} -
-# a^{n+1})/(n+1), and |w''| = delta_{+-b} + delta_{+-a} with masses 2 b^{2i} + 2 a^{2i}; a = 0 is
-# the triangle bit for bit (0^0 = 1, 0^{2i} = 0 is farMomW's zro vector)
+# Bound A', bound A for the trapezoid (a, b): |w'| is the flat measure on the ramps only, lam_n =
+# 2 (b^{n+1} - a^{n+1})/(n+1), and |w''| = delta_{+-b} + delta_{+-a} with masses 2 b^{2i} +
+# 2 a^{2i}; a = 0 is the triangle bit for bit (0^0 = 1, 0^{2i} = 0 is farMomW's zro vector)
 fltMom(n::Int, a::T, b::T) where {T} = 2 * (b^(n + 1) - a^(n + 1)) / T(n + 1)
 function farMomW(lTop::Int, ta::NTuple{3,T}, tb::NTuple{3,T}) where {T}
     hM = div(lTop, 2)
@@ -608,7 +609,7 @@ function farMomW(lTop::Int, ta::NTuple{3,T}, tb::NTuple{3,T}) where {T}
     (fc, radMom(lTop, tri))
 end
 
-# per-l, per-entry factors of the Theorem A tail, everything but |h_l|; even l only
+# per-l, per-entry factors of the bound A tail, everything but |h_l|; even l only
 function bndTrm(lTop::Int, mom, rd::T, k::C, frq::C, vt::T) where {T,C}
     fc, wr = mom
     ls = collect(0:2:lTop)
@@ -624,7 +625,7 @@ function bndTrm(lTop::Int, mom, rd::T, k::C, frq::C, vt::T) where {T,C}
     (ls, t)
 end
 
-# Theorem B: on a sub-box the weight does not vanish on the boundary, so the same integration by
+# Bound B: on a sub-box the weight does not vanish on the boundary, so the same integration by
 # parts leaves face and edge terms and, on the diagonal, ONE first derivative of j_l Y_lm, which
 # sum_m |grad(f_l Y_lm)|^2 = (|k|^2/4pi)(l |f_{l-1}|^2 + (l+1)|f_{l+1}|^2) controls exactly.
 # All l contribute: the octant split destroys the parity of the triangle weight.
@@ -648,7 +649,7 @@ radQ(v::Vector{T}, q::Int) where {T} =
     q < 0 ? zero(T) : iseven(q) ? v[div(q, 2) + 1] :
     sqrt(v[div(q - 1, 2) + 1] * v[div(q + 1, 2) + 1])
 
-# per-l, per-entry factors of the Theorem B octant tail, everything but |h_l|; all l
+# per-l, per-entry factors of the bound B octant tail, everything but |h_l|; all l
 function bndTrmO(lTop::Int, mom, rj::T, k::C, frq::C, vt::T) where {T,C}
     off, gA, bA, vA = mom
     ls = collect(0:lTop)
@@ -759,7 +760,7 @@ function whlThr(ls::Vector{Int}, t::NTuple{6,Vector{T}}, k::C, scf, tol::T,
     thr
 end
 
-# Truncating j_l's own series after n = N is Theorem A again, with |k|^l e^{..}/(2l+1)!! replaced
+# Truncating j_l's own series after n = N is bound A again, with |k|^l e^{..}/(2l+1)!! replaced
 # by exp(bslTalLog(l, N, |k|, r_d)) and V^{ab}_l by V^{ab}_{l+2N+2}.  The budget is
 # tol est/(NBUD (lTop+1)): tol is spent on the l-truncation, and nCut only certifies that the
 # stored orders are enough.  The bound is evaluated at both ends of the radius range the expansion
@@ -888,7 +889,8 @@ const FARTOL = 45 * eps(Float64)
 
 # A set is certified only on the radius interval [rNc, rHi = 4 nBlk r_d] the offsets it was BUILT
 # for fix, so nBlk and nMin belong in the key: one built for a 32^3 block and reused at 128^3
-# returns a wrong tensor under a valid-looking certificate.
+# returns a wrong tensor under a valid-looking certificate.  Never evicted: a frequency sweep keeps
+# one set (about 0.35 MB at 16^3) per shape and frequency.
 const ZR3 = (0.0, 0.0, 0.0)
 const FRQC = Dict{Tuple{NTuple{3,QI},DataType,Any,Float64,Int,Int,NTuple{3,Float64}},FrqSet}()
 const FRQLK = ReentrantLock()
@@ -926,7 +928,7 @@ function octLvl(fs::FrqSet{T}, R::NTuple{3,T}) where {T}
 end
 
 # Throw for a radius outside [rNc, rHi], where this set's k-series cut nCut is certified: a set reused
-# outside its interval returned a wrong tensor under a valid-looking certificate.  A set built by
+# outside its interval returns a wrong tensor under a valid-looking certificate.  A set built by
 # farFil! covers its own offsets, so this can fire only for a hand-built or reused one.
 @inline chkRad(fs::FrqSet, rLo::Float64, rUp::Float64, R) =
     (fs.rNc * (1 - 1e-12) <= rLo && rUp <= fs.rHi * (1 + 1e-12)) ? nothing :
@@ -1162,7 +1164,7 @@ ksrDir() = @lock SCRLK isempty(KSRDIR[]) ? (KSRDIR[] = @get_scratch!("ksrcache")
 const KSRPRC = 128                  # the 36 signed face pairs cancel; route 3 needs the headroom
 const KSRTOL = 1e-16                # route 3's own tolerance: remainder <= KSRTOL est(R)
 const KSRCAP = 200                  # the most k-series terms route 3 may take
-# the face-pair moments of every route-3 pair, keyed (RQ, sTQ, sSQ): frequency independent and expensive
+# the face-pair moments of every route-3 pair, keyed (RQ, sTQ, sSQ): frequency independent and expensive; never evicted
 const MOMCX = Dict{Tuple{NTuple{3,QI},NTuple{3,QI},NTuple{3,QI}},Tuple{Int,Vector{Vector{BigFloat}}}}()
 const KSRLK = ReentrantLock()           # guards MOMCX
 
@@ -1270,10 +1272,10 @@ end
 
 # G(R; sT, sS) = (1/V_t) int_D w(d) [(da db + dab k^2) g](R+d) dd with the trapezoid weight of the
 # pair, D = prod [-b_i, b_i], V_t = prod sT; (1/V_t) int_D w = V_s, so est takes V_s while the
-# Theorem A'/B prefactor keeps V_t.  The whole-box table is keyed on (a, b), symmetric in the
+# bound A'/B prefactor keeps V_t.  The whole-box table is keyed on (a, b), symmetric in the
 # pair, and stored divided by prod(b), with prod(b)/V_t folded into prf.  Routes per exact offset
 # R of the target centre, source at 0:
-#   1  the whole trapezoid box (Theorem A', r_d = |b|, ramp and point measures), one expansion;
+#   1  the whole trapezoid box (bound A', r_d = |b|, ramp and point measures), one expansion;
 #   2  the gcd average G(R) = (1/N_t) sum_{j,j'} G(R + c_j - c'_j'; g, g), g = min(sT, sS) per
 #      axis: N_t x N_s equal-cell tensors at integer offsets in cells of g, since Gila's grids sit
 #      on the common gcd lattice.  farBlkX! takes a box sum over one fine egoToe filled by
@@ -1365,7 +1367,7 @@ end
 
 # A cross-scale set is certified on [rNc, rHi = 4 nBlk r_d] and carries a table sized to l = Lw,
 # both fixed by the offsets it was BUILT for, so nBlk belongs in the key and a hit is handed on
-# only where it already covers -- see farSetMem.
+# only where it already covers -- see farSetMem.  Never evicted: a frequency sweep keeps one set per pair and frequency.
 const FRQCX = Dict{Tuple{NTuple{3,QI},NTuple{3,QI},DataType,Any,Float64,Int},FrqSetX}()
 
 function covOff(fx::FrqSetX, offs)
@@ -1603,8 +1605,8 @@ end
 # The quasistatic tensor S_ab(R) = lim_{f -> 0} f^2 T_ab(R) is the n = 0 slice of the same tables:
 # the three powers of k in i k h_l(k|R|) c_l0(k) cancel as k -> 0 and leave
 #   S_ab(R) = sum_{l, m} (-1)^l Y_lm(Rhat) A^{ab}[.,0,lm] / ((2l+1) |R|^{l+1}) ,
-# so no frequency enters, there is no k-series to cut and no Hankel bound to evaluate.  Theorems
-# S and S' replace Theorems A and B,
+# so no frequency enters, there is no k-series to cut and no Hankel bound to evaluate.  Bounds
+# S and S' replace bounds A and B,
 #   |S_ab - S_ab^(L)|       <= (1/(4 pi V_t)) sum_{l > L, even} V^{ab}_l /|R|^{l+1}   (whole box)
 #   |S^(j)_ab - S^(j),L_ab| <= (1/(4 pi V_t)) sum_{l > L}       Xi^{ab}_l/|V_j|^{l+1} (sub-box),
 # V^{ab}_l being farMomW's moments without their |k|^2 W_l companion and Xi^{ab}_l farMomO's with
@@ -1612,7 +1614,7 @@ end
 # criteria are functions of the single scalar rho = r_d/|R| (sub-boxes: r_j/min_q|V_q|), which is
 # why the static band is exactly direction independent and the selector an O(1) table scan.
 
-# Theorem S terms, scaled to be dimensionless: ls[i] = 2(i-1), t[r][i] = V^{ab}_l/(4 pi V_t r_d^l),
+# Bound S terms, scaled to be dimensionless: ls[i] = 2(i-1), t[r][i] = V^{ab}_l/(4 pi V_t r_d^l),
 # so the tail after L is sum_{l > L} t[r][i] rho^l / |R|
 function qssTrmW(lTop::Int, s::NTuple{3,T}) where {T}
     fc, _ = farMomW(lTop, s)
@@ -1620,7 +1622,7 @@ function qssTrmW(lTop::Int, s::NTuple{3,T}) where {T}
     (ls, ntuple(r -> [fc[r][i] / (4 * T(pi) * vt * rd^ls[i]) for i in eachindex(ls)], 6))
 end
 
-# Theorem S' terms for one octant sub-box, scaled the same way with r_j = r_d/2; all l contribute
+# Bound S' terms for one octant sub-box, scaled the same way with r_j = r_d/2; all l contribute
 function qssTrmO(lTop::Int, s::NTuple{3,T}) where {T}
     hf = ntuple(d -> s[d] / 2, 3)
     vt = prod(s); rj = sqrt(sum(hf[i]^2 for i in 1:3)); ls = collect(0:lTop)
