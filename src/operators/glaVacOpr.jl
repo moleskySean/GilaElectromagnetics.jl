@@ -111,7 +111,6 @@ on their union and masked, so they must sit on a common grid.
 # Keywords
 - `dev::Backend=CPU()`: backend to compute on
 - `frqPhz=1.0+0.0im`: complex frequency phase factor
-- `genPrc=Float64`: precision the coefficients are generated in, then rounded once to `T`
 - `qssApx::Bool=false`: use the quasistatic kernel
 - `shpCch::Bool=false`: cache the far-field geometry table of each cell shape, see `GlaVacOprMem`
 - `prxWrn::Bool=true`: warn when two separated volumes are closer than a third of a wavelength
@@ -123,7 +122,7 @@ on their union and masked, so they must sit on a common grid.
   G(R + Pᵢ eᵢ) = e^{-iθᵢ} G(R); see `setBlc!`
 """
 function GlaOprVac{T}(trgVol::GlaVol, srcVol::GlaVol;
-    dev::Backend=CPU(), prxWrn::Bool=true, frqPhz=1.0+0.0im, genPrc=Float64,
+    dev::Backend=CPU(), prxWrn::Bool=true, frqPhz=1.0+0.0im,
     qssApx::Bool=false, shpCch::Bool=false, hrmPrt::Union{Nothing,Symbol}=nothing, blc=nothing, blk=nothing) where T<:AbstractFloat
     blc === nothing || trgVol == srcVol || blk !== nothing || throw(ArgumentError("A Bloch lattice is self volume only."))
     innMsk = outMsk = nothing
@@ -136,7 +135,7 @@ function GlaOprVac{T}(trgVol::GlaVol, srcVol::GlaVol;
     end
 
     # Create the memory structure with appropriate GPU/CPU options
-    opt = GlaKerOpt{T}(dev; frqPhz, genPrc, qssApx, hrmPrt, blc)
+    opt = GlaKerOpt{T}(dev; frqPhz, qssApx, hrmPrt, blc)
     mem = GlaVacOprMem(opt, trgVol, srcVol; shpCch, prxWrn, blk)
     return GlaOprVac{T}(mem, innMsk, outMsk)
 end
@@ -178,7 +177,7 @@ sym(opr::Union{GlaOprVac, GlaCmpOprVac}) = _hrmBld(opr, :sym)
 function _hrmBld(opr::GlaOprVac{T}, hrmPrt::Symbol) where T<:AbstractFloat
     _hrmChk(opr)
     opt = opr.mem.cmpInf
-    return GlaOprVac{T}(opr.mem.srcVol; dev=opt.dev, opt.frqPhz, opt.genPrc, opt.qssApx, opt.blc, hrmPrt)
+    return GlaOprVac{T}(opr.mem.srcVol; dev=opt.dev, opt.frqPhz, opt.qssApx, opt.blc, hrmPrt)
 end
 
 # The blocks hold the Bloch periods L in λ, and the constructor takes P in cells of the finest region
@@ -187,7 +186,7 @@ function _hrmBld(opr::GlaCmpOprVac{T}, hrmPrt::Symbol) where T<:AbstractFloat
     opt = _blkOpt(first(opr.blkMat))
     blc = opt.blc === nothing ? nothing : (; opt.blc.ax, opt.blc.θ,
         P = map((L, ax) -> Int(L // minimum(reg -> reg.scl[ax], regions(opr.srcCvl))), opt.blc.L, opt.blc.ax))
-    return GlaCmpOprVac{T}(opr.srcCvl; dev=opt.dev, opt.frqPhz, opt.genPrc, opt.qssApx, blc, hrmPrt)
+    return GlaCmpOprVac{T}(opr.srcCvl; dev=opt.dev, opt.frqPhz, opt.qssApx, blc, hrmPrt)
 end
 
 function _hrmChk(opr::AbstractGlaVacOpr)
@@ -209,15 +208,15 @@ _cntChk(trgReg::GlaVol, srcReg::GlaVol) =
     all(max.(_lwrEdg(trgReg), _lwrEdg(srcReg)) .<= min.(_uprEdg(trgReg), _uprEdg(srcReg)))
 
 # The cross-scale contact block, computed on the finer of the two meshes
-function _sndBlk(::Type{T}, trgReg::GlaVol, srcReg::GlaVol; frqPhz, genPrc, blc, blk = nothing, kw...) where T<:AbstractFloat
+function _sndBlk(::Type{T}, trgReg::GlaVol, srcReg::GlaVol; frqPhz, blc, blk = nothing, kw...) where T<:AbstractFloat
     sclFin = min.(trgReg.scl, srcReg.scl)
     trgRat = ntuple(dir -> Int(trgReg.scl[dir] // sclFin[dir]), 3)
     srcRat = ntuple(dir -> Int(srcReg.scl[dir] // sclFin[dir]), 3)
     trgFin = GlaVol(Tuple(trgReg.cel .* trgRat), sclFin, trgReg.org)
     srcFin = GlaVol(Tuple(srcReg.cel .* srcRat), sclFin, srcReg.org)
     # a periodic pair's block is the fine pair's, equal cells
-    blc === nothing || (blk = _blcCmp([trgFin, srcFin], Complex{genPrc}(frqPhz), blc)[(1, 2)])
-    innOpr = GlaOprVac{T}(trgFin, srcFin; frqPhz, genPrc, blc, blk, kw..., prxWrn=false)
+    blc === nothing || (blk = _blcCmp([trgFin, srcFin], ComplexF64(frqPhz), blc)[(1, 2)])
+    innOpr = GlaOprVac{T}(trgFin, srcFin; frqPhz, blc, blk, kw..., prxWrn=false)
     return GlaSndOprVac{T}(innOpr, trgRat, srcRat,
         _nrmWgt(trgReg, srcReg) / prod(trgRat))
 end
@@ -262,7 +261,7 @@ Keywords as for `GlaOprVac`; `prxWrn` warns once, for the closest pair of region
 The Bloch periods `P` of `blc` count cells of the finest region.
 """
 function GlaCmpOprVac{T}(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol;
-    dev::Backend=CPU(), prxWrn::Bool=true, frqPhz=1.0+0.0im, genPrc=Float64, qssApx::Bool=false,
+    dev::Backend=CPU(), prxWrn::Bool=true, frqPhz=1.0+0.0im, qssApx::Bool=false,
     shpCch::Bool=false, hrmPrt::Union{Nothing,Symbol}=nothing, blc=nothing) where T<:AbstractFloat
     slfCmp = trgCvl == srcCvl
     trgRegs, srcRegs = regions(trgCvl), regions(srcCvl)
@@ -270,13 +269,13 @@ function GlaCmpOprVac{T}(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol;
     if blc !== nothing
         slfCmp || throw(ArgumentError("A Bloch lattice is self volume only."))
         blc = (; blc.ax, L = ntuple(j -> blc.P[j] * minimum(reg -> reg.scl[blc.ax[j]], trgRegs), length(blc.ax)), blc.θ)
-        blcBlk = _blcCmp(trgRegs, Complex{genPrc}(frqPhz), blc)
+        blcBlk = _blcCmp(trgRegs, ComplexF64(frqPhz), blc)
     end
     blkMat = Matrix{AbstractGlaOpr{T}}(undef, length(trgRegs), length(srcRegs))
     for trgIdx in eachindex(trgRegs), srcIdx in eachindex(srcRegs)
         blk = blc === nothing ? nothing : blcBlk[(trgIdx, srcIdx)]
         blkMat[trgIdx, srcIdx] = _cmpBlk(T, trgRegs[trgIdx], srcRegs[srcIdx],
-            slfCmp && trgIdx == srcIdx, slfCmp, trgIdx, srcIdx; dev, frqPhz, genPrc, qssApx, shpCch, hrmPrt, blc, blk)
+            slfCmp && trgIdx == srcIdx, slfCmp, trgIdx, srcIdx; dev, frqPhz, qssApx, shpCch, hrmPrt, blc, blk)
     end
     return GlaCmpOprVac{T}(trgCvl, srcCvl, blkMat)
 end
@@ -366,7 +365,7 @@ setBlc!(opr::AbstractGlaVacOpr, θ::Tuple) = (setBlc!(opr.mem, θ); opr)
 # One blcCmp call for every block, one per sandwich for its fine pair; a block in adjoint mode holds the adjoint of its transposed pair
 function setBlc!(opr::GlaCmpOprVac, θ::Tuple)
     mem = first(opr.blkMat).mem
-    frq, blc = Complex{mem.cmpInf.genPrc}(mem.cmpInf.frqPhz), merge(mem.cmpInf.blc, (; θ))
+    frq, blc = mem.cmpInf.frqPhz, merge(mem.cmpInf.blc, (; θ))
     blcBlk = _blcCmp(regions(opr.trgCvl), frq, blc)
     for idx in CartesianIndices(opr.blkMat)
         blk = opr.blkMat[idx]

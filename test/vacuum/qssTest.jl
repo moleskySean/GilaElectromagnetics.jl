@@ -43,7 +43,7 @@ function qssToe(cel::NTuple{3,Int}, scl::NTuple{3,Rational{Int}})
     vol = mkVol(cel; scl = scl)
     toe = fill(ComplexF64(NaN), 3, 3, cel...)
     GVQ.momBlkQss!(toe, vol, [Tuple(itr) .- 1 for itr ∈ vec(CartesianIndices(min.(cel, 2)))])
-    GVQ.momBlkQss!(toe, vol, GVQ.farBlkQss!(toe, scl; tol = GVQ.farTol(Float64), disk = false))
+    GVQ.momBlkQss!(toe, vol, GVQ.farBlkQss!(toe, scl; tol = GVQ.FARTOL, disk = false))
     @test all(isfinite, toe)
     return real.(toe)
 end

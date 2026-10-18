@@ -26,14 +26,14 @@ toT(::Type{BigFloat}, q::Rational) = BigFloat(numerator(q)) / BigFloat(denominat
 
 # Gauss-Legendre nodes/weights: QuadGK.gauss (Golub-Welsch-type eigen-Newton, generic) at precision(T) + 64 bits, rounded
 # once to T, memoized. A Newton Gauss-Legendre rule in Float64 has weight errors up to 142 eps; it is not used here.
-const GLC = Dict{Tuple{DataType,Int,Int},Tuple{Vector,Vector}}(); const GLCK = ReentrantLock()
+const GLC = Dict{Tuple{DataType,Int},Tuple{Vector,Vector}}(); const GLCK = ReentrantLock()
 function glq(::Type{T}, n::Int) where {T}
-    key = (T, n, T === BigFloat ? precision(BigFloat) : 0)
+    key = (T, n)
     r0 = @lock GLCK get(GLC, key, nothing)
     r0 === nothing || return r0::Tuple{Vector{T},Vector{T}}
-    pw = (T === BigFloat ? precision(BigFloat) : precision(T)) + 64
+    pw = precision(T) + 64
     xb, wb = setprecision(() -> QuadGK.gauss(BigFloat, n), BigFloat, pw)
-    r = (T === BigFloat ? BigFloat.(xb) : T.(xb), T === BigFloat ? BigFloat.(wb) : T.(wb))
+    r = (T.(xb), T.(wb))
     @lock GLCK get!(GLC, key, r)::Tuple{Vector{T},Vector{T}}
 end
 
@@ -63,10 +63,10 @@ struct AxK{T}
 end
 AxK(::Type{T}, a::QI, b::QI; MM::Int = precision(T) + 48) where {T} =
     AxK{T}(a, b, (a + b) / 2, abs(a - b) / 2, toT(T, a * b), muF(T, a, b, MM), TMemo{Tuple{Int128,Int128},Tuple{T,T}}())
-# the normalized moments are frequency and phase independent: kept per (T, edges, order, BigFloat precision), at most MUFMAX entries
+# the normalized moments are frequency and phase independent: kept per (T, edges, order), at most MUFMAX entries
 const MUF = Dict{Any,Any}(); const MUFK = ReentrantLock(); const MUFMAX = 256
 function muF(::Type{T}, a::QI, b::QI, MM::Int) where {T}
-    key = (T, qk(a), qk(b), MM, T === BigFloat ? precision(BigFloat) : 0)
+    key = (T, qk(a), qk(b), MM)
     v = @lock MUFK get(MUF, key, nothing)
     v === nothing || return v::Vector{T}
     μf = [toT(T, μ / (factorial(big(m)) * ((a + b) / 2)^m)) for (m, μ) in zip(0:MM, trpMom(a, b, MM))]
@@ -140,7 +140,7 @@ end
 # |t| >= cp(|x| + cp), |tail_k| <= e w0 |g e^{-w²}| Σ_{m>M} (m+k)^k 2^{-m} (2cp)^{-k}; reference scale w0 |g e^{-w²}| (2cp)^{-k}
 # memoized per (T, tol) (a few distinct tolerances): the loop ran at every kap call (8% of route C's time)
 const MOMMC = TMemo{Tuple{DataType,Float64},Int}()
-momM(::Type{T}, tol::T) where {T} = T === BigFloat ? momM0(T, tol) : get!(() -> momM0(T, tol), MOMMC, (T, Float64(tol)))
+momM(::Type{T}, tol::T) where {T} = get!(() -> momM0(T, tol), MOMMC, (T, Float64(tol)))
 function momM0(::Type{T}, tol::T) where {T}
     M = 2
     while 3 * (M + 3)^2 * (T(1) / 2)^M * 2 > tol
@@ -301,7 +301,7 @@ end
 nuX(::Type{X}, m::Int, P::PerAx) where {X} = P.tw isa QI ? toT(X, (m - P.tw) / P.L) : (X(m) - X(P.θ) / (2 * X(π))) / toT(X, P.L)
 uOrdX(::Type{Float64}, ms::NTuple{N,Int}, Ps, fa::Float64, fb::Float64) where {N} =
     Float64(uOrd(ntuple(i -> nuX(Double64, ms[i], Ps[i]), N), Double64(fa), Double64(fb)))
-uOrdX(::Type{T}, ms::NTuple{N,Int}, Ps, fa::T, fb::T) where {T,N} = setprecision(BigFloat, (T === BigFloat ? precision(BigFloat) : precision(T)) + 64) do
+uOrdX(::Type{T}, ms::NTuple{N,Int}, Ps, fa::T, fb::T) where {T,N} = setprecision(BigFloat, precision(T) + 64) do
     T(uOrd(ntuple(i -> nuX(BigFloat, ms[i], Ps[i]), N), BigFloat(fa), BigFloat(fb)))
 end
 
@@ -367,25 +367,13 @@ function pFac3(A::AxK{T}, ξ::S, x::T, aT::T, bT::T) where {T,S}
     c, sn = csn(ξ * x)
     (kh * c, -kh * ξ * sn, -kh * ξ^2 * c)
 end
-# pFac3 at ξ = ξW given in the wider type W (wideT), with the phase ξW x reduced mod 2π in W before its one rounding to T. In T the argument ξ x
-# of the d_o = 2 angular sums carries ~2.5 ulp |ξ x| (the roundings of the node s + δ, of √, of the angular table and of the products), which
-# the open-axis oscillation turns into ~6 eps |k|ρ on the small entries of far open offsets (2.2-3.5 eps(1 + κ_e) at 4-32λ); used where the
-# phase exceeds PHX. BigFloat W runs inside wideDo's precision scope
+# pFac3 of a Float64 fill at ξ = ξh + ξl, with the phase ξ x reduced mod 2π by error-free products (fma) against 2π = TP2[1] + TP2[2] + TP2[3]
+# before its one rounding. In Float64 the argument ξ x of the d_o = 2 angular sums carries ~2.5 ulp |ξ x| (the roundings of the node s + δ, of
+# √, of the angular table and of the products), which the open-axis oscillation turns into ~6 eps |k|ρ on the small entries of far open
+# offsets (2.2-3.5 eps(1 + κ_e) at 4-32λ); used where the phase exceeds PHX
 const PHX = 8
-# off inside the wider reruns of flagged entries (peD64, filD64): their rounding is eps of the wider type
+# off inside the Double64 reruns of flagged entries (filD64): their rounding is eps(Double64)
 const WPH = Base.ScopedValues.ScopedValue(true)
-wideT(::Type{Float64}) = Double64
-wideT(::Type{T}) where {T} = BigFloat
-wideDo(f, ::Type{Float64}, s0) = f()
-wideDo(f, ::Type{T}, s0) where {T} = setprecision(f, BigFloat, 2 * precision(real(s0)) + 16)
-function pFac3W(A::AxK{T}, ξW, x::T, aT::T, bT::T) where {T}
-    RW = real(typeof(ξW)); tp = 2 * RW(π); toS(v) = v isa Complex ? Complex{T}(v) : T(v)
-    φ = ξW * RW(x); φ -= tp * round(T(real(φ)) * (1 / (2 * T(π))))
-    ξ = toS(ξW); kh = A.w0 * sncH(ξ, aT) * sncH(ξ, bT)
-    c, sn = csn(toS(φ))
-    (kh * c, -kh * ξ * sn, -kh * ξ^2 * c)
-end
-# Float64: the same with ξ = ξh + ξl and the reduction by error-free products (fma) against 2π = TP2[1] + TP2[2] + TP2[3]
 const TP2 = let b = setprecision(() -> 2 * big(π), BigFloat, 400); p1 = Float64(b); p2 = Float64(b - p1); (p1, p2, Float64(b - p1 - p2)) end
 function pFac3W(A::AxK{Float64}, ξh::Float64, ξl::Float64, x::Float64, aT::Float64, bT::Float64)
     φh = ξh * x; φl = fma(ξh, x, -φh) + ξl * x
@@ -401,10 +389,10 @@ function sqrt2(s0::Float64, δ0::Float64)
     rh = sqrt(sh); rh, (fma(-rh, rh, sh) + sl) / (2 * rh)
 end
 mul2(rh, rl, ch, cl) = (p = rh * ch; (p, fma(rh, ch, -p) + rh * cl + rl * ch))
-# a T number (real or complex) in wideT(T)
-toW(::Type{T}, v::Complex) where {T} = Complex{wideT(T)}(v)
-toW(::Type{T}, v) where {T} = wideT(T)(v)
-# the angular tables cos, sin(2πj/M) in W (at the current BigFloat precision for BigFloat), by rotation from one cospi/sinpi pair: the error grows
+# a Float64 number (real or complex) in Double64
+toW(v::Complex) = Complex{Double64}(v)
+toW(v) = Double64(v)
+# the angular tables cos, sin(2πj/M) in W, by rotation from one cospi/sinpi pair: the error grows
 # by a few eps(W) per step (<= 1e4 eps(W) at the largest M, far below eps(T)); one W cospi per entry cost seconds per order
 function csWide(::Type{W}, M) where {W}
     c1 = cospi(2 * one(W) / M); s1 = sinpi(2 * one(W) / M)
@@ -702,13 +690,3 @@ const NPCMAX = 10^4
 # complex-path panels of one cPart call (at open offsets of 300λ the order rays alone built millions of panels, 8.7 GB); beyond it
 # route C is skipped (rteAuto) or refused (route = :C)
 const CPMAX = 200_000
-# the rerun's type: Float64 -> Double64; Double64 -> BigFloat, BigFloat (p bits) -> BigFloat (2p bits), at the precision peWid sets
-widT(::Type{Float64}) = Double64
-widT(::Type{T}) where {T} = BigFloat
-# the precision of the wider rerun of a T = Double64 or BigFloat call (p0 bits): 2 p0, or more where the Float inputs span more bits (a
-# Double64's hi and lo parts may lie far apart), so that f and θ convert exactly
-function widPrc(p0, f, θ)
-    spn(v::Double64) = iszero(LO(v)) ? 53 : exponent(HI(v)) - exponent(LO(v)) + 53
-    spn(v) = v isa Rational ? 0 : precision(v)
-    max(2 * p0, maximum(spn, (real(f), imag(f), (t for t in θ if !(t isa Rational))...)) + 8)
-end

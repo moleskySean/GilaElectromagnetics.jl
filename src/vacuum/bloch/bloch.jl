@@ -7,7 +7,7 @@
 # order in closed form (d = 3) or per order on the real axis (evanescent), on its steepest-descent ray or in the spectral pole form
 # (propagating); route C (Im f > Re f/20) puts the segment on the saddle direction of every image. Every truncation and Gauss rule is
 # certified per offset against a proven bound; the a posteriori rounding factor λ_e = Σ|terms|/|X| of every entry is tracked.
-# Lengths in wavelengths, f complex (Float64, Double64 or BigFloat parts), exact Rational geometry (edges, offsets, periods), θ in radians
+# Lengths in wavelengths, f a ComplexF64 (Double64 inside the fill's own reruns), exact Rational geometry (edges, offsets, periods), θ in radians
 # (T) or as an exact twist θ/2π (Rational: θ = π is 1//2). At Im f < 0 the operator is the continuation at fixed Re f (J10).
 module Bloch
 

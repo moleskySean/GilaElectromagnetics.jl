@@ -8,8 +8,10 @@
 # and again at -t 1, which also checks that the outputs do not depend on the thread count.
 using GilaElectromagnetics, DoubleFloats, Random, Serialization
 import GilaElectromagnetics: FFTW, GlaKerOpt, KSRDIR, QI, cntBlk!, facPar, farBlk!, farBlkQss!, farBlkX!,
-    farFil!, farTol, momBlkQss!, parFac, parMom
+    farFil!, momBlkQss!, parFac, parMom
 import GilaElectromagnetics.Bloch: blcCmp, blcFil, blcSet
+# older trees have farTol(T)
+const FARTOL = isdefined(GilaElectromagnetics, :FARTOL) ? GilaElectromagnetics.FARTOL : GilaElectromagnetics.farTol(Float64)
 
 wis = get(ARGS, 2, nothing)
 wis !== nothing && isfile(wis) && FFTW.import_wisdom(wis)
@@ -79,19 +81,19 @@ for s in (sl, (1//32, 1//32, 1//128))
     snap("qssBlk $s") do
         egoToe = zeros(ComplexF64, 3, 3, 6, 6, 6); v = GlaVol((6, 6, 6), s, z)
         momBlkQss!(egoToe, v, cnt8)
-        momBlkQss!(egoToe, v, farBlkQss!(egoToe, s; tol = farTol(Float64), disk = false))
+        momBlkQss!(egoToe, v, farBlkQss!(egoToe, s; tol = FARTOL, disk = false))
         egoToe
     end
 end
 
 # Far field: equal-cell blocks (the slender one reaches route 3 at (0, 0, 3)), a sub-cell shift, and cross-scale pairs
 for (s, n, frq) in ((s32, (6, 6, 6), f), (s4, (6, 6, 6), 1.0 + 0.0im), (sl, (5, 5, 7), 1.0 + 0.0im))
-    snap("farBlk $s $frq") do; farBlk!(zeros(ComplexF64, 3, 3, n...), s, frq; tol = farTol(Float64), disk = false); end
+    snap("farBlk $s $frq") do; farBlk!(zeros(ComplexF64, 3, 3, n...), s, frq; tol = FARTOL, disk = false); end
 end
 snap("farFil off") do
     Ds = [(i, j, k) for i in -6:6, j in 0:3, k in 0:2 if max(abs(i), j, k) >= 3] |> vec
     G = zeros(ComplexF64, 3, 3, length(Ds))
-    farFil!(q -> view(G, :, :, q), Ds, map(QI, s32), f, (1/128, 0.0, 0.0); tol = farTol(Float64), disk = false)
+    farFil!(q -> view(G, :, :, q), Ds, map(QI, s32), f, (1/128, 0.0, 0.0); tol = FARTOL, disk = false)
     G
 end
 for sT in (s16, s8)
@@ -100,14 +102,14 @@ for sT in (s16, s8)
         Rs = [ntuple(d -> QI(2 * m[d] + n[d] - 1) / 64, 3) for m in Iterators.product(-2:6, -2:4, -3:5)
             if !all(d -> abs(2 * m[d] + n[d] - 1) <= n[d] + 1, 1:3)] |> vec
         G = zeros(ComplexF64, 3, 3, length(Rs))
-        farBlkX!(G, Rs, sT, s32, f; tol = farTol(Float64), disk = false)
+        farBlkX!(G, Rs, sT, s32, f; tol = FARTOL, disk = false)
         G
     end
 end
 # an offset off the gcd lattice takes the k-series
 snap("farBlkX off") do
     G = zeros(ComplexF64, 3, 3, 1)
-    farBlkX!(G, [(QI(-7//128), QI(1//64), QI(1//64))], s16, s32, 0.25 + 0.0im; tol = farTol(Float64), disk = false)
+    farBlkX!(G, [(QI(-7//128), QI(1//64), QI(1//64))], s16, s32, 0.25 + 0.0im; tol = FARTOL, disk = false)
     G
 end
 

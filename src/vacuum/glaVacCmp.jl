@@ -5,13 +5,12 @@ using KernelAbstractions: supports_float64
     GlaKerOpt{T<:AbstractFloat, B<:KernelAbstractions.Backend}
 
 Options that determine how the Green function operator is computed. `T` is the
-real storage precision of the operator data (`Complex{T}`), `genPrc` the
-generation precision and `dev` the KernelAbstractions backend the operator
+real storage precision of the operator data (`Complex{T}`), generated in
+Float64 and rounded once, and `dev` the KernelAbstractions backend the operator
 computes on.
 
 # Fields
 - `frqPhz::ComplexF64`: Multiplicative scaling factor allowing for complex frequencies
-- `genPrc::Type{<:AbstractFloat}`: Generation precision (default `Float64`; `Float32` throws, it would return NaN)
 - `qssApx::Bool`: Quasistatic approximation flag (true to generate the quasistatic kernel)
 - `adjMod::Bool`: Adjoint mode flag (true if adjoint mode is enabled)
 - `hrmPrt::Union{Nothing,Symbol}`: `:sym` or `:asy` keeps only the entry by entry real or imaginary part of the kernel, which for a self operator is its Hermitian part `(G₀ + G₀†) / 2` or `(G₀ - G₀†) / 2i`; `nothing` is the full kernel
@@ -23,38 +22,26 @@ computes on.
 """
 mutable struct GlaKerOpt{T<:AbstractFloat, B<:KernelAbstractions.Backend}
     frqPhz::ComplexF64
-    genPrc::Type{<:AbstractFloat}
     qssApx::Bool
     adjMod::Bool
     hrmPrt::Union{Nothing,Symbol}
     dev::B
     blc::Union{Nothing,NamedTuple}
     blcSet::Union{Nothing,BlcSet}
-    function GlaKerOpt{T}(dev::B = CPU(); frqPhz::Number = 1.0+0.0im, genPrc::Type{<:AbstractFloat} = Float64,
+    function GlaKerOpt{T}(dev::B = CPU(); frqPhz::Number = 1.0+0.0im,
         qssApx::Bool = false, adjMod::Bool = false, hrmPrt::Union{Nothing,Symbol} = nothing, blc = nothing, blcSet = nothing) where {T<:AbstractFloat, B<:KernelAbstractions.Backend}
-        chkGenPrc(genPrc)
         hrmPrt ∈ (nothing, :sym, :asy) || throw(ArgumentError("hrmPrt is :sym, :asy or nothing, got $(repr(hrmPrt))."))
         T === Float64 && !supports_float64(dev) && throw(ArgumentError("$(nameof(B)) has no Float64. Build the operator in Float32."))
         qssApx && blc !== nothing && throw(ArgumentError("The quasistatic kernel has no Bloch lattice."))
-        return new{T, B}(frqPhz, genPrc, qssApx, adjMod, hrmPrt, dev, blc, blcSet)
+        return new{T, B}(frqPhz, qssApx, adjMod, hrmPrt, dev, blc, blcSet)
     end
 end
 
-# the options are mutable, so the constructor's genPrc guard has to hold here too
-function Base.setproperty!(opt::GlaKerOpt, fld::Symbol, val)
-    fld === :genPrc && chkGenPrc(val)
-    return setfield!(opt, fld, convert(fieldtype(typeof(opt), fld), val))
-end
-
-# genPrc = Float32 overflows the h_l recursion near l ≈ 27 and returns NaN
-chkGenPrc(genPrc::Type{<:AbstractFloat}) = genPrc === Float32 &&
-    throw(ArgumentError("genPrc = Float32 would return NaN: the contact h_l recursion overflows near l ≈ 27. Use Float64 (default) or Double64."))
-
 """
-    GlaKerOpt{T}(dev::KernelAbstractions.Backend=CPU(); frqPhz=1.0+0.0im, genPrc=Float64, qssApx=false, adjMod=false, hrmPrt=nothing, blc=nothing, blcSet=nothing)
+    GlaKerOpt{T}(dev::KernelAbstractions.Backend=CPU(); frqPhz=1.0+0.0im, qssApx=false, adjMod=false, hrmPrt=nothing, blc=nothing, blcSet=nothing)
     GlaKerOpt(dev::KernelAbstractions.Backend=CPU(); kwargs...)
 
-Options on `dev`, by default a phase factor of 1, `Float64` generation, the full
+Options on `dev`, by default a phase factor of 1, the full
 kernel and not only a Hermitian part of it, not adjoint and no Bloch lattice. The storage precision `T` defaults to `dflPrc`.
 """
 GlaKerOpt(dev::KernelAbstractions.Backend=CPU(); kw...) = GlaKerOpt{dflPrc}(dev; kw...)
@@ -65,7 +52,7 @@ GlaKerOpt(dev::KernelAbstractions.Backend=CPU(); kw...) = GlaKerOpt{dflPrc}(dev;
 Copy of `opt` with storage precision `T`, on `dev`.
 """
 GlaKerOpt{T}(opt::GlaKerOpt; dev::KernelAbstractions.Backend=opt.dev) where T<:AbstractFloat =
-    GlaKerOpt{T}(dev; opt.frqPhz, opt.genPrc, opt.qssApx, opt.adjMod, opt.hrmPrt, opt.blc, opt.blcSet)
+    GlaKerOpt{T}(dev; opt.frqPhz, opt.qssApx, opt.adjMod, opt.hrmPrt, opt.blc, opt.blcSet)
 
 """
     devMem(dev::KernelAbstractions.Backend)

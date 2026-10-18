@@ -1,13 +1,12 @@
-# erfc, erfcx and E_p for T = Float64, Double64, BigFloat (the part the heat-kernel route uses). Principal branches; on a
+# erfc, erfcx and E_p for T = Float64, Double64 (the part the heat-kernel route uses). Principal branches; on a
 # cut the sign of a zero imaginary part picks the side, also for Double64 (whose BigFloat conversion drops the sign of -0.0: bg).
 # Series that cancel are summed in BigFloat widened by their a priori amplification, continued fractions (modified Lentz) run in T.
 const BG = BigFloat
 wid(::Type{T}, xtr) where {T} = precision(T) + ceil(Int, xtr) + 24
 bg(x::Real) = (b = BG(x); iszero(x) && signbit(x) ? -abs(b) : b)
 cB(z::Complex) = Complex{BG}(bg(real(z)), bg(imag(z)))
-# round a working-precision BigFloat result to T (for T = BigFloat: to the caller's precision)
+# round a working-precision BigFloat result to T
 rT(::Type{T}, z::Complex) where {T} = Complex{T}(T(real(z)), T(imag(z)))
-rT(::Type{BigFloat}, z::Complex) = Complex{BG}(BG(real(z); precision = precision(BG)), BG(imag(z); precision = precision(BG)))
 # Sum_k t_k in BigFloat at precision p, t_{k+1} = t_k * r(k); stops when |t_k| < 2^-p |S|
 function serB(t0, r, p; kMax = 1_000_000)
     S = t0; t = t0
@@ -17,12 +16,7 @@ function serB(t0, r, p; kMax = 1_000_000)
     end
     error("serB: no convergence")
 end
-# continued fractions run in T; for T = BigFloat with 24 guard bits (their rounding error grows with the step count)
-cfW(cf, z::Complex{T}, a...) where {T} = cf(a..., z)
-function cfW(cf, z::Complex{BigFloat}, a...)
-    r = setprecision(() -> cf(a..., cB(z)), BG, precision(BG) + 24)
-    r === nothing ? nothing : rT(BigFloat, r)
-end
+# continued fractions run in T
 # Laplace continued fraction erfc(z) = e^{-z^2}/sqrt(pi) * cfErfc(z), Re z > 0; nothing if not converged in nMax steps
 function cfErfc(z::Complex{T}; nMax = 4000) where {T}
     tiny = floatmin(T) * 2^20; e = eps(T)
@@ -56,7 +50,7 @@ end
 function erfcG(z::Complex{T}) where {T}
     real(z) < 0 && return 2 - erfcG(-z)
     if cfOK(z)
-        c = cfW(cfErfc, z); c === nothing || return expM2(z) * c / sqrt(T(pi))
+        c = cfErfc(z); c === nothing || return expM2(z) * c / sqrt(T(pi))
     end
     erfcSer(z)
 end
@@ -93,6 +87,6 @@ end
 cfExpOK(::Type{T}, z) where {T} = abs(z) >= max(2, precision(T) / 12) && abs(angle(z)) < 3pi / 4
 function expintG(p::Integer, z::Complex{T}) where {T}
     p < 1 && error("expintG: integer order must be >= 1")
-    cfExpOK(T, z) && return cfW(cfExp, z, p) * exp(-z)
+    cfExpOK(T, z) && return cfExp(p, z) * exp(-z)
     expSer(p, z, false)
 end

@@ -10,14 +10,12 @@ module GilaJLD2Ext
 
 using GilaElectromagnetics
 using GilaElectromagnetics: GlaVacOprMem, _memDsk, _memLod
-using DoubleFloats: Double64
 import JLD2
 
-# The stored form of _memDsk, with the generation precision named
+# The stored form of _memDsk
 struct MemDsk{T<:AbstractFloat}
     egoFur::Vector{Array{Complex{T}, 6}}
     frqPhz::ComplexF64
-    genPrc::Symbol
     qssApx::Bool
     adjMod::Bool
     hrmPrt::Union{Nothing, Symbol}
@@ -32,21 +30,11 @@ struct SusDsk{T<:AbstractFloat, N}
     adjMod::Bool
 end
 
-#= genPrc is a type-valued field; a stored DataType is the cross-version
-reconstruction hazard JLD2 is here to avoid, so the two admissible precisions
-are named explicitly. Float32 never reaches here, chkGenPrc rejects it. =#
-_prcSym(genPrc::Type{<:AbstractFloat}) = genPrc === Float64 ? :Float64 :
-    genPrc === Double64 ? :Double64 :
-    throw(ArgumentError("Cannot write an operator generated at $genPrc: add that precision to GilaJLD2Ext's genPrc table first."))
-_symPrc(genPrc::Symbol) = genPrc === :Float64 ? Float64 :
-    genPrc === :Double64 ? Double64 :
-    throw(ArgumentError("The file names generation precision $genPrc, which this version of Gila does not know; read it with a version whose GilaJLD2Ext lists $genPrc."))
-
 JLD2.writeas(::Type{<:GlaVacOprMem{T}}) where T<:AbstractFloat = MemDsk{T}
 
 JLD2.wconvert(::Type{MemDsk{T}}, mem::GlaVacOprMem{T}) where T<:AbstractFloat =
-    MemDsk{T}(merge(_memDsk(mem), (; genPrc = _prcSym(mem.cmpInf.genPrc)))...)
-JLD2.rconvert(::Type{<:GlaVacOprMem{T}}, dsk::MemDsk{T}) where T<:AbstractFloat = _memLod(dsk, _symPrc(dsk.genPrc))
+    MemDsk{T}(_memDsk(mem)...)
+JLD2.rconvert(::Type{<:GlaVacOprMem{T}}, dsk::MemDsk{T}) where T<:AbstractFloat = _memLod(dsk)
 
 JLD2.writeas(::Type{<:SusOpr{T, A}}) where {T<:AbstractFloat, A} = SusDsk{T, ndims(A)}
 

@@ -943,9 +943,8 @@ end
 @inline chkCut(fs::FrqSet) = fs.nNd <= fs.nMx ? nothing :
     error("chkCut: the n-tail bound needs N = $(fs.nNd), the table holds $(fs.nMx)")
 
-# tol = 45 eps, which is 9.992e-15 at Float64: below the 16.4 ulp max-norm floor of the expansion,
-# so tightening it only adds terms
-farTol(::Type{T}) where {T} = 45 * Float64(eps(T))
+# 45 eps = 9.992e-15: below the 16.4 ulp max-norm floor of the expansion, so tightening it only adds terms
+const FARTOL = 45 * eps(Float64)
 
 # A set is certified only on the radius interval [rNc, rHi = 4 nBlk r_d] the offsets it was BUILT
 # for fix, so nBlk and nMin belong in the key: one built for a 32^3 block and reused at 128^3

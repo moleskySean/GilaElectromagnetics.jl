@@ -1212,7 +1212,7 @@ function cntMom(scl::NTuple{3,Rational}, stp::NTuple{3,Rational}, mMax::Int)
 end
 
 # the contact block of egoToe, from the face-pair moments, which are exact touching or
-# not. The signed 36-pair assembly runs at Double64 whatever genPrc is: its amplification
+# not. The signed 36-pair assembly runs in Double64: its amplification
 # and the series' digit loss together overrun Float64.
 function cntBlk!(egoToe::AbstractArray{<:Complex,5}, vol::GlaVol,
     cmpInf::GlaKerOpt)
@@ -1237,7 +1237,7 @@ end
 # I_{-1} / (4 pi f^2), less the 1/f^2 that genEgoSlf! applies once at the end.  What lands in
 # egoToe is therefore S itself, which carries no frequency.  genEgoSlf! calls this for the contact
 # offsets, then again for the near band farBlkQss! refuses.  The signed 36-pair assembly runs at
-# Double64 whatever genPrc is; its amplification alone overruns Float64.
+# Double64; its amplification alone overruns Float64.
 function momBlkQss!(egoToe::AbstractArray{<:Complex,5}, vol::GlaVol, Ds::Vector{NTuple{3,Int}})
 
     stp = ntuple(dir -> Int(step(vol.grd[dir]) // vol.scl[dir]), 3)

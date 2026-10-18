@@ -390,6 +390,7 @@ function blcFil(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple
     blasMt() && return blas1(() -> blcFil(s, f, ax, N, P, θ; kw...))
     FILACC[] === nothing && return with(() -> blcFil(s, f, ax, N, P, θ; kw...), FILACC => Threads.Atomic{Float64}(0.0))
     NESTED[] && return blcFil0(s, f, ax, N, P, θ; kw...)
+    T === Float64 || throw(ArgumentError("blcFil runs in Float64, got $T; only its own reruns of flagged entries run in Double64"))
     with(NESTED => true) do
         r = blcFil0(s, f, ax, N, P, θ; kw...)
         filD64(r, s, f, ax, N, P, θ; kw...)
@@ -430,7 +431,7 @@ function nearSym(ms, s, ax, P, θ, I, a, b)
     end
     false
 end
-function filD64(r, s, f::Complex{T}, ax, N, P, θ; entT = 1e-8, tol = eps(T), sel = nothing, kw...) where {T}
+function filD64(r, s, f::ComplexF64, ax, N, P, θ; entT = 1e-8, tol = eps(Float64), sel = nothing, kw...)
     H, A, inf = r
     λH, λA = inf[:λe]; ms = inf[:ms]; nn = length.(ms)
     ents = ((1, 1), (2, 2), (3, 3), (1, 2), (1, 3), (2, 3))
@@ -465,17 +466,13 @@ function filD64(r, s, f::Complex{T}, ax, N, P, θ; entT = 1e-8, tol = eps(T), se
         for I in Iterators.product(sl...); cov[CartesianIndex(I)] = true; end
         push!(grp, sl)
     end
-    # the wider type: Double64 for Float64; BigFloat at widPrc bits for Double64 and BigFloat (wp: its precision scope); results rounded back to T
-    Dd = widT(T); p0 = T === BigFloat ? precision(real(f)) : precision(T); pW = T === Float64 ? 0 : widPrc(p0, f, θ)
-    wp(g) = T === Float64 ? g() : setprecision(g, BigFloat, pW)
-    epsT = T === BigFloat ? ldexp(BigFloat(1), 1 - p0) : eps(T)
-    rd(x) = T === BigFloat ? BigFloat(x; precision = p0) : T(x)
-    fD, θD, epsD, tolD, kwD = wp(() -> (Complex{Dd}(Dd(real(f)), Dd(imag(f))), Tuple(t isa Rational ? t : Dd(t) for t in θ), eps(Dd), Dd(tol),
-                                        NamedTuple{keys(kw)}(map(v -> v isa AbstractFloat ? Dd(v) : v, values(kw)))))
+    # the rerun in Double64 at the same inputs, its results rounded back to Float64
+    fD = Complex{Double64}(f); θD = Tuple(t isa Rational ? t : Double64(t) for t in θ); epsD = eps(Double64); epsT = eps(Float64)
+    kwD = NamedTuple{keys(kw)}(map(v -> v isa AbstractFloat ? Double64(v) : v, values(kw)))
     entD = min(entT, max(rmn / 4, RMINF / 4))
     for sl in grp
         selD = ntuple(j -> ms[j][sl[j]], 3)
-        Hd, Ad, iD = wp(() -> with(() -> blcFil(s, fD, ax, N, P, θD; kwD..., tol = tolD, entT = entD, sel = selD), WPH => false))
+        Hd, Ad, iD = with(() -> blcFil(s, fD, ax, N, P, θD; kwD..., tol = Double64(tol), entT = entD, sel = selD), WPH => false)
         # the Double64 run's own rounding factor on the flagged entries
         lH, lA = iD[:λe]; msD = iD[:ms]
         for I in Iterators.product(sl...)
@@ -484,11 +481,11 @@ function filD64(r, s, f::Complex{T}, ax, N, P, θ; entT = 1e-8, tol = eps(T), se
                 for (X, lam) in ((Hd, lH), (Ad, lA))
                     mx = maximum(abs, view(X, :, :, Jd)); mx == 0 && continue
                     for (q, (a, b)) in enumerate(ents)
-                        abs(X[a, b, Jd]) >= entT * mx && lam[q, Jd] * epsD > epsT / 4 && error("blcFil: rounding amplification Σ|terms|/|X| = $(lam[q, Jd]) at offset $(ntuple(j -> ms[j][J[j]], 3)) even in $(T === Float64 ? "Double64" : "BigFloat ($pW bits)"); refused")
+                        abs(X[a, b, Jd]) >= entT * mx && lam[q, Jd] * epsD > epsT / 4 && error("blcFil: rounding amplification Σ|terms|/|X| = $(lam[q, Jd]) at offset $(ntuple(j -> ms[j][J[j]], 3)) even in Double64; refused")
                     end
                 end
             end
-            H[:, :, J] .= (z -> complex(rd(real(z)), rd(imag(z)))).(Hd[:, :, Jd]); A[:, :, J] .= (z -> complex(rd(real(z)), rd(imag(z)))).(Ad[:, :, Jd])
+            H[:, :, J] .= ComplexF64.(Hd[:, :, Jd]); A[:, :, J] .= ComplexF64.(Ad[:, :, Jd])
             λH[:, J] .= Float32.(lH[:, Jd] .* (epsD / epsT)); λA[:, J] .= Float32.(lA[:, Jd] .* (epsD / epsT))
         end
     end
@@ -2029,13 +2026,13 @@ function spFil(::Type{T}, axk, op, xs, p, up, cont, y, τ, α, tol, nGt, ap, s; 
         M2 = Mr(sqrt(S) * 2); Min = Mx > 0 ? M2 : Mr(sqrt(2 * sc))
         csT = Dict{Int,Tuple{Vector{T},Vector{T}}}()
         cs_(M) = get!(() -> ([cospi(2 * T(j) / M) for j in 0:M-1], [sinpi(2 * T(j) / M) for j in 0:M-1]), csT, M)
-        # (the wide tables: BigFloat ones at the precision of the scope they are first built in, wideDo's, the same for every node of the call)
-        csTW = Dict{Int,Tuple{Vector{wideT(T)},Vector{wideT(T)}}}()
-        csW_(M) = get!(() -> csWide(wideT(T), M), csTW, M)
+        # (the wide tables, in Double64)
+        csTW = Dict{Int,Tuple{Vector{Double64},Vector{Double64}}}()
+        csW_(M) = get!(() -> csWide(Double64, M), csTW, M)
         abT = [(toT(T, axk[op[k]].a), toT(T, axk[op[k]].b)) for k in 1:2]
         # the angular factors of axis k at radius r for every offset and node, the trapezoid mass and trig once per (node, offset): pFac3's numbers
         # (every name assigned in these closures is local: spFil assigns r0, cM, sM, P1, P2 itself)
-        # (the wide phase of blcTns's spcSP per offset where r_g|x_q| > PHX, r_g = √(2 s_c) on s <= 2 s_c; rW the node's radius in wideT(T))
+        # (the wide phase of blcTns's spcSP per offset where r_g|x_q| > PHX, r_g = √(2 s_c) on s <= 2 s_c; rW the node's radius as rh + rl)
         function qAx(k, r, cv, M, rW, cvW, rg)
             local A_ = axk[op[k]]; local xk = xsO[k]; local Q = [zeros(typeof(r), length(xk), M) for _ in 1:3]
             local wq = [rW !== nothing && rg * abs(xq) > PHX for xq in xk]
@@ -2043,7 +2040,7 @@ function spFil(::Type{T}, axk, op, xs, p, up, cont, y, τ, α, tol, nGt, ap, s; 
                 local ξ = r * cv[j]; local kh = A_.w0 * sncH(ξ, abT[k][1]) * sncH(ξ, abT[k][2])
                 for (q, xq) in enumerate(xk)
                     if wq[q]
-                        local P = rW isa Tuple ? pFac3W(A_, mul2(rW[1], rW[2], HI(cvW[j]), LO(cvW[j]))..., xq, abT[k][1], abT[k][2]) : pFac3W(A_, rW * cvW[j], xq, abT[k][1], abT[k][2])
+                        local P = pFac3W(A_, mul2(rW[1], rW[2], HI(cvW[j]), LO(cvW[j]))..., xq, abT[k][1], abT[k][2])
                         Q[1][q, j] = P[1]; Q[2][q, j] = P[2]; Q[3][q, j] = P[3]
                     else
                         local c, sn = csn(ξ * xq)
@@ -2059,20 +2056,16 @@ function spFil(::Type{T}, axk, op, xs, p, up, cont, y, τ, α, tol, nGt, ap, s; 
             local cM, sM = cs_(M)
             local rg = sv isa Real ? (sv <= 2 * sc ? sqrt(2 * sc) : r) : abs(r)
             local wd = WPH[] && rg * max(maximum(abs, xsO[1]), maximum(abs, xsO[2])) > PHX
-            # the continuation a(-p) at complex radius: factors and products in W (blcTns's spcSP)
+            # the continuation a(-p) at complex radius: factors and products in Double64 (blcTns's spcSP)
             if wd && !(sv isa Real)
-                return wideDo(T, s0) do
-                    local rW = sqrt(toW(T, s0) + toW(T, δ0)); local cW, sW = csW_(M)
-                    local Q1 = [pFac3(axk[op[1]], rW * cW[j], xq, abT[1][1], abT[1][2]) for xq in xsO[1], j in 1:M]
-                    local Q2 = [pFac3(axk[op[2]], rW * sW[j], xq, abT[2][1], abT[2][2]) for j in 1:M, xq in xsO[2]]
-                    Dict(key(pt) => Complex{T}.((getindex.(Q1, pt[1] + 1) * getindex.(Q2, pt[2] + 1)) ./ (4 * real(typeof(rW))(π) * M)) for pt in pats)
-                end
+                local rW = sqrt(toW(s0) + toW(δ0)); local cW, sW = csW_(M)
+                local Q1 = [pFac3(axk[op[1]], rW * cW[j], xq, abT[1][1], abT[1][2]) for xq in xsO[1], j in 1:M]
+                local Q2 = [pFac3(axk[op[2]], rW * sW[j], xq, abT[2][1], abT[2][2]) for j in 1:M, xq in xsO[2]]
+                return Dict(key(pt) => Complex{T}.((getindex.(Q1, pt[1] + 1) * getindex.(Q2, pt[2] + 1)) ./ (4 * Double64(π) * M)) for pt in pats)
             end
             local P1, P2 = if wd
-                wideDo(T, s0) do
-                    local rW = T === Float64 && sv isa Real ? sqrt2(s0, δ0) : sqrt(toW(T, s0) + toW(T, δ0)); local cW, sW = csW_(M)
-                    (qAx(1, r, cM, M, rW, cW, rg), qAx(2, r, sM, M, rW, sW, rg))
-                end
+                local rW = sqrt2(s0, δ0); local cW, sW = csW_(M)
+                (qAx(1, r, cM, M, rW, cW, rg), qAx(2, r, sM, M, rW, sW, rg))
             else
                 (qAx(1, r, cM, M, nothing, nothing, rg), qAx(2, r, sM, M, nothing, nothing, rg))
             end
@@ -2101,7 +2094,7 @@ function spFil(::Type{T}, axk, op, xs, p, up, cont, y, τ, α, tol, nGt, ap, s; 
         Mpl = [T(hi_) <= sc ? Min : max(Min, Mr(sqrt(sc + T(hi_)))) for (lo_, hi_) in pl]
         # (the angular tables of every M filled here, before any node: aV then only reads csT, also from several threads)
         foreach(cs_, unique(Mpl)); cs_(M2)
-        wideDo(T, sc) do; foreach(csW_, unique([Mpl; Min; M2])); end
+        foreach(csW_, unique([Mpl; Min; M2]))
         # a priori flops of this order's remainder (angular factors and their products over the open-offset grid per node); the fill has no
         # other budget, and at open extents of 32λ one order needed ~1e11 (> 25 min); 64³ in coverage needs <= ~2e10
         fl_ = nGt * sum(Mpl; init = 0) * (3 * (nO[1] + nO[2]) + 12 * nO[1] * nO[2])
@@ -2680,7 +2673,7 @@ function cFil!(CH, CA, s, f::Complex{T}, ax::NTuple{D,Int}, xs, ms, nn, axk, sTa
         # node count per order-ray panel from ATAP 19.3: the smallest n with (32/15) Rρ ρ^{-2n}/(ρ² - 1) <= tol/10 for some ρ, where
         # Rρ = max over the open offsets and derivative orders of M(E_ρ)/M(segment) (the panel's majorant on the ellipse over the
         # same majorant on the panel itself: e^{max Re(-p t)} Π_o κ_o majorants, axMaj): each panel's Gauss error is then
-        # below tol/10 of its own a priori scale 2h·M(segment), offset by offset (the vacuum library's farTol convention)
+        # below tol/10 of its own a priori scale 2h·M(segment), offset by offset (the vacuum library's FARTOL convention)
         xaO = Dict(o => unique([abs(toT(T, xq)) for xq in xs[o]]) for o in op)
         function omaj(o, k, e)
             cp = sTa[o]; w0 = axk[o].w0

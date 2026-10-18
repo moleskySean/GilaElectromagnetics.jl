@@ -70,14 +70,9 @@ end
     @test GlaKerOpt{Float32}(GlaKerOpt{Float64}()) isa GlaKerOpt{Float32, CPU}
     @test prcSlfMem32 isa GlaVacOprMem{Float32}
 
-    # generation at Float32 returns NaN, and the options are mutable, so the guard has
-    # to sit on the assignment as well as on the constructor
+    # the options are mutable
     prcOptGen = GlaKerOpt{Float64}()
-    @test_throws ArgumentError GlaKerOpt{Float64}(prcOptGen.dev; genPrc=Float32)
-    @test_throws ArgumentError (prcOptGen.genPrc = Float32)
-    prcOptGen.genPrc = Float64
     prcOptGen.frqPhz = 1.0 + 0.1im
-    @test prcOptGen.genPrc === Float64
     @test prcOptGen.frqPhz == 1.0 + 0.1im
 
     opr32 = prcG032()

@@ -55,13 +55,12 @@ blcKer(hrmPrt, H, A) = hrmPrt === :sym ? H : hrmPrt === :asy ? A : H .+ im .* A
 function genEgoSlf!(egoCrc::AbstractArray{<:Complex,5}, slfVol::GlaVol, cmpInf::GlaKerOpt;
     shpCch::Bool = false, blk = nothing)
 
-    prc = real(eltype(egoCrc))
     blc = cmpInf.blc
     stp = ntuple(dir -> Int(step(slfVol.grd[dir]) // slfVol.scl[dir]), 3)
     if blk !== nothing
         egoToe = blcKer(cmpInf.hrmPrt, blk...)
     elseif blc !== nothing
-        frq = Complex{prc}(cmpInf.frqPhz)
+        frq = cmpInf.frqPhz
         # one BlcSet per frequency and unit cell, kept for setBlc!
         st = cmpInf.blcSet
         st !== nothing && (st.f, st.N) == (frq, slfVol.cel) ||
@@ -72,7 +71,7 @@ function genEgoSlf!(egoCrc::AbstractArray{<:Complex,5}, slfVol::GlaVol, cmpInf::
         egoToe = Array{eltype(egoCrc)}(undef, 3, 3, slfVol.cel...)
         momBlkQss!(egoToe, slfVol, [(Tuple(itr) .- 1) .* stp # the contact offsets
             for itr ∈ vec(CartesianIndices(min.(slfVol.cel, 2)))])
-        ner = farBlkQss!(egoToe, slfVol.scl; tol = farTol(prc), disk = shpCch, stp = stp)
+        ner = farBlkQss!(egoToe, slfVol.scl; tol = FARTOL, disk = shpCch, stp = stp)
         momBlkQss!(egoToe, slfVol, ner) # the offsets the multipole refuses, left NaN
         all(isfinite, egoToe) || error("genEgoSlf!: quasistatic near band left unfilled.")
         for dir ∈ 1:3
@@ -82,7 +81,7 @@ function genEgoSlf!(egoCrc::AbstractArray{<:Complex,5}, slfVol::GlaVol, cmpInf::
     else
         egoToe = Array{eltype(egoCrc)}(undef, 3, 3, slfVol.cel...)
         cntBlk!(egoToe, slfVol, cmpInf)
-        farBlk!(egoToe, slfVol.scl, Complex{prc}(cmpInf.frqPhz); tol = farTol(prc),
+        farBlk!(egoToe, slfVol.scl, cmpInf.frqPhz; tol = FARTOL,
             disk = shpCch, stp = stp)
         for dir ∈ 1:3
             egoToe[dir,dir,1,1,1] -= 1 / (cmpInf.frqPhz^2)
@@ -135,7 +134,6 @@ function genEgoExt!(egoCrcExt::AbstractArray{<:Complex,5}, trgVol::GlaVol, srcVo
     itrSpc = CartesianIndices(axes(egoCrcExt)[3:5])
     lat = trgVol.scl == srcVol.scl ? extOff(size(egoCrcExt)[3:5], trgVol.cel, trgVol.scl,
         sepGrdTrg, sepGrdSrc) : nothing
-    prc = real(eltype(egoCrcExt))
     cntPos = CartesianIndex{3}[]
     farPos = CartesianIndex{3}[]
     farOff = NTuple{3,Int}[]
@@ -157,15 +155,15 @@ function genEgoExt!(egoCrcExt::AbstractArray{<:Complex,5}, trgVol::GlaVol, srcVo
     end
     if lat !== nothing
         farFil!(farOff, ntuple(dir -> QI(trgVol.scl[dir]), 3),
-            Complex{prc}(cmpInf.frqPhz), ntuple(dir -> prc(lat[2][dir]), 3);
-            tol = farTol(prc), disk = shpCch) do q
+            cmpInf.frqPhz, ntuple(dir -> Float64(lat[2][dir]), 3);
+            tol = FARTOL, disk = shpCch) do q
             view(egoCrcExt, :, :, farPos[q])
         end
     elseif !isempty(farPos)
         # the pair's own trapezoid expansion on the exact rational offsets of a cross-scale pair
         egoFar = Array{eltype(egoCrcExt)}(undef, 3, 3, length(farPos))
-        farBlkX!(egoFar, farSep, trgVol.scl, srcVol.scl, Complex{prc}(cmpInf.frqPhz);
-            tol = farTol(prc), disk = shpCch)
+        farBlkX!(egoFar, farSep, trgVol.scl, srcVol.scl, cmpInf.frqPhz;
+            tol = FARTOL, disk = shpCch)
         for posItr ∈ eachindex(farPos)
             @inbounds copyto!(view(egoCrcExt, :, :, farPos[posItr]),
                 view(egoFar, :, :, posItr))

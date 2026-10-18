@@ -12,7 +12,7 @@ using Serialization
 
 Everything a vacuum operator needs to act: the options `cmpInf`, the two volumes,
 the grid matching `mixInf`, the Fourier coefficients `egoFur` of the circulant
-kernel (generated at `cmpInf.genPrc`, rounded once to `Complex{T}`), the FFT
+kernel (generated in Float64, rounded once to `Complex{T}`), the FFT
 plans of the operator and of its adjoint, which `adjoint!` swaps, and the phases `phzInf` of the even/odd
 branch split at each level.
 """
@@ -67,8 +67,7 @@ function GlaVacOprMem(cmpInf::GlaKerOpt{T}, trgVol::GlaVol, srcVol::GlaVol=trgVo
 
     # memory for circulant green function vector. The integral kernels want
     # the 3×3 tensor block contiguous per cell, so the fill keeps this layout
-    genCpx = Complex{cmpInf.genPrc}
-    egoCrc = Array{genCpx}(undef, 3, 3, totCelCrc..., totParSrc, totParTrg)
+    egoCrc = Array{ComplexF64}(undef, 3, 3, totCelCrc..., totParSrc, totParTrg)
     genEgoCrc!(egoCrc, trgVol, srcVol, mixInf, cmpInf; shpCch, blk)
     if !all(isfinite, egoCrc)
         throw(ArgumentError("Computed circulant contains non-numeric values."))
@@ -77,7 +76,7 @@ function GlaVacOprMem(cmpInf::GlaKerOpt{T}, trgVol::GlaVol, srcVol::GlaVol=trgVo
     # transposition)---entries are xx, yy, zz, xy, xz, yz---into a cells-first
     # array so that a single batched plan transforms every component and
     # partition pair
-    egoCrcCmp = Array{genCpx}(undef, totCelCrc..., 6, totParSrc, totParTrg)
+    egoCrcCmp = Array{ComplexF64}(undef, totCelCrc..., 6, totParSrc, totParTrg)
     gthEgoCmp!(egoCrcCmp, egoCrc)
     #= The Hermitian and anti-Hermitian parts are the entry by entry real and
     imaginary parts of the kernel, taken before the transform rather than after:
@@ -178,12 +177,12 @@ GPU Fourier stage: upload the gathered circulant once, then run the transform
 device. When the full circulant does not fit on device next to the branches
 (large multi-partition external operators), fall back to batching per
 partition pair with a single reused plan. VkFFT transforms Float64 at most, so
-a backend without Float64, or a Double64 circulant, transforms on the CPU and
+a backend without Float64 transforms on the CPU and
 receives the narrowed branches.
 =#
 function genEgoFur(egoCrcCmp::Array{<:Complex,6}, truInf::AbstractVector{<:Integer}, cmpInf::GlaKerOpt{T, <:GPU}) where T<:AbstractFloat
     dev = cmpInf.dev
-    supports_float64(dev) && eltype(egoCrcCmp) === ComplexF64 || return map(brn -> adapt(dev, brn), genEgoFur(egoCrcCmp, truInf, GlaKerOpt{T}(cmpInf; dev=CPU())))
+    supports_float64(dev) || return map(brn -> adapt(dev, brn), genEgoFur(egoCrcCmp, truInf, GlaKerOpt{T}(cmpInf; dev=CPU())))
     ddDim, totParSrc, totParTrg = size(egoCrcCmp)[4:6]
     egoFur = map(_ -> allocate(dev, Complex{T}, truInf..., ddDim, totParSrc, totParTrg), 1:8)
     # leave headroom: the transform itself needs device workspace
@@ -268,9 +267,9 @@ function setBlc!(mem::GlaVacOprMem, θ::Tuple, blk = nothing)
     opt.blc === nothing && throw(ArgumentError("setBlc! needs an operator built with a Bloch lattice."))
     opt.blc = merge(opt.blc, (; θ))
     totCelCrc = mem.mixInf.trgCel .+ mem.mixInf.srcCel
-    egoCrc = Array{Complex{opt.genPrc}}(undef, 3, 3, totCelCrc..., 1, 1)
+    egoCrc = Array{ComplexF64}(undef, 3, 3, totCelCrc..., 1, 1)
     genEgoCrc!(egoCrc, mem.trgVol, mem.srcVol, mem.mixInf, opt; blk)
-    egoCrcCmp = Array{Complex{opt.genPrc}}(undef, totCelCrc..., 6, 1, 1)
+    egoCrcCmp = Array{ComplexF64}(undef, totCelCrc..., 6, 1, 1)
     gthEgoCmp!(egoCrcCmp, egoCrc)
     egoFur = genEgoFur(egoCrcCmp, collect(size(first(mem.egoFur))[1:3]), opt)
     foreach((dst, src) -> dst .= opt.adjMod ? conj.(src) : src, mem.egoFur, egoFur)
@@ -312,12 +311,12 @@ The FFT plans are process-local C pointers and mixInf follows from the volumes,
 so glaOprPrp rebuilds both on load. The Bloch lattice is kept, its per-frequency
 BlcSet cache is not. =#
 _memDsk(mem::GlaVacOprMem) = (egoFur = map(fur -> adapt(CPU(), fur), mem.egoFur), frqPhz = mem.cmpInf.frqPhz,
-    genPrc = mem.cmpInf.genPrc, qssApx = mem.cmpInf.qssApx, adjMod = mem.cmpInf.adjMod, hrmPrt = mem.cmpInf.hrmPrt, blc = mem.cmpInf.blc,
+    qssApx = mem.cmpInf.qssApx, adjMod = mem.cmpInf.adjMod, hrmPrt = mem.cmpInf.hrmPrt, blc = mem.cmpInf.blc,
     trgVol = mem.trgVol, srcVol = mem.srcVol)
 
 # An operator memory on the CPU from its stored form, at the precision of the stored Fourier data
-function _memLod(dsk, genPrc = dsk.genPrc)
-    opt = GlaKerOpt{real(eltype(first(dsk.egoFur)))}(; dsk.frqPhz, genPrc, dsk.qssApx, dsk.adjMod, dsk.hrmPrt, dsk.blc)
+function _memLod(dsk)
+    opt = GlaKerOpt{real(eltype(first(dsk.egoFur)))}(; dsk.frqPhz, dsk.qssApx, dsk.adjMod, dsk.hrmPrt, dsk.blc)
     return glaOprPrp(dsk.egoFur, dsk.trgVol, dsk.srcVol, GlaExtInf(dsk.trgVol, dsk.srcVol), opt)
 end
 
