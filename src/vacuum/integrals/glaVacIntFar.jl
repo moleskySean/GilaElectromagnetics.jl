@@ -1493,8 +1493,6 @@ struct FrqSetX{T,E}
     tbQ::NTuple{3,QI}               # b = (sT + sS)/2 per axis, exact
     b6::NTuple{3,Float64}
     gQ::NTuple{3,QI}                # the gcd cell min(sT, sS) per axis
-    g6::NTuple{3,Float64}
-    o6::NTuple{3,Float64}           # latPos: R = m g + o, o = (nT - nS) g/2
     nT::NTuple{3,Int}               # target sub-cells per axis
     nS::NTuple{3,Int}               # source sub-cells per axis
     frq::Complex{T}
@@ -1566,9 +1564,7 @@ function farSetX(sTQ::NTuple{3,QI}, sSQ::NTuple{3,QI}, frq::Complex{T}; tol::Flo
     prf = (imag(frq) == 0 ? Complex(zero(T), 2 * T(pi) / real(frq)) : im * k / frq^2) *
           T(prod(tbQ) / prod(sTQ))
     E = imag(frq) == 0 ? T : Complex{T}
-    g6 = ntuple(d -> Float64(gQ[d]), 3)
-    o6 = ntuple(d -> Float64((nT[d] - nS[d]) * gQ[d] // 2), 3)
-    FrqSetX{T,E}(sT, sS, sTQ, sSQ, tbQ, b6, gQ, g6, o6, nT, nS, frq, k, prf, L, tb.Lw, frqBox(tb.whl, frq, nCut),
+    FrqSetX{T,E}(sT, sS, sTQ, sSQ, tbQ, b6, gQ, nT, nS, frq, k, prf, L, tb.Lw, frqBox(tb.whl, frq, nCut),
                  thr, wLs, wT, tol, nCut, nBlk, rNc, rHi, disk, String(dir),
                  Ref{Union{Nothing,FrqSet{T,E}}}(nothing),
                  Dict{NTuple{3,QI},Matrix{Complex{T}}}(),
@@ -1616,8 +1612,6 @@ function latInd(fx::FrqSetX, RQ::NTuple{3,QI})
     m = ntuple(d -> RQ[d] / fx.gQ[d] + QI(fx.nS[d] - fx.nT[d]) // 2, 3)
     all(isinteger, m) ? ntuple(d -> Int(m[d]), 3) : nothing
 end
-# the offset vector of the gcd-lattice coordinate m, R = m g + (nT - nS) g/2; inverse of latInd
-latPos(fx::FrqSetX, m::NTuple{3,Int}) = ntuple(d -> m[d] * fx.g6[d] + fx.o6[d], 3)
 # multiplicity of the sub-offset difference t = j - j' over j in 1:nT, j' in 1:nS
 @inline subMlt(t::Int, nT::Int, nS::Int) = min(nT, t + nS) - max(1, t + 1) + 1
 # smallest max-norm over the sub-offsets m + j - j'; the equal-cell routes need it >= 2
@@ -1626,11 +1620,8 @@ function subSep(fx::FrqSetX, m::NTuple{3,Int})
 end
 
 errTchX(x) = error("farRteX: the cells at R = $x touch or overlap (Gila's contact path)")
-# the cells touch or overlap when |R_d| <= b_d on every axis; exact in both representations
-tchX(fx::FrqSetX, m::NTuple{3,Int}) =
-    all(abs(2 * m[d] + fx.nT[d] - fx.nS[d]) <= fx.nT[d] + fx.nS[d] for d in 1:3)
-# the rational test is behind a Float64 screen: Rational{BigInt} arithmetic allocates, and a block
-# has 1e6 offsets of which a few hundred touch
+# the cells touch or overlap when |R_d| <= b_d on every axis, tested exactly behind a Float64 screen:
+# Rational{BigInt} arithmetic allocates, and a block has 1e6 offsets of which a few hundred touch
 tchX(fx::FrqSetX, RQ::NTuple{3,QI}) =
     all(abs(Float64(RQ[d])) <= fx.b6[d] * (1 + 1e-9) for d in 1:3) &&
     all(abs(RQ[d]) <= fx.tbQ[d] for d in 1:3)
@@ -1650,8 +1641,6 @@ function farRteX(fx::FrqSetX, R6::NTuple{3,Float64}, m::Union{Nothing,NTuple{3,I
     end
     (m !== nothing && subSep(fx, m) >= 2) ? (2, -1) : (3, -1)
 end
-farRteX(fx::FrqSetX, m::NTuple{3,Int}) =
-    (tchX(fx, m) && errTchX(m); farRteX(fx, latPos(fx, m), m))
 farRteX(fx::FrqSetX, RQ::NTuple{3,QI}) =
     (tchX(fx, RQ) && errTchX(RQ); farRteX(fx, ntuple(d -> Float64(RQ[d]), 3), latInd(fx, RQ)))
 farRteX(fx::FrqSetX, R::NTuple{3,<:Rational}) = farRteX(fx, ntuple(d -> QI(R[d]), 3))
@@ -1799,20 +1788,12 @@ end
 # sum over a fine egoToe; returns the route kinds
 function farBlkX!(G::AbstractArray{Complex{T},3}, Rs::AbstractVector{NTuple{3,QI}},
                   sT::NTuple{3,<:Rational}, sS::NTuple{3,<:Rational}, f::Complex{T};
-                  tol::Float64 = TOL, fs::Union{Nothing,FrqSetX} = nothing, disk::Bool = true,
-                  dir::AbstractString = TABDIR[]) where {T}
+                  tol::Float64 = TOL, disk::Bool = true, dir::AbstractString = TABDIR[]) where {T}
     n = length(Rs); size(G) == (3, 3, n) || error("farBlkX!: G must be 3 x 3 x $n")
     sTQ = ntuple(d -> QI(sT[d]), 3); sSQ = ntuple(d -> QI(sS[d]), 3)
-    fx = if fs === nothing
-        gQ = ntuple(d -> min(sTQ[d], sSQ[d]), 3)
-        nT = ntuple(d -> Int(sTQ[d] / gQ[d]), 3); nS = ntuple(d -> Int(sSQ[d] / gQ[d]), 3)
-        farSetXMem(sTQ, sSQ, f; tol = tol, nBlk = finBlk(Rs, gQ, nT, nS), offs = Rs,
-                   disk = disk, dir = dir)
-    else
-        fs
-    end
-    (fx.sTQ == sTQ && fx.sSQ == sSQ && fx.frq == f) ||
-        error("farBlkX!: fs was built for the pair $(fx.sTQ) / $(fx.sSQ) at f = $(fx.frq)")
+    gQ = ntuple(d -> min(sTQ[d], sSQ[d]), 3)
+    nT = ntuple(d -> Int(sTQ[d] / gQ[d]), 3); nS = ntuple(d -> Int(sSQ[d] / gQ[d]), 3)
+    fx = farSetXMem(sTQ, sSQ, f; tol = tol, nBlk = finBlk(Rs, gQ, nT, nS), offs = Rs, disk = disk, dir = dir)
     rt = zeros(Int, n); Ls = fill(-1, n); ms = fill((0, 0, 0), n)
     Threads.@threads :static for q in 1:n
         kind, L = farRteX(fx, Rs[q])

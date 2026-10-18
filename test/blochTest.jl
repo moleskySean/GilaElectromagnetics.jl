@@ -60,7 +60,7 @@ ptri(s) = Tuple(prat.(split(s, ",")))
                     X = cis(-sum(map((t, k) -> t isa Rational ? 2π * t * k : t * k, θ, n))) .* (H .+ im .* A)[:, :, 1, 1, 1]
                 else
                     # a pair of single cells, the source's lower corner at the origin of blcCmp's lattice
-                    H, A = first(blcCmp([GlaVol((1, 1, 1), sT, R .+ sS .// 2), GlaVol((1, 1, 1), sS, sS .// 2)], f, ax, L, θ))[(1, 2)]
+                    H, A = blcCmp([GlaVol((1, 1, 1), sT, R .+ sS .// 2), GlaVol((1, 1, 1), sS, sS .// 2)], f, ax, L, θ)[(1, 2)]
                     X = (H .+ im .* A)[:, :, 1, 1, 1]
                 end
                 Y = complex.(parse.(BigFloat, c[13:21]), parse.(BigFloat, c[22:30]))

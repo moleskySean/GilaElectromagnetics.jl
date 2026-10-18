@@ -131,37 +131,12 @@ function offDif(t1::T, t2::T, dlsq::T, dhsq::T, ddsq::T) where {T}
     return OffDif{T}(dmO, dO, dR, dF)
 end
 
-# asinh(z) - z, avoiding catastrophic cancellation
-function asnMns(z::T) where {T}
-    z > 1//2 && return asinh(z) - z
-    s = zero(T); t = -z^3 / 6; k = 1
-    while k < 400
-        s += t; k += 1
-        t *= -z^2 * T(2k - 1)^2 / (T(2k) * T(2k + 1))
-        abs(t) <= eps(T) * abs(s) && (s += t; break)
-    end
-    return s
-end
-# x - atan(x), avoiding catastrophic cancellation
-function atnMns(x::T) where {T}
-    x > 1//2 && return x - atan(x)
-    s = zero(T); t = x^3 / 3; k = 1
-    while k < 400
-        s += t; k += 1
-        t *= -x^2 * T(2k - 1) / T(2k + 1)
-        abs(t) <= eps(T) * abs(s) && (s += t; break)
-    end
-    return s
-end
-
 # int_0^p int_0^q du dv/sqrt(u^2 + v^2 + c^2), avoiding catastrophic cancellation
 function potCrn(p::T, q::T, c::T) where {T}
     csq = c^2
     al = sqrt(p^2 + csq); be = sqrt(q^2 + csq); R = sqrt(p^2 + q^2 + csq)
-    if !iszero(c) && 2 * p <= al && 2 * q <= be
-        return p * q * (1 / be + q^2 / (al * R * (R + al))) +
-               p * asnMns(q / al) + q * asnMns(p / be) + c * atnMns(p * q / (c * R))
-    end
+    # p, q <= c/√3: the closed form below cancels there, and box2Tay, which converges in that region, is tried first
+    !iszero(c) && 2 * p <= al && 2 * q <= be && error("potCrn: box2Tay did not converge")
     at = iszero(c) ? zero(T) : c * atan(p * q / (c * R))
     return p * asinh(q / al) + q * asinh(p / be) - at
 end
@@ -513,7 +488,7 @@ function powSegD(n::Integer, lo::T, hi::T, d0::T, d1::T, e2::T) where {T}
 end
 
 # wmnSeg's n = -1 seed, avoiding catastrophic cancellation
-function wmnSed(lo::T, hi::T, d::T, q::T) where {T}
+function wmnSed(lo::T, hi::T, d::T) where {T}
     Sl = sqrt(lo^2 + d^2)
     Sh = sqrt(hi^2 + d^2)
     dl = hi - lo
@@ -522,33 +497,26 @@ function wmnSed(lo::T, hi::T, d::T, q::T) where {T}
     x = dl * kap / B0
     hs = ((hi^2 - lo^2) * (hi^2 + lo^2) + d^2 * (hi^2 - lo^2)) / (hi * Sh + lo * Sl)
     Pp = dl * ((lo + hi) * dl + hs) / (B0 * (Sl + Sh))
-    v = Pp - hi * logMns(x)
-    if q != hi
-        v += (q - hi) * powSeg(-1, lo, hi, d)
-    end
-    return v
+    return Pp - hi * logMns(x)
 end
 
-# "weight minus": int_lo^hi (q - t)(t^2 + d^2)^(n/2) dt, with q >= hi
-function wmnSeg(n::Integer, lo::T, hi::T, d::T, q::T) where {T}
+# "weight minus": int_lo^hi (hi - t)(t^2 + d^2)^(n/2) dt
+function wmnSeg(n::Integer, lo::T, hi::T, d::T) where {T}
     Sl = sqrt(lo^2 + d^2)
     Sh = sqrt(hi^2 + d^2)
     dl = hi - lo
     if isodd(n)
-        v = wmnSed(lo, hi, d, q)
+        v = wmnSed(lo, hi, d)
         k = -1
     else
-        v = dl * (q - (hi + lo) / 2)
+        v = dl * (hi - (hi + lo) / 2)
         k = 0
     end
     while k < n
         k += 2
-        tp = q * powSeg(k, lo, hi, d)
-        if q != hi
-            tp += hi * (q - hi) * Sh^k
-        end
+        tp = hi * powSeg(k, lo, hi, d)
         if !iszero(lo)
-            tp -= lo * (q - lo) * Sl^k
+            tp -= lo * (hi - lo) * Sl^k
         end
         v = (tp + k * d^2 * v) / (k + 2)
     end
@@ -600,30 +568,29 @@ function psiBox(n::Integer, t::T, a1::T, a2::T, b1::T, b2::T) where {T}
     return v
 end
 
-# psiBox with the weight q - a, q >= a2
-function psiWmn(n::Integer, t::T, a1::T, a2::T, b1::T, b2::T, q::T) where {T}
+# psiBox with the weight a2 - a
+function psiWmn(n::Integer, t::T, a1::T, a2::T, b1::T, b2::T) where {T}
     r1 = sqrt(t^2 + a1^2); r2 = sqrt(t^2 + a2^2)
     s1 = sqrt(t^2 + b1^2); s2 = sqrt(t^2 + b2^2)
     function bdy(k)
-        wh = wmnSeg(k, a1, a2, s2, q)
+        wh = wmnSeg(k, a1, a2, s2)
         z = (b2 - b1) * wh
-        iszero(b1) || (z += b1 * (wh - wmnSeg(k, a1, a2, s1, q)))
-        q == a2 || (z += a2 * (q - a2) * powSeg(k, b1, b2, r2))
+        iszero(b1) || (z += b1 * (wh - wmnSeg(k, a1, a2, s1)))
         return z
     end
     function led(k)
         p = psiBox(k, t, a1, a2, b1, b2)
-        z = (q - a1) * p
-        iszero(a1) || (z += a1 * (p - (q - a1) * powSeg(k, b1, b2, r1)))
+        z = (a2 - a1) * p
+        iszero(a1) || (z += a1 * (p - (a2 - a1) * powSeg(k, b1, b2, r1)))
         return z
     end
     if isodd(n)
         p = psiBox(-1, t, a1, a2, b1, b2)
-        v = (q - a1) * p
+        v = (a2 - a1) * p
         v += (iszero(a1) ? zero(T) : a1 * p) - powSegD(1, b1, b2, r1, r2, a2^2 - a1^2)
         k = -1
     else
-        v = (b2 - b1) * (a2 - a1) * (q - (a1 + a2) / 2)
+        v = (b2 - b1) * (a2 - a1) * (a2 - (a1 + a2) / 2)
         k = 0
     end
     while k < n
@@ -659,24 +626,23 @@ function box3Mom(m::Integer, lo, hi)
     return v / (m + 3)
 end
 
-# box3Mom with the weight q - u, u the first coordinate and q >= hi[1]
-function box3Wmn(m::Integer, lo, hi, q)
+# box3Mom with the weight hi[1] - u, u the first coordinate
+function box3Wmn(m::Integer, lo, hi)
     T = eltype(lo)
     u1, u2 = lo[1], hi[1]; v1, v2 = lo[2], hi[2]; w1, w2 = lo[3], hi[3]
     K = box3Mom(m, lo, hi)
     if iszero(u1)
-        s = q * K
+        s = u2 * K
     else
         pu = psiBox(m, u1, v1, v2, w1, w2)
-        s = q * (K - (q - u1) * pu) + (q - u1)^2 * pu
+        s = u2 * (K - (u2 - u1) * pu) + (u2 - u1)^2 * pu
     end
-    q == u2 || (s += u2 * (q - u2) * psiBox(m, u2, v1, v2, w1, w2))
-    bv = psiWmn(m, v2, u1, u2, w1, w2, q)
+    bv = psiWmn(m, v2, u1, u2, w1, w2)
     s += (v2 - v1) * bv
-    iszero(v1) || (s += v1 * (bv - psiWmn(m, v1, u1, u2, w1, w2, q)))
-    bw = psiWmn(m, w2, u1, u2, v1, v2, q)
+    iszero(v1) || (s += v1 * (bv - psiWmn(m, v1, u1, u2, w1, w2)))
+    bw = psiWmn(m, w2, u1, u2, v1, v2)
     s += (w2 - w1) * bw
-    iszero(w1) || (s += w1 * (bw - psiWmn(m, w1, u1, u2, v1, v2, q)))
+    iszero(w1) || (s += w1 * (bw - psiWmn(m, w1, u1, u2, v1, v2)))
     return s / (m + 4)
 end
 
@@ -769,7 +735,7 @@ function wgt2(p::Integer, t::T, a1::T, a2::T, b1::T, b2::T, cw::T, dw::T) where 
     if p >= -1
         wl = cw + dw * a1; wh = cw + dw * a2; dl = a2 - a1
         v = zero(T)
-        iszero(wl) || (v += (wl / dl) * psiWmn(p, t, a1, a2, b1, b2, a2))
+        iszero(wl) || (v += (wl / dl) * psiWmn(p, t, a1, a2, b1, b2))
         iszero(wh) || (v += (wh / dl) * psiWpl(p, t, a1, a2, b1, b2, a1))
         return v
     end
@@ -853,7 +819,7 @@ function wplSeg(n::Integer, lo::T, hi::T, d::T) where {T}
     dl = hi - lo
     J = powSeg(n, lo, hi, d)
     P = dl * (hi + lo) * powSum(Sh, Sl, n + 2) / ((Sh + Sl) * T(n + 2))
-    W = wmnSeg(n, lo, hi, d, hi)
+    W = wmnSeg(n, lo, hi, d)
     return P + lo * J <= dl * J + W ? P - lo * J : dl * J - W
 end
 
@@ -863,7 +829,7 @@ function seg1(m::Integer, lo::T, hi::T, d::T, cw::T, dw::T) where {T}
     dl = hi - lo
     wl = cw + dw * lo; wh = cw + dw * hi
     v = zero(T)
-    iszero(wl) || (v += (wl / dl) * wmnSeg(m, lo, hi, d, hi))
+    iszero(wl) || (v += (wl / dl) * wmnSeg(m, lo, hi, d))
     iszero(wh) || (v += (wh / dl) * wplSeg(m, lo, hi, d))
     return v
 end
@@ -931,7 +897,7 @@ function box3(m::Integer, lo, hi, cw, dw)
     whi = cw[k] + dw[k] * hi[k]
     dl = hi[k] - lo[k]
     v = zero(T)
-    iszero(wlo) || (v += (wlo / dl) * box3Wmn(m, lo2, hi2, hi2[1]))
+    iszero(wlo) || (v += (wlo / dl) * box3Wmn(m, lo2, hi2))
     iszero(whi) || (v += (whi / dl) * box3Wpl(m, lo2, hi2, lo2[1]))
     return cst * v
 end

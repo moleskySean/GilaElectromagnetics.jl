@@ -36,7 +36,7 @@ function cmpChk(regs, ax, L)
 end
 
 """
-    blcCmp(regs, f, ax, L, θ; tol, cache) -> (B, info)
+    blcCmp(regs, f, ax, L, θ; tol, cache) -> B
 
 B[(t, s)] = (H, A), arrays (3, 3, n1, n2, n3): t != s in genEgoExt!'s layout (egoCrcExt of trgVol = regs[t], srcVol = regs[s]);
 t == s the Toeplitz form of blcFil (periodic m ∈ -(N-1):(N-1), open 0:(N-1)). Periods L must be whole multiples of every edge.
@@ -70,16 +70,12 @@ function cmpBlk(regs, f::Complex{T}, ax::NTuple{D,Int}, L::NTuple{D,<:Rational},
     sl = Dict((t, s, i) => slots(t, s, i) for (t, s) in prs, i in 1:3)
     # open extent of the fine fill
     No = ntuple(i -> isper(i) ? Pg[i] : maximum(maximum(abs(c) + max(rat(regs[t], i), rat(regs[s], i)) for c in sl[(t, s, i)] if c != typemin(Int)) for (t, s) in prs) + 1, 3)
-    t0 = time()
     H, A, inf = blcFil(g, f, ax, No, ntuple(j -> Pg[ax[j]], D), θ; tol, cache)
-    tF = time() - t0
     # hot periodic axes (twist within DHOT of 0 or 1/2, not exact): a block between cells whose centres are aligned on such an axis
     # (modulo the period) is a positive box sum of the pairs G(X + d) + G(X - d) whose x-odd entries cancel to O(θ - θ_0); those slots are
     # summed from the symmetric-sum fill Σ(k) = G(k) + G(-k) of the same fine grid (blcFil symAx), formed without that cancellation
     hotAx = [i for (j, i) in enumerate(ax) if !(θ[j] isa Rational) && (w_ = mod(Float64(θ[j]) / (2 * π), 1.0); d0 = min(w_, 1 - w_, abs(w_ - 0.5)); 0 < d0 < DHOT)]
-    t0s = time()
     Sy = Dict(i => blcFil(g, f, ax, No, ntuple(j -> Pg[ax[j]], D), θ; tol, cache, symAx = i) for i in hotAx)
-    tS = time() - t0s
     ms = inf[:ms]; off = [findfirst(==(0), ms[i]) for i in 1:3]
     θv = [T(θ[j] isa Rational ? 2 * T(π) * T(θ[j]) : θ[j]) for j in 1:D]
     tw(j, n) = θ[j] isa Rational ? cispi(-2 * n * T(θ[j])) : cis(-n * θv[j])
@@ -91,7 +87,6 @@ function cmpBlk(regs, f::Complex{T}, ax::NTuple{D,Int}, L::NTuple{D,<:Rational},
         end
         return off[i] + abs(m), one(Complex{T}), m < 0 ? -1 : 1
     end
-    t1 = time()
     # the box sums of every pair; aligned slots of the axes in Sy from the symmetric-sum fills. needS: periodic axes not in Sy whose aligned
     # slots have an entry (> 1e-8 of its block max) with box rounding factor Σ w|G_fine| / |X| > LAMBOX (the ±d pairs cancel also at a generic
     # twist when the entry is set by far images: cell A d1 θ = 0.7, H_xy 31 eps = 2.7 eps(1+κ_up))
@@ -172,10 +167,8 @@ function cmpBlk(regs, f::Complex{T}, ax::NTuple{D,Int}, L::NTuple{D,<:Rational},
     end
     B, needS = boxAll(Sy)
     if !isempty(needS)
-        t0s = time()
         for i in needS; Sy[i] = blcFil(g, f, ax, No, ntuple(j -> Pg[ax[j]], D), θ; tol, cache, symAx = i); end
-        tS += time() - t0s
         B, _ = boxAll(Sy)
     end
-    B, Dict(:g => g, :Pg => Pg, :No => No, :tFine => tF, :tBox => time() - t1, :fineInfo => inf, :hotAx => hotAx, :symAx => collect(keys(Sy)), :tSym => tS)
+    B
 end

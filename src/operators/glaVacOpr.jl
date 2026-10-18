@@ -247,7 +247,7 @@ function _prxCmpChk(trgRegs, srcRegs)
 end
 
 # blcCmp's blocks of every ordered region pair of a periodic composite of periods L
-_blcCmp(regs, frq, blc) = first(Bloch.blcCmp(regs, frq, blc.ax, blc.L, blc.θ))
+_blcCmp(regs, frq, blc) = Bloch.blcCmp(regs, frq, blc.ax, blc.L, blc.θ)
 
 """
     GlaCmpOprVac{T}(trgCvl::GlaCmpVol, srcCvl::GlaCmpVol; kwargs...)

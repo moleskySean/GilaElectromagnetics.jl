@@ -37,33 +37,6 @@ function glq(::Type{T}, n::Int) where {T}
     @lock GLCK get!(GLC, key, r)::Tuple{Vector{T},Vector{T}}
 end
 
-# work budget of one outermost blcTns (or blcFil with a finite wmax) call, shared by its nested calls. Work units: one kap evaluation 1, one
-# Poisson term 0.3, one majorant term 0.02, one angular node of the d_o = 2 pole form 0.1, one pDif 0.3, one Gauss bound 1 (measured
-# 0.6-6 µs each); the call raises once its budget is spent, and refuses at once when an a priori estimate already exceeds it. The count
-# sits in one cache line per thread (w[8i]); nothing is counted while no finite budget is active (NBUD = 0: the default fill)
-struct Bud; w::Vector{Float64}; lim::Float64; mu::Float64; end
-Bud(lim, mu = 1.0) = Bud(zeros(8 * Threads.maxthreadid()), Float64(lim), Float64(mu))
-const BUD = ScopedValue{Union{Nothing,Bud}}(nothing); const NBUD = Threads.Atomic{Int}(0)
-wrkTot(b::Bud) = sum(b.w[8i] for i in 1:Threads.maxthreadid())
-@inline function wrk!(n)
-    NBUD[] == 0 && return nothing
-    b = BUD[]; b === nothing && return nothing
-    i = Threads.threadid()
-    @inbounds b.w[8i] += n * b.mu
-    @inbounds b.w[8i] > b.lim && wrkErr(b)
-    nothing
-end
-wrkErr(b) = error("blcTns: cost budget exceeded ($(round(wrkTot(b); sigdigits = 3)) > $(round(b.lim; sigdigits = 3)) work units); refused")
-# f() under a fresh budget of wmax units counted at mu per unit (an infinite one is only the mark of the outermost call: nothing is counted)
-function withBud(f, wmax, mu = 1.0)
-    isfinite(wmax) || return with(f, BUD => Bud(Inf, mu))
-    Threads.atomic_add!(NBUD, 1)
-    try
-        with(f, BUD => Bud(wmax, mu))
-    finally
-        Threads.atomic_sub!(NBUD, 1)
-    end
-end
 
 # Rational{BigInt} memo keys hashed per lookup, and every BigInt made in a loop, cost heap that Julia 1.12.6 never returns (8-40 B per BigInt
 # after GC; 2.2 MB per trpMom call): a fill leaked 20-90 MB per call, which is what made the GC
@@ -185,7 +158,6 @@ momReg(cp, |x|, t) where every caller takes it.
 """
 kap(A::AxK{T}, x::QI, t::S, tol::T) where {T,S} = kapV(A, kapX(A, x), t, tol)
 function kapV(A::AxK{T}, dx, t::S, tol::T) where {T,S}
-    wrk!(1)
     cp = toT(T, A.cp); _, xT = dx
     u = sqrt(t); w = xT / (2 * u); s = 1 / (2 * u); g = 1 / sqrt(4 * T(π) * t); sc = s * cp
     M = min(momM(T, tol), length(A.μf) - 3)
@@ -269,7 +241,6 @@ function nuP(::Type{Float64}, m::Int, P::PerAx)
 end
 # one Poisson term without e^{-4π²ν²t}: (w0/L) sinc(ν a) sinc(ν b) e^{2πiνx} (2πiν)^k, k = 0,1,2
 function poiPre(::Type{T}, m::Int, P::PerAx, x::QI) where {T}
-    wrk!(0.3)
     ν = nuP(T, m, P)
     c = P.A.w0 / toT(T, P.L) * sinc(ν * toT(T, P.A.a)) * sinc(ν * toT(T, P.A.b)) * phsP(T, m, P, x)
     iq = complex(zero(T), 2 * T(π) * ν)
@@ -470,7 +441,6 @@ end
 # pFac(A, ξc + δ, x, k) - pFac(A, ξc, x, k) with absolute error O(eps |δ|): telescoped over the factors sinc, sinc, trig, each difference
 # in a form carrying δ as a factor (cos A - cos B = -2 sin((A+B)/2) sin((A-B)/2), ξ² - ξc² = δ(2ξc + δ), sincD)
 function pDif(A::AxK{T}, ξc::S, δ::S, x::T, k::Int) where {T,S}
-    wrk!(0.3)
     ξ = ξc + δ; ca = toT(T, A.a) / (2 * T(π)); cb = toT(T, A.b) / (2 * T(π))
     f1c = sinc(ξc * ca); f1 = sinc(ξ * ca); d1 = sincD(ξc * ca, δ * ca)
     f2c = sinc(ξc * cb); f2 = sinc(ξ * cb); d2 = sincD(ξc * cb, δ * cb)
@@ -650,7 +620,6 @@ struct PoleDat{T}
 end
 # Gauss bound (ATAP 19.3) of a real panel [lo, hi] with a majorant maj(δm, hA, hB) on the disk |δ - δm| <= hA containing E_ρ
 function gBndR(lo::T, hi::T, n::Int, maj) where {T}
-    wrk!(1)
     δm = (lo + hi) / 2; h = (hi - lo) / 2; best = T(Inf)
     for ρ in RHOS
         A_ = (T(ρ) + 1 / T(ρ)) / 2 * h; B_ = (T(ρ) - 1 / T(ρ)) / 2 * h
@@ -727,7 +696,7 @@ end
 #  3. otherwise route R; if every λ_e <= LAM0 it is returned; else route C too, and every entry of H and AH takes the route with the
 #     smaller λ_e (route R's small entries built from cancelling order sums, e.g. H_yz = 1.2e-4 of max at d2 L = 4λ, λ_e 1292, 162 eps; route
 # C 2.2, 4.1 eps).
-# The returned entry's rounding is <= c eps min(λ_R,e, λ_C,e) |X_e|; info[:rte] reports the worst λ of each route and the entries taken from C.
+# The returned entry's rounding is <= c eps min(λ_R,e, λ_C,e) |X_e|.
 const LAM0 = 16
 const NPCMAX = 10^4
 # complex-path panels of one cPart call (at open offsets of 300λ the order rays alone built millions of panels, 8.7 GB); beyond it

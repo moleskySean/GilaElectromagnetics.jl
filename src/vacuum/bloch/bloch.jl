@@ -141,16 +141,12 @@ blcSet(s, f::Complex{T}, ax::NTuple{D,Int}, N::NTuple{3,Int}, P::NTuple{D,Int}; 
 The Hermitian and anti-Hermitian kernels of the unit cell at Bloch phases `θ` (one per periodic axis), G = H + i A, in Toeplitz form:
 arrays (3, 3, n1, n2, n3) over m_i ∈ -(N_i-1):(N_i-1) on periodic axes, 0:(N_i-1) on open axes (info[:ms] lists them), which drop into
 Gila's 2N circulant with the half storage turned off.
-Keywords (defaults are the audited ones): `sheet = :J10 | :principal` (Im f < 0), `peRun = true` (J31: the entries flagged in info[:pe]
-rerun in the wider type, Double64 for Float64 and BigFloat for Double64 or BigFloat; false: only reported), `wmax = Inf` (work budget),
-`tol`, `entT = 1e-8` (entries below entT of their offset's max carry their κ, not the eps target), `qcert = true` (per-offset
-certification; false only for probes), `route = :auto`.
+Keywords: `tol = eps(T)`, and `entT = 1e-8` (entries below entT of their offset's max carry their κ, not the eps target). Entries
+whose rounding factor flags them are rerun in Double64.
 """
 function blcFil(st::BlcSet, θ::Tuple; kw...)
     kcAge!(st.kc)
-    H, A, inf = blcFil(st.s, st.f, st.ax, st.N, st.P, θ; cache = st.kc, kw...)
-    inf[:cache] = length(st.kc)
-    H, A, inf
+    blcFil(st.s, st.f, st.ax, st.N, st.P, θ; cache = st.kc, kw...)
 end
 
 end

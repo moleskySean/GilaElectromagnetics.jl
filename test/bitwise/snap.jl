@@ -144,7 +144,9 @@ cmp = [
 ]
 for (nam, regs, ax, L, frq, θ) in cmp
     snap("blcCmp $nam") do
-        B = first(blcCmp(regs, frq, ax, L, θ))
+        B = blcCmp(regs, frq, ax, L, θ)
+        # older trees return (B, info)
+        B isa Tuple && (B = first(B))
         [B[k] for k in sort(collect(keys(B)))]
     end
 end
