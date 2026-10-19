@@ -52,6 +52,7 @@ makedocs(sitename="GilaElectromagnetics.jl Documentation",
             "How-to Guide" => [
                "howto/volumes.md",
                "howto/fields.md",
+               "howto/units.md",
                "howto/vacuum.md",
                "howto/materials.md",
                "howto/scattering.md",
