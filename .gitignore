@@ -19,11 +19,6 @@ docs/site/
 # MacOS
 .DS_Store
 
-# Benchmark data
-benchmark/*.jld2
-benchmark/*.png
-benchmark/results/
-
 # Profiling
 statprof
 
@@ -35,19 +30,5 @@ Manifest.toml
 *.jl.cov
 *.jl.*.cov
 
-# notes LaTeX byproducts (only the three documents; scratch dirs hold Julia .log/.out run records)
-notes/**/*.aux
-notes/**/*.toc
-notes/**/*.synctex.gz
-notes/integrals.log
-notes/integrals.out
-notes/moments/moments.log
-notes/moments/moments.out
-notes/farfield/farfield.log
-notes/farfield/farfield.out
-
-# rebuildable far-field geometry tables (110 MB, 14-18 s per cell shape)
-notes/farfield/shapetab/
-# agent working trees: scripts, logs and intermediate caches, not deliverables
-notes/farfield/scratch/work/
-notes/farfield/scratch/xwork/
+# Claude
+.claude/

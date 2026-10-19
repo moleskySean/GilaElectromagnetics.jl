@@ -1,0 +1,41 @@
+% driving_fields.tex: f_inc + G p_imp = f_d, with the scatterer not yet responding.
+% Wavefronts come from scattering_fields.jl; uses the preamble.tex palette and styles.
+\begin{tikzpicture}[font=\small]
+  \def\W{4.5}
+  \def\H{3.6}
+  \def\G{1.2}
+  % \wavefronts{style}{field name}
+  \newcommand\wavefronts[2]{%
+    \def\fieldline##1{\draw[#1] plot[smooth] coordinates {##1};}%
+    \input{data/field_#2}}
+  \newcommand\source{%
+    \fill[white] (0.75,0.7) circle (0.2);
+    \draw[matcol, line width=2pt] (0.75,0.52) -- (0.75,0.88);
+    \fill[matcol] (0.75,0.52) circle (0.05) (0.75,0.88) circle (0.05);}
+
+  \foreach \n/\title/\math in {0/{\textbf{(a)} Incoming field}/{$\vb*{f}_\text{inc}$},
+                         1/{\textbf{(b)} Impressed currents}/{$\bm{G}_\circ\vb*{p}_\text{imp}$},
+                         2/{\textbf{(c)} Driving field}/{$\vb*{f}_\text{d} = \vb*{f}_\text{inc} + \bm{G}_\circ\vb*{p}_\text{imp}$}} {
+    \begin{scope}[shift={(\n*\W+\n*\G,0)}]
+      \begin{scope}
+        \clip (0,0) rectangle (\W,\H);
+        \ifnum\n=0 \wavefronts{field, drvcol}{inc} \fi
+        \ifnum\n=1 \wavefronts{field, drvcol}{imp} \source \fi
+        \ifnum\n=2
+          \wavefronts{ingredient, drvcol}{inc}
+          \wavefronts{ingredient, drvcol}{imp}
+          \wavefronts{field, drvcol}{drv}
+          \source
+        \fi
+        \draw[ghost, shift={(2.75,1.7)}] \scattererpath;
+      \end{scope}
+      \ifnum\n=0 \draw[->, thick, inkcol] (0.2,\H-0.3) -- ++(0.7,0) node[right, fill=white, inner sep=1pt] {$\vb*{k}$}; \fi
+      \ifnum\n=1 \node[matcol, right, fill=white, inner sep=1pt, xshift=4pt] at (0.8,0.7) {$\vb*{p}_\text{imp}$}; \fi
+      \draw[panel] (0,0) rectangle (\W,\H);
+      \node[paneltitle] at (0,\H) {\title};
+      \node[below, inner sep=4pt] at (\W/2,0) {\math};
+    \end{scope}
+  }
+  \node[font=\Large] at (\W+\G/2,\H/2) {$+$};
+  \node[font=\Large] at (2*\W+1.5*\G,\H/2) {$=$};
+\end{tikzpicture}

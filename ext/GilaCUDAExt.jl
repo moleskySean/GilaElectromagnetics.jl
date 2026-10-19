@@ -3,7 +3,7 @@ module GilaCUDAExt
 
 using CUDA
 using VkFFT_CUDA_jll
-import GilaElectromagnetics.GilaVacuum: devMem
+import GilaElectromagnetics: devMem
 
 devMem(::CUDABackend) = CUDA.free_memory()
 

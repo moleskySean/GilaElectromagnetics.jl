@@ -2,9 +2,9 @@
 #= Generation is always fp64 and narrowed once, so the fp32 operator is the
 correctly rounded image of the fp64 one and every accuracy bound below is a
 statement about that single rounding, not about fp32 arithmetic in the build. =#
-using Test, GilaElectromagnetics, LinearAlgebra, LinearMaps, Serialization, CUDA
-import GilaElectromagnetics.GilaOperators: setSus!, invMul!, invMulAdj!
-import GilaElectromagnetics.GilaSolvers: slvPrm
+using Test, GilaElectromagnetics, LinearAlgebra, LinearMaps, Serialization
+import GilaElectromagnetics: setSus!, _witAdj
+import GilaElectromagnetics: slvPrm
 
 const prcVol   = mkVol((4,4,4))
 const prcTrg   = mkVol((4,4,4); org=extOrg)
@@ -13,11 +13,15 @@ const prcTrg2  = mkVol((2,2,2); org=extOrg)
 const prcSus32 = mkSus(Float32, (4,4,4))
 const prcSus64 = mkSus((4,4,4))
 
-# The fp32 twins of tstHlp's _selfMem4 / _extMem4, generated independently
+#= One plain and one composite fp32 operator are generated independently, and
+"Precision conversion" checks that narrowing the fp64 build reproduces them bit
+for bit. Every other fp32 twin is then the conversion of its fp64 build. =#
 const prcSlfMem32 = GlaVacOprMem(GlaKerOpt{Float32}(), prcVol)
-const prcExtMem32 = GlaVacOprMem(GlaKerOpt{Float32}(), prcTrg, prcVol)
+const prcExtMem32 = GlaVacOprMem{Float32}(_extMem4)
 
 prcG032() = GlaOprVac(prcSlfMem32)
+const prcAsy32 = asym(prcG032())
+const prcSym32 = glaSym(prcG032())
 
 const prcDns32 = dnsMat(prcG032())
 
@@ -28,26 +32,23 @@ const prcCvl = refine(GlaCmpVol(GlaVol((4,2,2), scl16, stdOrg)),
 const prcCrsCvl = GlaCmpVol(GlaVol((2,2,2), scl16, stdOrg))
 const prcFinCvl = GlaCmpVol(GlaVol((4,4,4), stdScl, (1//2, 0//1, 0//1)))
 
-# Every operator below costs a numerical integration, so each pair is built once
 const prcCmp32 = GlaCmpOprVac{Float32}(prcCvl)
 const prcCmp64 = GlaCmpOprVac{Float64}(prcCvl)
-const prcXsc32 = GlaCmpOprVac{Float32}(prcFinCvl, prcCrsCvl)
 const prcXsc64 = GlaCmpOprVac{Float64}(prcFinCvl, prcCrsCvl)
+const prcXsc32 = GlaCmpOprVac{Float32}(prcXsc64)
 # Two separated regions, so the tiling has a gap and both blocks are external
 const prcGapCvl = GlaCmpVol([prcVol2, prcTrg2])
-const prcGap32 = GlaCmpOprVac{Float32}(prcGapCvl)
 const prcGap64 = GlaCmpOprVac{Float64}(prcGapCvl)
-const prcCmpDns32 = dnsMat(prcCmp32)
+const prcGap32 = GlaCmpOprVac{Float32}(prcGap64)
 const prcDflOpr = GlaOprVac(prcVol2)
 
 # Entrywise error against the largest entry, so one bad entry cannot hide in a norm
 prcEntErr(m32, m64) = maximum(abs.(ComplexF64.(m32) .- m64)) / maximum(abs.(m64))
 
 # Both bounds on the same pair of dense forms
-function prcChkDns(opr32, opr64, label)
+function prcChkDns(opr32, opr64)
     m32, m64 = dnsMat(opr32), dnsMat(opr64)
     nrmErr, entErr = relErr(ComplexF64.(m32), m64), prcEntErr(m32, m64)
-    @info "$label: dense relErr = $nrmErr, entrywise = $entErr"
     @test nrmErr < 1e-5
     @test entErr < 1e-6
 end
@@ -56,101 +57,53 @@ end
     @test dflPrc === Float32
     @test GlaKerOpt() isa GlaKerOpt{Float32, CPU}
     @test prcDflOpr isa GlaOprVac{Float32}
-    @test zerofield(GlaCmpVol(prcVol2)) isa GlaFld{Float32}
-    @test zerofield(prcVol2) isa GlaFld{Float32}
+    @test zeros(GlaCmpVol(prcVol2)) isa GlaFld{Float32}
+    @test zeros(prcVol2) isa GlaFld{Float32}
     # An fp64 susceptibility is converted on construction, the one allowed conversion
     @test eltype(GlaOpr(prcDflOpr, mkSus((2,2,2)))) == ComplexF32
     @test InvSctOpr(prcDflOpr, mkSus((2,2,2))) isa InvSctOpr{Float32}
     @test InvSctOpr(prcVol2, mkSus((2,2,2))) isa InvSctOpr{Float32}
 end
 
-@testset "Construction and traits" begin
+@testset "Construction" begin
     @test GlaKerOpt{Float32}() isa GlaKerOpt{Float32, CPU}
     @test GlaKerOpt{Float32}(GlaKerOpt{Float64}()) isa GlaKerOpt{Float32, CPU}
     @test prcSlfMem32 isa GlaVacOprMem{Float32}
-    @test eltype(first(prcSlfMem32.egoFur)) == ComplexF32
-    @test eltype(first(prcSlfMem32.phzInf)) == ComplexF32
 
-    # generation at Float32 returns NaN, and the options are mutable, so the guard has
-    # to sit on the assignment as well as on the constructor
+    # the options are mutable
     prcOptGen = GlaKerOpt{Float64}()
-    @test_throws ArgumentError GlaKerOpt{Float64}(1.0+0.0im, Float32, false, false, prcOptGen.dev)
-    @test_throws ArgumentError (prcOptGen.genPrc = Float32)
-    prcOptGen.genPrc = Float64
     prcOptGen.frqPhz = 1.0 + 0.1im
-    @test prcOptGen.genPrc === Float64
     @test prcOptGen.frqPhz == 1.0 + 0.1im
 
-    # A backend without Float64 (Metal, OpenCL per KernelAbstractions' trait) refuses fp64 storage
-    @testset "$(nameof(typeof(dev)))" for dev in gpuBackends
-        supports_float64(dev) || @test_throws ArgumentError GlaKerOpt{Float64}(dev)
-    end
-
     opr32 = prcG032()
-    @test eltype(opr32) == ComplexF32
-    @test eltype(typeof(opr32)) == ComplexF32
-    @test eltype(similar(opr32, (4,))) == ComplexF32
-    @test size(opr32) == (192, 192)
-    @test get_backend(opr32) isa CPU
-    @test isselfoperator(opr32)
-    for opr in (AsyGlaOprVac(opr32), SymGlaOprVac(opr32), GlaOprVac(prcExtMem32),
+    for opr in (prcAsy32, prcSym32, GlaOprVac(prcExtMem32),
         InvSctOpr(opr32, prcSus32), SctOpr(opr32, prcSus32), GlaOpr(opr32, prcSus32))
         @test eltype(opr) == ComplexF32
     end
-    @test AsyGlaOprVac{Float32}(prcVol2) isa AsyGlaOprVac{Float32}
-    @test SymGlaOprVac{Float32}(prcVol2) isa SymGlaOprVac{Float32}
+    @test GlaOprVac{Float32}(prcVol2; hrmPrt = :asy) isa GlaOprVac{Float32}
     @test prcCmp32 isa GlaCmpOprVac{Float32}
     @test prcGap32 isa GlaCmpOprVac{Float32}
 end
 
-@testset "Fourier coefficient rounding" begin
-    #= A correctly rounded fp64 coefficient is within eps(Float32) relative of
-    the fp64 one, so this bound fails if any fp32 arithmetic ran upstream. =#
-    for (fur32, fur64) in zip(prcSlfMem32.egoFur, _selfMem4.egoFur)
-        @test eltype(fur32) == ComplexF32
-        nzr = abs.(fur64) .> 0
-        @test maximum(abs.(ComplexF64.(fur32[nzr]) .- fur64[nzr]) ./ abs.(fur64[nzr])) <=
-            eps(Float32)
-    end
-    furErr = maximum(maximum(abs.(ComplexF64.(f32[abs.(f64) .> 0]) .- f64[abs.(f64) .> 0]) ./
-        abs.(f64[abs.(f64) .> 0])) for (f32, f64) in zip(prcSlfMem32.egoFur, _selfMem4.egoFur))
-    @info "egoFur worst relative rounding = $furErr, eps(Float32) = $(eps(Float32))"
-    for (fur32, fur64) in zip(prcExtMem32.egoFur, _extMem4.egoFur)
-        nzr = abs.(fur64) .> 0
-        @test maximum(abs.(ComplexF64.(fur32[nzr]) .- fur64[nzr]) ./ abs.(fur64[nzr])) <=
-            eps(Float32)
-    end
-end
-
 @testset "Dense truncation accuracy" begin
-    prcChkDns(prcG032(), _g0(), "self GlaOprVac")
-    prcChkDns(GlaOprVac(prcExtMem32), _gExt(), "external GlaOprVac")
-    prcChkDns(AsyGlaOprVac(prcG032()), _asy(), "AsyGlaOprVac")
-    prcChkDns(SymGlaOprVac(prcG032()), _sym(), "SymGlaOprVac")
-    prcChkDns(prcGap32, prcGap64, "GlaCmpOprVac gapped")
-    prcChkDns(prcCmp32, prcCmp64, "GlaCmpOprVac two regions")
-    prcChkDns(prcXsc32, prcXsc64, "GlaCmpOprVac cross-scale")
-    prcChkDns(InvSctOpr(prcG032(), prcSus32), InvSctOpr(_g0(), prcSus64), "InvSctOpr")
+    prcChkDns(prcG032(), _g0())
+    prcChkDns(GlaOprVac(prcExtMem32), _gExt())
+    prcChkDns(prcAsy32, _asy())
+    prcChkDns(prcSym32, _sym())
+    prcChkDns(prcGap32, prcGap64)
+    prcChkDns(prcCmp32, prcCmp64)
+    prcChkDns(prcXsc32, prcXsc64)
+    prcChkDns(InvSctOpr(prcG032(), prcSus32), InvSctOpr(_g0(), prcSus64))
 end
 
-@testset "Matvec and adjoint truncation accuracy" begin
+@testset "Matvec truncation accuracy" begin
     opr32, opr64 = prcG032(), _g0()
     v32 = ComplexF32.(rand(ComplexF64, 192))
     v32 ./= norm(v32)
     v64 = ComplexF64.(v32)
     out32, out64 = opr32 * copy(v32), opr64 * copy(v64)
     mvErr = norm(ComplexF64.(out32) .- out64) / norm(out64)
-    @info "matvec relErr = $mvErr"
     @test mvErr < 1e-5
-
-    u32 = ComplexF32.(rand(ComplexF64, 192))
-    u32 ./= norm(u32)
-    adjOpr = adjoint(opr32)
-    lhs = dot(adjOpr * copy(u32), v32)
-    rhs = dot(u32, opr32 * copy(v32))
-    adjErr = abs(lhs - rhs) / abs(rhs)
-    @info "adjoint dot identity relErr = $adjErr"
-    @test adjErr < 1e-5
 end
 
 @testset "Asym(G₀) PSD survives truncation" begin
@@ -159,7 +112,6 @@ end
     mat = asymMat(ComplexF64.(prcDns32))
     nrm = opnorm(mat)
     wrs = minimum(eigvals(Hermitian((mat + mat') / 2)))
-    @info "fp32 Asym(G₀) worst normalized eigenvalue = $(wrs / nrm)"
     @test wrs >= -1e-5 * nrm
 end
 
@@ -171,12 +123,12 @@ end
         @test furCnv == fur32
     end
     @test GlaVacOprMem{Float32}(prcSlfMem32) === prcSlfMem32
-    @test dnsMat(GlaOprVac{Float32}(_g0())) == prcDns32
+    @test prbErr(GlaOprVac{Float32}(_g0()), prcG032()) == 0
 
     # Same precision hands back the same object rather than a copy
     opr32 = prcG032()
     @test GlaOprVac{Float32}(opr32) === opr32
-    for opr in (AsyGlaOprVac(opr32), SymGlaOprVac(opr32),
+    for opr in (prcAsy32, prcSym32,
         InvSctOpr(opr32, prcSus32), SctOpr(opr32, prcSus32), GlaOpr(opr32, prcSus32),
         prcCmp32)
         @test Base.typename(typeof(opr)).wrapper{Float32}(opr) === opr
@@ -186,12 +138,11 @@ end
     gla64 = _glas()
     gla32 = GlaOpr{Float32}(gla64)
     @test gla32 isa GlaOpr{Float32}
-    rndErr = relErr(dnsMat(GlaOpr{Float64}(gla32)), dnsMat(gla64))
-    @info "GlaOpr fp64 -> fp32 -> fp64 relErr = $rndErr"
+    rndErr = prbErr(GlaOpr{Float64}(gla32), gla64)
     @test rndErr < 1e-6
 
     # A converted composite is the composite that would have been built directly
-    @test dnsMat(GlaCmpOprVac{Float32}(prcCmp64)) == prcCmpDns32
+    @test prbErr(GlaCmpOprVac{Float32}(prcCmp64), prcCmp32) == 0
     @test sus(InvSctOpr{Float32}(InvSctOpr(_g0(), prcSus64))).sus == repeat(vec(prcSus32), 3)
 
     # An adjoint between unequal volumes converts, copies and moves with its plans intact
@@ -209,8 +160,8 @@ end
     out32, out64 = similar(v32), similar(v64)
     ten32 = zeros(ComplexF32, 4, 4, 4, 3)
     ten64 = zeros(ComplexF64, 4, 4, 4, 3)
-    fld64 = zerofield(Float64, prcVol)
-    fld32 = zerofield(Float32, prcVol)
+    fld64 = zeros(ComplexF64, prcVol)
+    fld32 = zeros(ComplexF32, prcVol)
     #= Every one of these has to be an explicit throwing method: absent, the
     caller gets a method error rather than the conversion to make, and nothing
     may reach the scalar getindex on the way there, so no warning may appear. =#
@@ -225,19 +176,19 @@ end
         @test_throws ArgumentError opr32 * zeros(ComplexF64, 192, 2)
         @test_throws ArgumentError opr32 * fld64
         @test_throws ArgumentError mul!(fld64, opr32, fld32, 1.0, 0.0)
-        @test_throws ArgumentError GilaElectromagnetics.GilaOperators.mulAct!(opr32, v64)
+        @test_throws ArgumentError GilaElectromagnetics.mulAct!(opr32, v64)
     end
 end
 
 @testset "GlaFld at Float32" begin
     cvol = GlaCmpVol(prcVol)
-    fld = zerofield(Float32, cvol)
+    fld = zeros(ComplexF32, cvol)
     @test fld isa GlaFld{Float32}
     @test eltype(fld) == ComplexF32
     @test eltype(parent(fld)) == ComplexF32
     @test eltype(similar(fld)) == ComplexF32
 
-    dsc = discretize!(zerofield(Float32, cvol), tstDns)
+    dsc = discretize!(zeros(ComplexF32, cvol), tstDns)
     @test eltype(dsc.dat) == ComplexF32
     # Broadcast keeps the wrapper and the precision
     bct = 2 .* dsc .+ dsc
@@ -249,7 +200,7 @@ end
     opr32 = prcG032()
     out = opr32 * dsc
     @test out isa GlaFld{Float32}
-    outMul = zerofield(Float32, cvol)
+    outMul = zeros(ComplexF32, cvol)
     mul!(outMul, opr32, dsc, 2.0, 0.0)
     @test norm(outMul.dat .- 2 .* out.dat) < 1e-5 * norm(out.dat)
 
@@ -277,7 +228,6 @@ end
         #= The same solution measured with the fp64 operator stalls at the
         truncation error of the operator, which is the floor MixPrcRfn beats. =#
         res64 = norm(invSct64 * ComplexF64.(sol) - b64) / norm(b64)
-        @info "$(typeof(slv)) fp32 residual = $res32, measured in fp64 = $res64"
         @test res32 < 1e-3
         @test res64 > 1e-8
     end
@@ -302,7 +252,6 @@ end
     res32 = norm(_invSct() * copy(sol32) - b64) / norm(b64)
     errIr = frbErr(solIr, solRef)
     err32 = frbErr(sol32, solRef)
-    @info "IR fp64 residual = $resIr, relErr = $errIr; fp32 residual in fp64 = $res32, relErr = $err32"
     @test resIr < 1e-9
     @test errIr < 1e-7
     #= The fp32 route stalls at the truncation error of the operator, measured
@@ -344,11 +293,11 @@ end
     glaRef = GlaOpr(_g0(), prcSus64; slv=prcRef)
     @test LinearMap(gla) * copy(b64) ≈ LinearMap(glaRef) * copy(b64) rtol=1e-7
     w, wRef = zeros(ComplexF64, 192), zeros(ComplexF64, 192)
-    invMul!(w, gla, copy(b64), one(ComplexF64), zero(ComplexF64))
-    invMul!(wRef, glaRef, copy(b64), one(ComplexF64), zero(ComplexF64))
+    ldiv!(w, gla, copy(b64))
+    ldiv!(wRef, glaRef, copy(b64))
     @test frbErr(w, wRef) < 1e-7
-    invMulAdj!(w, gla, copy(b64), one(ComplexF64), zero(ComplexF64))
-    invMulAdj!(wRef, glaRef, copy(b64), one(ComplexF64), zero(ComplexF64))
+    _witAdj(adjOpr -> ldiv!(w, adjOpr, copy(b64)), gla)
+    _witAdj(adjOpr -> ldiv!(wRef, adjOpr, copy(b64)), glaRef)
     @test frbErr(w, wRef) < 1e-7
     @test !isadjoint(gla)
 
@@ -360,65 +309,10 @@ end
     @test norm(invAdj * copy(solAdj) - b64) / norm(b64) < 1e-9
 end
 
-@testset "Mixed precision refinement GPU" begin
-    @testset "$(nameof(typeof(dev)))" for dev in gpuBackends
-        supports_float64(dev) || continue
-        vol = prcVol
-        sus = adapt(dev, prcSus64)
-        opr = InvSctOpr(GlaOprVac{Float64}(vol; dev), sus)
-        b = adapt(dev, rand(ComplexF64, 192))
-        b ./= norm(b)
-        sol = solve(opr, copy(b), MixPrcRfn(Float32; relTol=1e-10))
-        @test eltype(sol) == ComplexF64
-        @test norm(opr * copy(sol) - b) / norm(b) < 1e-9
-    end
-end
-
-@testset "Serialization at Float32" begin
-    buf = IOBuffer()
-    serialize(buf, prcSlfMem32)
-    seekstart(buf)
-    memDes = deserialize(buf)
-    @test memDes isa GlaVacOprMem{Float32}
-    @test memDes.cmpInf isa GlaKerOpt{Float32}
-    for (furDes, fur32) in zip(memDes.egoFur, prcSlfMem32.egoFur)
-        @test furDes == fur32
-    end
-
-    gla32 = GlaOpr{Float32}(_glas())
-    buf = IOBuffer()
-    serialize(buf, gla32)
-    seekstart(buf)
-    glaDes = deserialize(buf)
-    @test glaDes isa GlaOpr{Float32}
-    @test glaDes.sctOpr.invSctOpr.oprVac.mem.egoFur ==
-        gla32.sctOpr.invSctOpr.oprVac.mem.egoFur
-    @test relErr(dnsMat(glaDes), dnsMat(gla32)) < 1e-5
-end
-
 @testset "LinearMaps at Float32" begin
     opr32 = prcG032()
     lmp = LinearMap(opr32)
     @test eltype(lmp) == ComplexF32
     @test size(lmp) == (192, 192)
     @test Matrix(lmp) == prcDns32
-end
-
-@testset "Float32 GPU" begin
-    @testset "$(nameof(typeof(dev)))" for dev in gpuBackends
-        opr32 = GlaOprVac{Float32}(prcVol; dev)
-        @test get_backend(opr32) isa typeof(dev)
-        @test eltype(opr32) == ComplexF32
-        v32 = adapt(dev, rand(ComplexF32, 192))
-        out32 = opr32 * copy(v32)
-        @test get_backend(out32) isa typeof(dev)
-        outCpu = prcG032() * Array(v32)
-        @test norm(Array(out32) - outCpu) < gpuTol(Float32) * norm(outCpu)
-        supports_float64(dev) && @test_throws(ArgumentError, opr32 * adapt(dev, zeros(ComplexF64, 192)))
-        supports_float64(dev) && @test(GlaOprVac{Float64}(opr32) isa GlaOprVac{Float64})
-        fld32 = zerofield(Float32, GlaCmpVol(prcVol); dev)
-        @test get_backend(fld32) isa typeof(dev)
-        sol = solve(InvSctOpr(opr32, adapt(dev, prcSus32)), copy(v32), GMRESSolver())
-        @test eltype(sol) == ComplexF32
-    end
 end

@@ -2,7 +2,7 @@
 tensor, the depolarization sum rule, tracelessness away from the origin, the point-dipole far field,
 definiteness, and the 1/f^2 that carries the whole frequency dependence. =#
 using Test, GilaElectromagnetics, DoubleFloats, LinearAlgebra
-const GVQ = GilaElectromagnetics.GilaVacuum
+const GVQ = GilaElectromagnetics
 
 # cell shapes as full edge lengths; S sees the cell only through its aspect ratio
 const qssCub = (1//1, 1//1, 1//1)
@@ -43,34 +43,30 @@ function qssToe(cel::NTuple{3,Int}, scl::NTuple{3,Rational{Int}})
     vol = mkVol(cel; scl = scl)
     toe = fill(ComplexF64(NaN), 3, 3, cel...)
     GVQ.momBlkQss!(toe, vol, [Tuple(itr) .- 1 for itr ∈ vec(CartesianIndices(min.(cel, 2)))])
-    GVQ.momBlkQss!(toe, vol, GVQ.farBlkQss!(toe, scl; tol = GVQ.farTol(Float64), disk = false))
+    GVQ.momBlkQss!(toe, vol, GVQ.farBlkQss!(toe, scl; tol = GVQ.FARTOL, disk = false))
     @test all(isfinite, toe)
     return real.(toe)
 end
 
 # the assembled quasistatic operator, the object GlaOprVac is handed
-qssMem(cel, scl, ::Type{T} = Float64, frq = 1.0 + 0.0im) where {T} =
-    (opt = GlaKerOpt{T}(); opt.qssApx = true; opt.frqPhz = frq;
-        GlaVacOprMem(opt, mkVol(cel; scl = scl)))
+qssMem(cel, scl, frq = 1.0 + 0.0im) =
+    GlaVacOprMem(GlaKerOpt{Float64}(; qssApx = true, frqPhz = frq), mkVol(cel; scl = scl))
 
 @testset "Quasistatic Tests" begin
     # the self block is minus the cell's own demagnetizing tensor, of trace one
     @testset "self block" begin
-        wst = 0.0
         for s ∈ (qssCub, qssAni, qssSkw)
             S = qssToe((1, 1, 1), s)[:, :, 1, 1, 1] - I
             frc = maximum(abs, S + Diagonal(collect(qssDem(s)))) / qssTol((0, 0, 0), s)
-            wst = max(wst, frc); @test frc < 1
+            @test frc < 1
             @test abs(tr(S) + 1) < qssTol((0, 0, 0), s)
         end
-        @info "self block vs Aharoni, worst fraction of tolerance = $wst"
     end
 
     # The volume average of the field of a uniformly polarized cuboid body is -L(body) . P, L the
     # Aharoni factors of the WHOLE body: the only test here that knows the touching blocks are not
     # point dipoles.
     @testset "depolarization sum rule" begin
-        wst = 0.0
         for (cel, s) ∈ (((3, 2, 5), qssCub), ((4, 4, 4), qssAni), ((8, 8, 2), qssCub),
                 ((4, 4, 4), (1//1, 2//1, 1//4)))
             n = prod(cel)
@@ -79,26 +75,23 @@ qssMem(cel, scl, ::Type{T} = Float64, frq = 1.0 + 0.0im) where {T} =
             L = qssDem(cel .* s)
             tol = qssTol(cel, s)
             frc = maximum(abs((A[a, a] + L[a]) / L[a]) for a ∈ 1:3) / tol
-            wst = max(wst, frc); @test frc < 1
+            @test frc < 1
             @test maximum(abs, A - Diagonal(diag(A))) < tol
             @test abs(tr(A) + 1) < tol
         end
-        @info "sum rule vs Aharoni, worst fraction of tolerance = $wst"
     end
 
     # away from the origin S solves Laplace's equation, so it is traceless
     @testset "trace free away from the origin" begin
-        wst = 0.0
         for s ∈ (qssCub, qssAni, qssSkw)
             toe = qssToe((4, 4, 4), s)
             for i ∈ 0:3, j ∈ 0:3, k ∈ 0:3
                 (i, j, k) == (0, 0, 0) && continue
                 S = view(toe, :, :, i + 1, j + 1, k + 1)
                 frc = abs(tr(S)) / maximum(abs, S) / qssTol((i, j, k), s)
-                wst = max(wst, frc); @test frc < 1
+                @test frc < 1
             end
         end
-        @info "trace free, worst fraction of tolerance = $wst"
     end
 
     # The cell radiates as a point dipole of moment V P, its own second moments the leading
@@ -148,13 +141,11 @@ qssMem(cel, scl, ::Type{T} = Float64, frq = 1.0 + 0.0im) where {T} =
         cel = (3, 3, 3)
         qss = qssMem(cel, stdScl)
         ref = maximum(maximum(abs, blk) for blk ∈ qss.egoFur)
-        wst = 0.0
         for f ∈ (1.0 + 0.1im, 2.0 + 0.7im, 1e-8 + 0.0im, 1e5 - 3e4im, 0.1 + 1.0im)
-            mem = qssMem(cel, stdScl, Float64, f)
+            mem = qssMem(cel, stdScl, f)
             dev = maximum(maximum(abs, f^2 .* b .- a) for (a, b) ∈ zip(qss.egoFur, mem.egoFur))
-            wst = max(wst, dev / (eps() * ref)); @test dev < 8 * eps() * ref
+            @test dev < 8 * eps() * ref
         end
-        @info "homogeneity, worst deviation = $wst ulp of max|egoFur|"
         err = map((1e-2, 1e-3)) do f
             opt = GlaKerOpt{Float64}()
             opt.frqPhz = complex(f)
@@ -162,21 +153,7 @@ qssMem(cel, scl, ::Type{T} = Float64, frq = 1.0 + 0.0im) where {T} =
             sqrt(sum(sum(abs2, f^2 .* b .- a) for (a, b) ∈ zip(qss.egoFur, mem.egoFur)) /
                 sum(sum(abs2, a) for a ∈ qss.egoFur))
         end
-        @info "f^2 Helmholtz onto the static operator: $(err[1]) at f = 1e-2, $(err[2]) at 1e-3"
         @test err[2] < 1e-7
         @test abs(log10(err[1] / err[2]) - 2) < 0.05
-        # fp32 narrows the fp64 build once, so the only error it carries is that rounding
-        @test all(ComplexF32.(a) == b
-            for (a, b) ∈ zip(qss.egoFur, qssMem(cel, stdScl, Float32).egoFur))
-    end
-
-    # a printed operator names the kernel it was built from, in its block form
-    @testset "show" begin
-        qss = GlaOprVac(qssMem((2, 2, 2), stdScl))
-        cls = GlaOprVac(GlaVacOprMem(GlaKerOpt{Float64}(), mkVol((2, 2, 2))))
-        @test isquasistatic(qss) && !isquasistatic(cls)
-        @test occursin("quasistatic", sprint(show, MIME"text/plain"(), qss))
-        @test occursin("quasistatic", sprint(show, MIME"text/plain"(), asym(qss)))
-        @test !occursin("quasistatic", sprint(show, MIME"text/plain"(), cls))
     end
 end

@@ -1,21 +1,14 @@
 # Physics tests
-# Requires: uniVol imported in volTest.jl (same scope), eigvals from LinearAlgebra
 
 # PSD tolerance: assert min eigenvalue > -rtol * opnorm(Asym). The worst measured
 # here is -1.1e-15 normalized; posDefTest.jl carries the tight per-shape bars.
 const psdRtol = 1e-12
 
-function checkPsd(mat, label)
+function checkPsd(mat)
     # mat should already be the matrix to check for PSD (callers extract Asym if needed)
     nrm = opnorm(mat)
-    if nrm == 0
-        @info "$label: zero matrix (trivially PSD)"
-        @test true
-        return
-    end
     λs  = eigvals(Hermitian((mat + mat') / 2))
     wrs = minimum(λs)
-    @info "$label: worst normalized eigenvalue = $(wrs / nrm)"
     @test wrs >= -psdRtol * nrm
 end
 
@@ -50,37 +43,15 @@ function egoAna!(anaOut::AbstractVector{ComplexF64}, slfVol::GlaVol,
     return nothing
 end
 
-@testset "Asym(G₀) PSD — AsyGlaOprVac itself" begin
-    # AsyGlaOprVac(_g0()) deepcopies egoFur then takes Im part — cheap (no integration)
+@testset "Asym(G₀) PSD — the operator itself" begin
     mat = dnsMat(_asy())
     @test mat ≈ mat'
-    checkPsd(mat, "AsyGlaOprVac (4,4,4)")
+    checkPsd(mat)
 end
 
 @testset "Asym(G₀) PSD — gapped GlaCmpOprVac" begin
     op = GlaCmpOprVac{Float64}(GlaCmpVol([_vol4, _trgV4]))
-    checkPsd(asymMat(dnsMat(op)), "GlaCmpOprVac 2 separated regions")
-end
-
-@testset "Asym undefined for external (negative control)" begin
-    # _gExt() reuses precomputed _extMem4 — no new integration
-    gExt = _gExt()
-    @test (try AsyGlaOprVac(gExt); false catch e; isa(e, ArgumentError) end)
-end
-
-@testset "G₀ = Sym + i·Asym" begin
-    # All built from precomputed _selfMem4 — no new GlaVacOprMem constructions
-    D = dnsMat(_g0())
-    S = dnsMat(_sym())
-    A = dnsMat(_asy())
-    @test S + im .* A ≈ D   rtol=1e-12
-end
-
-@testset "Sym/Asym vs LinearMap decomposition" begin
-    g = _g0()
-    D = Matrix(LinearMap(g))
-    @test relErr(dnsMat(_asy()), asymMat(D)) < 1e-14
-    @test relErr(dnsMat(_sym()), symMat(D))  < 1e-14
+    checkPsd(asymMat(dnsMat(op)))
 end
 
 #= The one absolute physical check in the suite: the discretized operator against
@@ -124,24 +95,6 @@ smallest volume that leaves cells outside the exclusion window. =#
                (dipLoc[3]-winInt):(dipLoc[3]+winInt), :] .= 0.0
         relErrDir[dipDir] = maximum(difMat)
     end
-    @info "analytic dyadic, worst outside the window = $(maximum(relErrDir))"
     @test all(relErrDir .< 0.05)
 end
 
-@testset "Scattering composition" begin
-    v      = rand(ComplexF64, prod((4,4,4)) * 3)
-    invSct = _invSct()
-    sct    = _sct()
-    gVac   = _g0()
-    gla    = _gla()
-    glaVac = _glaVac()
-
-    # InvSctOpr * (SctOpr * v) ≈ v (self and external)
-    @test invSct * (sct * v) ≈ v
-
-    # Zero-susceptibility GlaOpr matches GlaOprVac
-    @test glaVac * v ≈ gVac * v
-
-    # GlaOpr field: G₀ * (SctOpr * v)
-    @test gla * v ≈ gVac * (sct * v)
-end

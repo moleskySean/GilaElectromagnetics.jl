@@ -1,0 +1,86 @@
+% circulant_embedding.tex: (a) an n x n Toeplitz matrix (n = 4) inside the
+% 2n x 2n circulant that embeds it; (b) the matvec P F^-1 G~ F E p along one axis.
+% Entries are c_d with d = row - column and \bar{1} = -1, shaded as in bttb_zoom.tex.
+% Uses the palette and styles defined in preamble.tex.
+\begin{tikzpicture}[font=\small]
+  % ------------------------------------------------------------------
+  % (a) circulant embedding
+  % ------------------------------------------------------------------
+  \def\s{0.56}
+  \node[paneltitle] at (-0.1,8*\s+0.25) {\textbf{(a)} Embedding};
+  \foreach \r in {0,...,7} {
+    \foreach \c in {0,...,7} {
+      % circulant offset, mapped back to the Toeplitz offset it copies
+      \pgfmathtruncatemacro\m{mod(\r-\c+8,8)}
+      \pgfmathtruncatemacro\d{\m<4 ? \m : \m-8}
+      \pgfmathtruncatemacro\ad{abs(\d)}
+      \ifnum\m=4
+        \fill[white] (\c*\s,{(7-\r)*\s}) rectangle ++(\s,\s);
+        \node[font=\scriptsize, inkcol!60] at (\c*\s+\s/2,{(7-\r)*\s+\s/2}) {$0$};
+      \else
+        \pgfmathtruncatemacro\shade{6+(\d+3)*6}
+        \edef\idx{\ifnum\d<0 \noexpand\bar{\ad}\else\ad\fi}
+        \fill[vaccol!\shade] (\c*\s,{(7-\r)*\s}) rectangle ++(\s,\s);
+        \node[font=\scriptsize, inkcol] at (\c*\s+\s/2,{(7-\r)*\s+\s/2}) {$\mathsf{c}_{\idx}$};
+      \fi
+    }
+  }
+  \draw[black!20] (0,0) grid[step=\s] (8*\s,8*\s);
+  % brackets
+  \draw[inkcol, line width=0.8pt] (0.12,-0.08) -- (-0.08,-0.08) -- (-0.08,8*\s+0.08) -- (0.12,8*\s+0.08);
+  \draw[inkcol, line width=0.8pt] (8*\s-0.12,-0.08) -- (8*\s+0.08,-0.08) -- (8*\s+0.08,8*\s+0.08) -- (8*\s-0.12,8*\s+0.08);
+  % the original Toeplitz matrix and the first column
+  \draw[accent, line width=1.4pt] (0,4*\s) rectangle (4*\s,8*\s);
+  \draw[inkcol, line width=1.0pt, dashed] (0,0) rectangle (\s,8*\s);
+  \node[below, font=\footnotesize, align=left, inner sep=0pt] at (4*\s,-0.3) {%
+    \tikz\draw[accent, line width=1.4pt] (0,0) rectangle (0.3,0.2);\ original $n\times n$ Toeplitz matrix\\[2pt]
+    \tikz\draw[inkcol, line width=1pt, dashed] (0,0) rectangle (0.3,0.2);\ first column $\xrightarrow{\;\bm{\mathsf{F}}\;}$ $\tilde{\bm{\mathsf{G}}}_\circ$};
+
+  % ------------------------------------------------------------------
+  % (b) the matvec along one axis
+  % ------------------------------------------------------------------
+  \def\v{0.36}   % vector cell height
+  \def\vw{0.62}  % vector cell width
+  \def\X{6.3}    % left edge of panel (b)
+  \def\dx{1.6}  % spacing between vectors
+  \pgfmathsetmacro\top{8*\s/2+4*\v}
+  \node[paneltitle] at (\X-0.1,8*\s+0.25) {\textbf{(b)} Applying it to a vector};
+  % \vect{column}{label}{length 4 or 8}{top colour}{top entry}{bottom colour}{bottom entry}
+  \newcommand\vect[7]{%
+    \pgfmathsetmacro\vx{\X+#1*\dx}
+    \foreach \i in {1,...,#3} {
+      \pgfmathsetmacro\vy{\top-\i*\v}
+      \ifnum\i<5
+        \filldraw[fill=#4, draw=white] (\vx,\vy) rectangle ++(\vw,\v);
+        \node[font=\scriptsize, inkcol] at (\vx+\vw/2,\vy+\v/2) {#5};
+      \else
+        \filldraw[fill=#6, draw=white] (\vx,\vy) rectangle ++(\vw,\v);
+        \node[font=\scriptsize, inkcol] at (\vx+\vw/2,\vy+\v/2) {#7};
+      \fi
+    }
+    \draw[inkcol, line width=0.5pt] (\vx,\top-#3*\v) rectangle (\vx+\vw,\top);
+    \node[below, inner sep=4pt, font=\footnotesize] at (\vx+\vw/2,\top-#3*\v) {#2};}
+  % \step{from column}{label}: arrow between two vectors
+  \newcommand\step[2]{%
+    \pgfmathsetmacro\ax{\X+#1*\dx+\vw+0.1}
+    \draw[->, inkcol, thick] (\ax,\top-2*\v) -- (\ax+\dx-\vw-0.2,\top-2*\v)
+      node[midway, above, inner sep=3pt, font=\footnotesize] {#2};}
+
+  \vect{0}{$\vb*{\mathsf{p}}$}{4}{matcol!22}{$\mathsf{p}$}{}{}
+  \vect{1}{$\bm{\mathsf{E}}\vb*{\mathsf{p}}$}{8}{matcol!22}{$\mathsf{p}$}{white}{$0$}
+  \vect{2}{$\tilde{\vb*{\mathsf{p}}}$}{8}{accent!20}{$\tilde{\mathsf{p}}$}{accent!20}{$\tilde{\mathsf{p}}$}
+  \vect{3}{$\widetilde{\vb*{\mathsf{f}}}$}{8}{accent!20}{$\widetilde{\mathsf{f}}$}{accent!20}{$\widetilde{\mathsf{f}}$}
+  \vect{4}{$\bm{\mathsf{F}}^{-1}\widetilde{\vb*{\mathsf{f}}}$}{8}{vaccol!18}{$\mathsf{f}$}{black!6}{--}
+  \vect{5}{$\vb*{\mathsf{f}}$}{4}{vaccol!18}{$\mathsf{f}$}{}{}
+
+  \step{0}{$\bm{\mathsf{E}}$}
+  \step{1}{$\bm{\mathsf{F}}$}
+  \step{2}{$\odot\,\tilde{\bm{\mathsf{G}}}_\circ$}
+  \step{3}{$\bm{\mathsf{F}}^{-1}$}
+  \step{4}{$\bm{\mathsf{P}}$}
+
+  % the length-2n stages, where the circulant lives
+  % \draw[decorate, decoration={brace, mirror, amplitude=4pt}, inkcol]
+  %   (\X+1*\dx,\top-8*\v-0.55) -- (\X+4*\dx+\vw,\top-8*\v-0.55)
+  %   node[midway, below=5pt, font=\footnotesize] {Length $2n$. The circulant is diagonal here};
+\end{tikzpicture}

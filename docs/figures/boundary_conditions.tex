@@ -1,0 +1,72 @@
+% boundary_conditions.tex: open (radiating) vs Bloch-periodic boundaries.
+% Uses the palette, styles and \scattererpath defined in preamble.tex.
+\begin{tikzpicture}[font=\small]
+  \def\H{3.6}
+
+  % ------------------------------------------------------------------
+  % (a) open along every axis: radiation leaves and never comes back
+  % ------------------------------------------------------------------
+  \def\WA{5.4}
+  \begin{scope}
+    \begin{scope}
+      \clip (0,0) rectangle (\WA,\H);
+      % fronts leaving Omega, fading as they head off to infinity
+      \foreach \d/\op in {0/0.85, 0.45/0.6, 0.9/0.4, 1.35/0.25, 1.8/0.12} {
+        \draw[vaccol, line width=0.6pt, opacity=\op] (\WA/2,\H/2) ellipse ({2.2+\d} and {1.55+\d});
+      }
+      \draw[scatterer, shift={(\WA/2,\H/2)}, scale=0.5] \scattererpath;
+    \end{scope}
+    \draw[inkcol, line width=0.7pt] (1.2,0.75) rectangle (\WA-1.2,\H-0.75);
+    \node[anchor=north west, inner sep=2pt] at (1.2,\H-0.75) {$\Omega$};
+    \draw[panel] (0,0) rectangle (\WA,\H);
+    \node[paneltitle] at (0,\H) {\textbf{(a)} Open};
+  \end{scope}
+
+  % ------------------------------------------------------------------
+  % (b) periodic along x, open along y: copies of Omega with Bloch phases
+  % ------------------------------------------------------------------
+  \def\WB{10.4}
+  \def\C{2.9}   % cell width (period L)
+  \begin{scope}[shift={(\WA+0.68,0)}]
+    \begin{scope}
+      \clip (0,0) rectangle (\WB,\H);
+      % outgoing fronts above and below (open along y)
+      \foreach \d/\op in {0.15/0.85, 0.4/0.45, 0.65/0.15} {
+        \draw[vaccol, line width=0.6pt, opacity=\op] (0,\H-0.75+\d) -- (\WB,\H-0.75+\d);
+        \draw[vaccol, line width=0.6pt, opacity=\op] (0,0.75-\d) -- (\WB,0.75-\d);
+      }
+      \foreach \i in {-2,-1,0,1,2} {
+        \pgfmathsetmacro\cx{\WB/2+\i*\C}
+        \ifnum\i=0
+          \draw[scatterer, shift={(\cx,\H/2)}, scale=0.5] \scattererpath;
+        \else
+          \draw[scatterer, opacity=0.35, shift={(\cx,\H/2)}, scale=0.5] \scattererpath;
+          \draw[inkcol!50, dashed] (\cx-\C/2,0.75) rectangle (\cx+\C/2,\H-0.75);
+        \fi
+        % the same dipole in every cell, amplitude e^{i(45 - 60 i) deg} (k.L = 60 deg),
+        % drawn at t = 0: its real part shrinks and flips as the Bloch phase advances
+        \pgfmathsetmacro\hh{0.4*cos(45-60*\i)}
+        \draw[-{Stealth[length=1.6mm]}, matcol, line width=1.3pt] (\cx,\H/2-\hh) -- (\cx,\H/2+\hh);
+        \fill[matcol] (\cx,\H/2-\hh) circle (0.045);
+      }
+    \end{scope}
+    \draw[inkcol, line width=0.7pt] (\WB/2-\C/2,0.75) rectangle (\WB/2+\C/2,\H-0.75);
+    \node[anchor=north west, inner sep=2pt] at (\WB/2-\C/2,\H-0.75) {$\Omega$};
+    % Bloch phases of the neighbouring copies
+    \foreach \i/\ph in {-1/{e^{i\vb*{\mathsf{k}}\cdot\vb*{\mathsf{L}}}}, 0/{1}, 1/{e^{-i\vb*{\mathsf{k}}\cdot\vb*{\mathsf{L}}}}} {
+      \node[fill=white, inner sep=1.5pt, font=\footnotesize] at (\WB/2+\i*\C-0.2,0.98) {$\times\,\ph$};
+      % phase dial: the complex amplitude of the dipole in this cell
+      \begin{scope}[shift={(\WB/2+\i*\C+0.9,1.06)}]
+        \filldraw[fill=white, draw=inkcol!60, line width=0.4pt] (0,0) circle (0.24);
+        \draw[inkcol!35, line width=0.4pt] (0,0) -- (0.24,0);
+        \draw[-{Stealth[length=1.3mm]}, matcol, line width=0.9pt] (0,0) -- ({45-60*\i}:0.22);
+      \end{scope}
+    }
+    \draw[|<->|, inkcol] (\WB/2,2.55) -- (\WB/2+\C,2.55)
+      node[midway, fill=white, inner sep=1pt] {$\vb*{\mathsf{L}}$};
+    \node[fill=white, inner sep=1pt] at (0.35,\H/2) {$\cdots$};
+    \node[fill=white, inner sep=1pt] at (\WB-0.35,\H/2) {$\cdots$};
+    \draw[panel] (0,0) rectangle (\WB,\H);
+    \node[paneltitle] at (0,\H) {\textbf{(b)} Periodic along $x$, open along $y$};
+  \end{scope}
+\end{tikzpicture}

@@ -1,23 +1,12 @@
 # Shared helpers — included before all topic files in runtests.jl
-# Requires: using GilaElectromagnetics, LinearAlgebra, CUDA, Metal, OpenCL (done in runtests.jl)
-import GilaElectromagnetics.GilaOperators: mskRng
-import GilaElectromagnetics.GilaVolumes: uniVol
-using KernelAbstractions: functional, supports_float64
-
-# OpenCL.jl leaves functional unimplemented (missing); pocl always provides a device
-const gpuBackends = filter(dev -> coalesce(functional(dev), true), [CUDABackend(), MetalBackend(), OpenCLBackend()])
-
-# Storage precisions to test on a backend: Float32 always, Float64 only where supported
-gpuPrcs(dev) = supports_float64(dev) ? (Float32, Float64) : (Float32,)
-
-# Relative CPU-GPU parity bound; Float64 leaves room for device FFTs less exact than pocl's
-gpuTol(T) = T === Float64 ? 1e-12 : 1e-5
+import GilaElectromagnetics: mskRng
+import GilaElectromagnetics: uniVol
+import GilaElectromagnetics: GlaKerOpt, GlaVacOprMem, GlaCmpOprVac, glaSze
 
 # sym, unlike asym, is not exported; the fine mesh block type is internal as well
-const glaSym = GilaElectromagnetics.GilaOperators.sym
-const GlaSnd = GilaElectromagnetics.GilaOperators.GlaSndOprVac
+const glaSym = GilaElectromagnetics.sym
+const GlaSnd = GilaElectromagnetics.GlaSndOprVac
 
-const volSizes = [(2,2,2), (4,4,4), (6,6,6), (8,8,8), (6,4,8), (8,2,10)]
 const stdScl = (1//32, 1//32, 1//32)
 const scl16  = (1//16, 1//16, 1//16)
 const stdOrg = (0//1, 0//1, 0//1)
@@ -39,13 +28,17 @@ const _trgV4 = mkVol((4,4,4); org=extOrg)
 
 const _selfMem4 = GlaVacOprMem(GlaKerOpt{Float64}(), _vol4)
 const _extMem4  = GlaVacOprMem(GlaKerOpt{Float64}(), _trgV4, _vol4)
+# A Hermitian part of a self operator is never mutated by adjoint!, so its memory is shared like the others
+const _asyMem4  = GlaVacOprMem(GlaKerOpt{Float64}(; hrmPrt = :asy), _vol4)
+const _symMem4  = GlaVacOprMem(GlaKerOpt{Float64}(; hrmPrt = :sym), _vol4)
 
 # Tiny (2,2,2) operator for tests that loop over many mul! calls (linAlg, extOps)
 const _vol2s   = mkVol((2,2,2))
 const _sus2s   = mkSus((2,2,2))
 const _mem2s   = GlaVacOprMem(GlaKerOpt{Float64}(), _vol2s)
+const _asyMem2s = GlaVacOprMem(GlaKerOpt{Float64}(; hrmPrt = :asy), _vol2s)
 _g0s()     = GlaOprVac(_mem2s)
-_asys()    = AsyGlaOprVac(_g0s())
+_asys()    = GlaOprVac(_asyMem2s)
 _invScts() = InvSctOpr(_g0s(), _sus2s)
 _scts()    = SctOpr(_g0s(), _sus2s)
 _glas()    = GlaOpr(_g0s(), _sus2s)
@@ -57,9 +50,19 @@ _invSct() = InvSctOpr(_g0(), _sus4)
 _sct()    = SctOpr(_g0(), _sus4)
 _gla()    = GlaOpr(_g0(), _sus4)
 _glaVac() = GlaOpr(_g0(), zeros(ComplexF64, 4, 4, 4))
-# Cheap AsyGlaOprVac/SymGlaOprVac from precomputed GlaOprVac (deepcopy of egoFur, no integration)
-_asy()    = AsyGlaOprVac(_g0())
-_sym()    = SymGlaOprVac(_g0())
+
+_asy()    = GlaOprVac(_asyMem4)
+_sym()    = GlaOprVac(_symMem4)
+
+#= A slab and a box sharing interior, which the constructor sends through the
+union route, so the operator carries a source and a target mask. =#
+const _mskSlb = GlaVol((2,4,4), scl16, stdOrg)
+const _mskBox = GlaVol((2,2,2), scl16, (1//16, 0//1, 0//1))
+const _mskOpr = GlaOprVac{Float64}(_mskSlb, _mskBox)
+# Two (2,2,2) regions side by side, a cheap composite operator
+const _cvl2s = GlaCmpVol([GlaVol((2,2,2), scl16, stdOrg),
+    GlaVol((2,2,2), scl16, (1//8, 0//1, 0//1))])
+const _cmp2s = GlaCmpOprVac{Float64}(_cvl2s)
 
 function dnsMat(opr::AbstractGlaOpr)
     T = eltype(opr)
@@ -111,15 +114,48 @@ function serRnd(opr)
     return deserialize(buf)
 end
 
-# round trip an operator and compare it entrywise, not just through one matvec
-function serChk(opr; tol = 1e-12)
-    desOpr = serRnd(opr)
+# show runs in both forms, and the compact one is a single line
+shwChk(obj) = !occursin('\n', sprint(show, obj)) && !isempty(sprint(show, MIME"text/plain"(), obj))
+
+serByt(obj) = (buf = IOBuffer(); serialize(buf, obj); take!(buf))
+
+#= A round trip either reproduces the stored data or is broken: the read back
+operator writes the same bytes, and one probe checks the plans rebuilt on load. =#
+function serChk(opr; rnd = serRnd)
+    desOpr = rnd(opr)
     @test desOpr isa typeof(opr)
-    @test frbErr(dnsMat(desOpr), dnsMat(opr)) < tol
-    innVec = rand(ComplexF64, size(opr, 2))
-    @test norm(desOpr * innVec - opr * innVec) < tol * norm(opr * innVec)
+    @test serByt(desOpr) == serByt(opr)
+    innVec = rand(eltype(opr), size(opr, 2))
+    @test norm(desOpr * innVec - opr * innVec) < 1e4 * eps(real(eltype(opr))) * norm(opr * innVec)
     return desOpr
 end
+
+#= Three random probes tell two operators apart as surely as their dense
+matrices do, at a fraction of the matvecs. Either side may be an operator, a
+LinearMap or a matrix. =#
+function prbErr(oprA, oprB)
+    inp = randn(eltype(oprA), size(oprA, 2), 3)
+    # mul!, since a LinearMap times a matrix is another LinearMap
+    return frbErr(oprA * inp, mul!(similar(inp, size(oprA, 1), 3), oprB, inp))
+end
+
+# The dot identity dot(W y, A x) = dot(W B y, x) of an adjoint pair, W the target or source cell volumes; adjErr(A, A) measures A against Hermitian
+function adjErr(opr, adj; wgt=1, srcWgt=wgt)
+    x, y = randn(eltype(opr), size(opr, 2)), randn(eltype(opr), size(opr, 1))
+    lhs = dot(wgt .* y, opr * x)
+    return abs(lhs - dot(srcWgt .* (adj * y), x)) / abs(lhs)
+end
+
+# The transpose identity transpose(y) A x = transpose(x) A y of a complex-symmetric A
+function symErr(opr; wgt=1)
+    x, y = randn(eltype(opr), size(opr, 2)), randn(eltype(opr), size(opr, 1))
+    lhs = transpose(wgt .* y) * (opr * x)
+    return abs(lhs - transpose(wgt .* x) * (opr * y)) / abs(lhs)
+end
+
+# The anti-Hermitian and Hermitian parts of opr applied to inp
+asyPrb(opr, inp) = (opr * inp - adjoint(opr) * inp) / 2im
+symPrb(opr, inp) = (opr * inp + adjoint(opr) * inp) / 2
 
 asymMat(m) = (m - m') / 2im
 symMat(m)  = (m + m') / 2

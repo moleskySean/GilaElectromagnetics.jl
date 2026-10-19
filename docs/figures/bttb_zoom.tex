@@ -1,0 +1,53 @@
+% bttb_zoom.tex: G as Toeplitz blocks (x) of Toeplitz blocks (y) of Toeplitz
+% matrices (z), drawn for n_x = n_y = n_z = 4. Subscripts are offsets
+% (row - column) at each level, with \bar{1} = -1; the shade marks the diagonal.
+% Uses the palette and styles defined in preamble.tex.
+\begin{tikzpicture}[font=\small,
+    magnify/.style={fill=accent, fill opacity=0.10, draw=accent!70, line width=0.4pt},
+    focus/.style={draw=accent, line width=1.4pt},
+  ]
+  % \toeplitz{x0}{cell size}{entry}{font}: 4x4 bracketed matrix centred on y = 0,
+  % entry gets \idx = row - col
+  \newcommand\toeplitz[4]{%
+    \begin{scope}[yshift=-2*#2 cm]
+    \foreach \r in {0,...,3} {
+      \foreach \c in {0,...,3} {
+        \pgfmathtruncatemacro\d{\r-\c}
+        \pgfmathtruncatemacro\shade{6+(\d+3)*6}
+        \pgfmathtruncatemacro\ad{abs(\d)}
+        \edef\idx{\ifnum\d<0 \noexpand\bar{\ad}\else\ad\fi}
+        \fill[vaccol!\shade] (#1+\c*#2,{(3-\r)*#2}) rectangle ++(#2,#2);
+        \node[font=#4, inkcol] at (#1+\c*#2+#2/2,{(3-\r)*#2+#2/2}) {$#3$};
+      }
+    }
+    \draw[inkcol, line width=0.8pt] (#1+0.12,-0.08) -- (#1-0.08,-0.08) -- (#1-0.08,4*#2+0.08) -- (#1+0.12,4*#2+0.08);
+    \draw[inkcol, line width=0.8pt] (#1+4*#2-0.12,-0.08) -- (#1+4*#2+0.08,-0.08) -- (#1+4*#2+0.08,4*#2+0.08) -- (#1+4*#2-0.12,4*#2+0.08);
+    \end{scope}}
+
+  \def\sa{0.62} \def\xa{0.5}            % G
+  \def\sb{0.86} \def\xb{\xa+4*\sa+1.9}  % one block of G
+  \def\sc{1.1}  \def\xc{\xb+4*\sb+1.9}  % one block of that
+
+  % magnifier cones, drawn first so the matrices sit on top
+  \fill[magnify] (\xa+4*\sa,0) -- (\xb-0.08,2*\sb+0.08) -- (\xb-0.08,-2*\sb-0.08) -- (\xa+4*\sa,-\sa) -- cycle;
+  \fill[magnify] (\xb+4*\sb,\sb) -- (\xc-0.08,2*\sc+0.08) -- (\xc-0.08,-2*\sc-0.08) -- (\xb+4*\sb,0) -- cycle;
+
+  \toeplitz{\xa}{\sa}{\mathsf{G}_{\idx}}{\footnotesize}
+  \toeplitz{\xb}{\sb}{\mathsf{G}_{\bar{1}\idx}}{\footnotesize}
+  \toeplitz{\xc}{\sc}{\mathsf{g}_{\bar{1}\bar{2}\idx}}{\small}
+
+  % the entry being magnified, and the matrix it becomes
+  \draw[focus] (\xa+3*\sa,-\sa) rectangle ++(\sa,\sa);
+  \draw[focus] (\xb+3*\sb,0) rectangle ++(\sb,\sb);
+
+  % what each matrix is
+  \node[above, inner sep=6pt] at (\xa+2*\sa,2*\sa) {$\bm{\mathsf{G}}_\circ$};
+  \node[above, inner sep=6pt] at (\xb+2*\sb,2*\sb) {$\mathsf{G}_{\bar{1}}$};
+  \node[above, inner sep=6pt] at (\xc+2*\sc,2*\sc) {$\mathsf{G}_{\bar{1}\bar{2}}$};
+  \node[below, align=center, inner sep=6pt, font=\footnotesize] at (\xa+2*\sa,-2*\sa)
+    {$n_x\times n_x$ blocks\\Toeplitz in $\Delta x$};
+  \node[below, align=center, inner sep=6pt, font=\footnotesize] at (\xb+2*\sb,-2*\sb)
+    {$n_y\times n_y$ blocks\\Toeplitz in $\Delta y$};
+  \node[below, align=center, inner sep=6pt, font=\footnotesize] at (\xc+2*\sc,-2*\sc)
+    {$n_z\times n_z$ entries\\Toeplitz in $\Delta z$};
+\end{tikzpicture}

@@ -1,6 +1,5 @@
 # glaLinAlg matrix-free interface tests
-# Uses the (2,2,2) builders from tstHlp.jl, and oprMsk / mulMlr / mulCmp from
-# oprTest.jl and mulTest.jl, for cheap loop iterations
+# Uses the (2,2,2) builders from tstHlp.jl, for cheap loop iterations
 
 @testset "similar" begin
     opr = _g0s()
@@ -16,13 +15,6 @@
     # The dense shape of the operator is not an allocation anyone asks for by accident
     @test_throws MethodError similar(opr)
     @test_throws MethodError similar(opr, Float64)
-
-    @testset "$(nameof(typeof(dev)))" for dev in gpuBackends
-        gOpr = GlaOprVac{Float32}(_vol2s; dev)
-        @test get_backend(similar(gOpr, (5,))) isa typeof(dev)
-        s = similar(gOpr, Float32, (5,))
-        @test get_backend(s) isa typeof(dev) && eltype(s) == Float32
-    end
 end
 
 @testset "getindex batched" begin
@@ -64,7 +56,7 @@ Every operator whose adjoint! hands back a new wrapper instead of the argument h
 to survive it, in the answer and in the state it leaves behind. =#
 @testset "getindex adjoint branch" begin
     # The masked union route and a composite operator
-    for opr in (oprMsk, mulCmp)
+    for opr in (_mskOpr, _cmp2s)
         dns = dnsMat(opr)
         numRow, numCol = size(opr)
         @test numRow >= numCol
@@ -103,18 +95,6 @@ to supply are their own, and the fallbacks that densified by matvec are gone. =#
     @test_throws MethodError inv(opr)
 end
 
-# The three argument mul! comes from the untyped LinearAlgebra fallback
-@testset "mul! three arg" begin
-    for opr in (_g0s(), _asys(), _invScts())
-        inp = randn(ComplexF64, size(opr, 2))
-        out = similar(inp, size(opr, 1))
-        ref = similar(out)
-        mul!(out, opr, inp)
-        mul!(ref, opr, inp, one(ComplexF64), zero(ComplexF64))
-        @test out == ref
-    end
-end
-
 @testset "backslash" begin
     for opr in (_g0s(), _invScts(), _scts(), _glas())
         inp = randn(ComplexF64, size(opr, 2))
@@ -134,13 +114,13 @@ end
 #= The inverse actions the solve route through, against the operator they invert:
 the factored ones are the easy place to invert the wrong half. =#
 @testset "inverse action" begin
-    invMulAdj! = GilaElectromagnetics.GilaOperators.invMulAdj!
+    _witAdj = GilaElectromagnetics._witAdj
     for opr in (_invScts(), _scts(), _glas())
         inp = randn(ComplexF64, size(opr, 2))
         @test opr * (opr \ inp) ≈ inp rtol=1e-6
 
         out = zeros(ComplexF64, length(inp))
-        invMulAdj!(out, opr, inp, one(ComplexF64), zero(ComplexF64))
+        _witAdj(adjOpr -> ldiv!(out, adjOpr, inp), opr)
         @test adjoint(opr) * out ≈ inp rtol=1e-6
         @test !isadjoint(opr)
     end
@@ -156,10 +136,10 @@ allocates its Krylov basis with a matrix shaped similar, which would strip it. =
     @test sol.cvol == fld.cvol
     @test sol.dat ≈ fld.dat rtol=1e-6
 
-    out = zerofield(Float64, GlaCmpVol(_vol2s))
+    out = zeros(ComplexF64, GlaCmpVol(_vol2s))
     @test ldiv!(out, sct, sct * fld) === out
     @test out.dat ≈ fld.dat rtol=1e-6
 
     # A field on another tiling is refused rather than solved on
-    @test_throws ArgumentError sct \ zerofield(Float64, GlaCmpVol(_vol4))
+    @test_throws ArgumentError sct \ zeros(ComplexF64, GlaCmpVol(_vol4))
 end

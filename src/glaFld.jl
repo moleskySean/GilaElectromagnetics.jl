@@ -1,42 +1,6 @@
-"""
-    GilaFields
-
-This module provides the field type that lives on a volume, plain or composite.
-
-# Types
-- `GlaFld`: A vector of current density coefficients over a `GlaCmpVol`, or over
-  a `GlaVol` taken as a tiling of one region
-
-# Type Aliases
-- `MultiScaleField`: Alias for `GlaFld`
-
-# Functions
-- `zerofield`: Allocate a zero field over a composite volume
-- `discretize!`: Fill a field from a function of position
-- `regionview`: View the block of one region as a 4-tensor
-- `eachregion`: Iterate over the region views of a field
-- `regrid`: Read a field off as densities on a uniform grid
-"""
-module GilaFields
-
-using ..GilaVolumes
-using ..GilaTypes
 using LinearAlgebra
 using Adapt
 using KernelAbstractions
-
-import ..GilaVolumes: _lwrEdg, _uprEdg
-
-export GlaFld, MultiScaleField, zerofield, discretize!, regionview, eachregion, regrid
-
-# Start of each region block in the flat buffer, plus the total length at the end
-function _dofOff(cvol::GlaCmpVol)
-    off = zeros(Int, nregions(cvol) + 1)
-    for (idx, reg) in enumerate(regions(cvol))
-        off[idx + 1] = off[idx] + 3 * prod(reg.cel)
-    end
-    return off
-end
 
 """
     GlaFld{T}
@@ -47,12 +11,10 @@ The volume is always a `GlaCmpVol`. A plain `GlaVol` is wrapped into a tiling of
 one region, so a field over an ordinary volume is the same type as a field over a
 refined one.
 
-The buffer holds √ΔV times the current density coefficient of each degree of
-freedom, with ΔV the cell volume of the region the degree of freedom belongs to.
-In this basis the Euclidean inner product of two fields is their physical L²
-pairing, so `dot` and `norm` can be used as-is. `discretize!` and `regrid` convert
-between densities and stored coefficients. On a uniform mesh the √ΔV factor is
-only one global scalar and the basis is the usual one (up to that scalar).
+The buffer holds the density coefficient of each degree of freedom, the cell
+average of the current. Only `dot` and `norm` carry the cell volume ΔV of the
+region a degree of freedom belongs to: `dot` is the ΔV-weighted pairing and `norm`
+the ΔV-weighted L^p norm, with `norm(fld, Inf)` the plain maximum.
 
 The layout inside the buffer is the flat degree of freedom layout of
 `GlaCmpVol`: region blocks in `regions` order, and inside a block the `vec` of
@@ -81,43 +43,13 @@ end
 
 const MultiScaleField = GlaFld
 
-"""
-    GlaFld(cvol::GlaCmpVol; dev::Backend=CPU())
-
-Construct the zero field over a composite volume. Same as `zerofield`.
-
-# Arguments
-- `cvol::GlaCmpVol`: The composite volume
-- `dev::Backend=CPU()`: The KernelAbstractions backend holding the buffer
-
-# Returns
-- `GlaFld`: A field of zeros with one entry per degree of freedom
-"""
-GlaFld(cvol::GlaCmpVol; dev::Backend=CPU()) = zerofield(cvol; dev=dev)
-
-"""
-    GlaFld(vol::GlaVol; dev::Backend=CPU())
-
-Construct the zero field over a plain volume. Same as `zerofield`.
-
-# Arguments
-- `vol::GlaVol`: The volume
-- `dev::Backend=CPU()`: The KernelAbstractions backend holding the buffer
-
-# Returns
-- `GlaFld`: A field of zeros with one entry per degree of freedom
-"""
-GlaFld(vol::GlaVol; dev::Backend=CPU()) = zerofield(GlaCmpVol(vol); dev=dev)
-
 Adapt.adapt_structure(to, fld::GlaFld) = GlaFld(adapt(to, fld.dat), fld.cvol)
 
 Base.zero(fld::GlaFld) = GlaFld(zero(fld.dat), fld.cvol)
 
 # Region blocks only line up if the two fields agree on the tiling
-_eqvCvl(cvolA::GlaCmpVol, cvolB::GlaCmpVol) = cvolA === cvolB || cvolA == cvolB
-
 function _chkCvl(fldA::GlaFld, fldB::GlaFld)
-    if !_eqvCvl(fldA.cvol, fldB.cvol)
+    if fldA.cvol != fldB.cvol
         throw(ArgumentError("The two fields live on different composite volumes. Operations that mix fields need a common tiling."))
     end
     return nothing
@@ -148,9 +80,16 @@ function Base.show(io::IO, fld::GlaFld)
 end
 Base.show(io::IO, ::MIME"text/plain", fld::GlaFld) = show(io, fld)
 
-LinearAlgebra.dot(fldA::GlaFld, fldB::GlaFld) =
-    (_chkCvl(fldA, fldB); dot(fldA.dat, fldB.dat))
-LinearAlgebra.norm(fld::GlaFld, p::Real=2) = norm(fld.dat, p)
+function LinearAlgebra.dot(fldA::GlaFld, fldB::GlaFld)
+    _chkCvl(fldA, fldB)
+    return sum(prod(reg.scl) * dot(blkA, blkB) for (reg, blkA, blkB) in zip(regions(fldA.cvol), eachregion(fldA), eachregion(fldB)))
+end
+
+function LinearAlgebra.norm(fld::GlaFld, p::Real=2)
+    isinf(p) && return norm(fld.dat, p)
+    nrm = sum(prod(reg.scl) * norm(blk, p)^p for (reg, blk) in zip(regions(fld.cvol), eachregion(fld)))
+    return nrm^inv(oftype(nrm, p))
+end
 
 function LinearAlgebra.axpy!(alp, fldX::GlaFld, fldY::GlaFld)
     _chkCvl(fldX, fldY)
@@ -187,7 +126,7 @@ _bcUnw(bc::Broadcast.Broadcasted) =
 _bcCvl(cvol, arg) = cvol
 _bcCvl(cvol, bc::Broadcast.Broadcasted) = foldl(_bcCvl, bc.args; init=cvol)
 function _bcCvl(cvol, fld::GlaFld)
-    if !isnothing(cvol) && !_eqvCvl(cvol, fld.cvol)
+    if !isnothing(cvol) && cvol != fld.cvol
         throw(ArgumentError("A broadcast mixes fields that live on different composite volumes. Operations that mix fields need a common tiling."))
     end
     return fld.cvol
@@ -218,43 +157,24 @@ function Base.copyto!(fld::GlaFld,
 end
 
 """
-    zerofield(::Type{T}, cvol::GlaCmpVol; dev::Backend=CPU())
-    zerofield(cvol::GlaCmpVol; dev::Backend=CPU())
+    zeros(::Type{Complex{T}}, vol::Union{GlaVol, GlaCmpVol}; dev::Backend=CPU())
+    zeros(vol::Union{GlaVol, GlaCmpVol}; dev::Backend=CPU())
 
-Allocate a zero field of storage precision `T` (`dflPrc` when unrequested) over a composite volume.
+Allocate a zero field of eltype `Complex{T}` (`Complex{dflPrc}` when unrequested)
+over a volume. A plain volume is taken as a tiling of one region, so the result
+is an ordinary `GlaFld` either way.
 
 # Arguments
-- `cvol::GlaCmpVol`: The composite volume
+- `vol`: The plain or composite volume
 - `dev::Backend=CPU()`: The KernelAbstractions backend holding the buffer
 
 # Returns
 - `GlaFld{T}`: A field of zeros with one entry per degree of freedom
 """
-function zerofield(::Type{T}, cvol::GlaCmpVol; dev::Backend=CPU()) where T<:AbstractFloat
-    len = sum(3 * prod(reg.cel) for reg in regions(cvol))
-    dat = KernelAbstractions.zeros(dev, Complex{T}, len)
-    return GlaFld(dat, cvol)
-end
-zerofield(cvol::GlaCmpVol; dev::Backend=CPU()) = zerofield(dflPrc, cvol; dev=dev)
-
-"""
-    zerofield(::Type{T}, vol::GlaVol; dev::Backend=CPU())
-    zerofield(vol::GlaVol; dev::Backend=CPU())
-
-Allocate a zero field of storage precision `T` (`dflPrc` when unrequested) over a plain volume.
-
-The volume is taken as a tiling of one region, so the result is an ordinary
-`GlaFld` and every operation defined on fields applies to it.
-
-# Arguments
-- `vol::GlaVol`: The volume
-- `dev::Backend=CPU()`: The KernelAbstractions backend holding the buffer
-
-# Returns
-- `GlaFld`: A field of zeros with one entry per degree of freedom
-"""
-zerofield(::Type{T}, vol::GlaVol; dev::Backend=CPU()) where T<:AbstractFloat = zerofield(T, GlaCmpVol(vol); dev=dev)
-zerofield(vol::GlaVol; dev::Backend=CPU()) = zerofield(dflPrc, GlaCmpVol(vol); dev=dev)
+Base.zeros(::Type{Complex{T}}, cvol::GlaCmpVol; dev::Backend=CPU()) where T<:AbstractFloat =
+    GlaFld(KernelAbstractions.zeros(dev, Complex{T}, _dofOff(cvol)[end]), cvol)
+Base.zeros(::Type{Complex{T}}, vol::GlaVol; kw...) where T<:AbstractFloat = zeros(Complex{T}, GlaCmpVol(vol); kw...)
+Base.zeros(vol::Union{GlaVol, GlaCmpVol}; kw...) = zeros(Complex{dflPrc}, vol; kw...)
 
 """
     regionview(fld::GlaFld, idx::Integer)
@@ -262,10 +182,8 @@ zerofield(vol::GlaVol; dev::Backend=CPU()) = zerofield(dflPrc, GlaCmpVol(vol); d
 View the block of one region as a 4-tensor.
 
 The result has size `(reg.cel..., 3)` and shares memory with the field, so
-writing through it mutates the field. The entries are the stored √ΔV
-coefficients, not densities. Dividing the whole view by `sqrt(prod(reg.scl))`
-gives the current density, since a region has a single cell size and therefore a
-single factor.
+writing through it mutates the field. The entries are the density
+coefficients.
 
 The shape and the index order are the ones `GlaOprVac` expects of a source or
 target array, so the view can be handed straight to an operator.
@@ -303,10 +221,8 @@ Fill a field from a function of position.
 
 `f` takes a cell center as an `NTuple{3,Float64}` in wavelengths and returns
 something indexable of length three, an `SVector`, a tuple, or a vector, holding
-the three components of the current density there. Each value is multiplied by
-`sqrt(prod(reg.scl))` on the way into the buffer, which is the conversion from a
-density to a stored coefficient. Sampling is setup code, so the values are
-always built on the CPU and copied to the buffer at the end.
+the three components of the current density there. Sampling is setup code, so
+the values are always built on the CPU and copied to the buffer at the end.
 
 # Arguments
 - `fld::GlaFld`: The field to fill
@@ -319,13 +235,11 @@ function discretize!(fld::GlaFld, f)
     buf = Vector{eltype(fld)}(undef, length(fld))
     for (regIdx, reg) in enumerate(regions(fld.cvol))
         celNum = prod(reg.cel)
-        sclFac = sqrt(Float64(prod(reg.scl)))
         for (celIdx, celInd) in enumerate(CartesianIndices(Tuple(reg.cel)))
             pos = ntuple(dir -> Float64(reg.grd[dir][celInd[dir]]), 3)
             val = f(pos)
             for dir in 1:3
-                buf[fld.off[regIdx] + (dir - 1) * celNum + celIdx] =
-                    val[dir] * sclFac
+                buf[fld.off[regIdx] + (dir - 1) * celNum + celIdx] = val[dir]
             end
         end
     end
@@ -343,8 +257,6 @@ volume, which the regions tile exactly. Every uniform cell takes the density of
 the source cell holding its center, so the result is piecewise constant and the
 regions coarser than `scl` come out as blocks of repeated values. Since `scl`
 divides every region scale, cell boundaries never cut across a source cell.
-
-The returned array holds densities, not stored coefficients.
 
 # Arguments
 - `fld::GlaFld`: The field to read
@@ -378,17 +290,13 @@ function regrid(fld::GlaFld, scl::NTuple{3,Rational}=finest(fld.cvol))
         regLwr = _lwrEdg(reg)
         bas = ntuple(dir -> Int((regLwr[dir] - boxLwr[dir]) // scl[dir]), 3)
         celNumReg = prod(reg.cel)
-        sclFac = sqrt(Float64(prod(reg.scl)))
         for (celIdx, celInd) in enumerate(CartesianIndices(Tuple(reg.cel)))
             lwr = ntuple(dir -> bas[dir] + (celInd[dir] - 1) * rep[dir], 3)
             rng = ntuple(dir -> (lwr[dir] + 1):(lwr[dir] + rep[dir]), 3)
             for dir in 1:3
-                out[rng..., dir] .=
-                    dat[fld.off[regIdx] + (dir - 1) * celNumReg + celIdx] / sclFac
+                out[rng..., dir] .= dat[fld.off[regIdx] + (dir - 1) * celNumReg + celIdx]
             end
         end
     end
     return out
 end
-
-end # module

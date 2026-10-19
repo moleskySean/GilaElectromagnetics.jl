@@ -2,7 +2,7 @@ using Test, Logging, GilaElectromagnetics
 
 prxVol(xOrg) = GlaVol((4, 4, 4), scl16, (xOrg, 0//1, 0//1))
 prxMem(opt, xOrg) = GlaVacOprMem(opt, prxVol(0//1), prxVol(xOrg))
-prxLsy() = (opt = GlaKerOpt{Float64}(); opt.frqPhz = 1.0 + 0.3im; opt)
+prxLsy() = GlaKerOpt{Float64}(; frqPhz = 1.0 + 0.3im)
 
 @testset "Proximity warns under a third of a wavelength" begin
     @test_logs (:warn, r"third of a wavelength") prxMem(GlaKerOpt{Float64}(), 6//16)
@@ -28,4 +28,6 @@ end
     @test_logs min_level = Logging.Warn GlaCmpOprVac{Float64}(cvlA,
         GlaCmpVol([prxVol(10//16)]))
     @test_logs min_level = Logging.Warn GlaCmpOprVac{Float64}(cvlA, cvlA)
+    @test_logs min_level = Logging.Warn GlaOprVac{Float64}(cvlA,
+        GlaCmpVol([prxVol(6//16)]); prxWrn = false)
 end

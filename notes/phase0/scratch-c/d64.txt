@@ -1,9 +1,0 @@
-=== (A) Double64 correctness vs 256-bit BigFloat, faceMoments + momentSeries ===
-c32  mMax=22  worst rel err vs 256-bit = 7.490e-32  (eps(Double64)=4.93e-32)
-c4   mMax=63  worst rel err vs 256-bit = 7.490e-32  (eps(Double64)=4.93e-32)
-
-=== (B) cost, 6 face pairs at offset (1,1,1), serial ===
-shp   mMax       f64 s       D64 s      b128 s   D64/f64  b128/D64
-c32     22      0.0217      0.1860      1.4028       8.6       7.5
-c8      42      0.3787      2.8351     21.9430       7.5       7.7
-c4      63      3.0425     21.3165    169.5855       7.0       8.0

@@ -1,6 +1,7 @@
 # Bloch-periodic operators: against the dense Bloch matrix of blcFil's Toeplitz block, the accuracy records of
 # ref/bloch.txt and the 256-bit composite references of ref/blochCmp.txt
-import GilaElectromagnetics.GilaVacuum.Bloch: blcSet, blcFil, blcTns, blcCmp, QI
+using JLD2
+import GilaElectromagnetics.Bloch: blcSet, blcFil, blcCmp, QI
 
 # dense Bloch matrix in Gila's vector layout (cells..., 3) of the Toeplitz block H + iA over the offsets ms
 function blcMat(H, A, ms, ax, N)
@@ -35,8 +36,8 @@ ptri(s) = Tuple(prat.(split(s, ",")))
                 @test norm(opr * x - D * x) < 4eps() * norm(D * x)
                 θ === θGen || continue
                 @test abs(dot(opr * x, y) - dot(x, adjoint(opr) * y)) < 4eps() * norm(opr * x) * norm(y)
-                @test norm(SymGlaOprVac{Float64}(vol; frqPhz = f, blc) * x - (D + D') / 2 * x) < 4eps() * norm(D * x)
-                @test norm(AsyGlaOprVac{Float64}(vol; frqPhz = f, blc) * x - (D - D') / 2im * x) < 4eps() * norm(D * x)
+                @test norm(glaSym(opr) * x - (D + D') / 2 * x) < 4eps() * norm(D * x)
+                @test norm(asym(opr) * x - (D - D') / 2im * x) < 4eps() * norm(D * x)
                 θNew = map(t -> -t / 3, θ)
                 @test setBlc!(opr, θNew) * x ≈ GlaOprVac{Float64}(vol; frqPhz = f, blc = (; ax, P, θ = θNew)) * x rtol = 4eps()
             end
@@ -51,8 +52,18 @@ ptri(s) = Tuple(prat.(split(s, ",")))
                 ax = Tuple(parse.(Int, split(c[2], ","))); L = Tuple(prat.(split(c[3], ",")))
                 θ = Tuple(t == "pi" ? 1//2 : parse(Float64, t) for t in split(c[4], ","))
                 f = complex(parse(Float64, c[8]), parse(Float64, c[9])); κe = parse(Float64, c[11])
-                H, A, _ = blcTns(ptri(c[7]), ptri(c[5]), ptri(c[6]), f, ax, L, θ)
-                X = H .+ im .* A; Y = complex.(parse.(BigFloat, c[13:21]), parse.(BigFloat, c[22:30]))
+                sT, sS, R = ptri(c[5]), ptri(c[6]), ptri(c[7])
+                n = map((a, l) -> R[a] / l, ax, L)
+                if sT == sS && all(isinteger, n) && all(i -> i in ax || iszero(R[i]), 1:3)
+                    # whole periods from the origin: the fill's self entry, G(R + Λn) = e^{-iθ·n} G(R)
+                    H, A, _ = blcFil(sT, f, ax, (1, 1, 1), map((a, l) -> Int(l / sT[a]), ax, L), θ)
+                    X = cis(-sum(map((t, k) -> t isa Rational ? 2π * t * k : t * k, θ, n))) .* (H .+ im .* A)[:, :, 1, 1, 1]
+                else
+                    # a pair of single cells, the source's lower corner at the origin of blcCmp's lattice
+                    H, A = blcCmp([GlaVol((1, 1, 1), sT, R .+ sS .// 2), GlaVol((1, 1, 1), sS, sS .// 2)], f, ax, L, θ)[(1, 2)]
+                    X = (H .+ im .* A)[:, :, 1, 1, 1]
+                end
+                Y = complex.(parse.(BigFloat, c[13:21]), parse.(BigFloat, c[22:30]))
                 m = maximum(abs, Y)
                 ep = maximum(i -> abs(Y[i]) > 1e-8 * m ? Float64(abs(X[i] - Y[i]) / abs(Y[i])) / eps() : 0.0, 1:9)
                 @test ep <= 3 * (1 + κe)
@@ -77,28 +88,29 @@ ptri(s) = Tuple(prat.(split(s, ",")))
         opr = GlaCmpOprVac{Float64}(cvol; frqPhz = f, blc)
         @test norm(opr * x - D * x) < 4eps() * norm(D * x)
         @test abs(dot(opr * x, y) - dot(x, adjoint(opr) * y)) < 4eps() * norm(opr * x) * norm(y)
-        @test norm(SymGlaCmpOprVac{Float64}(cvol; frqPhz = f, blc) * x - (D + D') / 2 * x) < 4eps() * norm(D * x)
-        @test norm(AsyGlaCmpOprVac{Float64}(cvol; frqPhz = f, blc) * x - (D - D') / 2im * x) < 4eps() * norm(D * x)
+        @test norm(glaSym(opr) * x - (D + D') / 2 * x) < 4eps() * norm(D * x)
+        @test norm(asym(opr) * x - (D - D') / 2im * x) < 4eps() * norm(D * x)
         θNew = (-1.9,)
         @test setBlc!(opr, θNew) * x ≈ GlaCmpOprVac{Float64}(cvol; frqPhz = f, blc = (; ax, P, θ = θNew)) * x rtol = 4eps()
         Dn = boxMat(f, θNew)
         @test norm(opr * x - Dn * x) < 4eps() * norm(Dn * x)
-        @test_throws ArgumentError AsyGlaCmpOprVac(opr)
+        # the part is rebuilt at the phases setBlc! left
+        @test norm(asym(opr) * x - (Dn - Dn') / 2im * x) < 4eps() * norm(Dn * x)
     end
 
     # coarse (2, 2, 2) at (1/16, 1/32, 1/32) next to fine (4, 2, 2) along the periodic axis: the 8 × 2 × 2 box at 1/32 with pairs of cells merged
     @testset "CrsCmp" begin
         crs = GlaCmpVol([GlaVol((2, 2, 2), (1//16, 1//32, 1//32), (1//16, 1//32, 1//32)), GlaVol((4, 2, 2), s, (3//16, 1//32, 1//32))])
-        # composite degree of freedom → normalized box degrees of freedom
+        # composite degree of freedom → box degrees of freedom it injects into
         lnB = LinearIndices((8, 2, 2)); Q = zeros(96, 72); k = 0
         for (r, reg) in enumerate(regions(crs)), a in 1:3, c in CartesianIndices(reg.cel)
             k += 1
             for x in (r == 1 ? (2c[1] - 1, 2c[1]) : (c[1] + 4,))
-                Q[lnB[x, c[2], c[3]] + 32 * (a - 1), k] = r == 1 ? 1 / sqrt(2) : 1
+                Q[lnB[x, c[2], c[3]] + 32 * (a - 1), k] = 1
             end
         end
         f = 1.0 + 0.1im; Pc = (10,)
-        crsMat(θ) = ((H, A, inf) = blcFil(s, f, ax, (8, 2, 2), Pc, θ); Q' * blcMat(H, A, inf[:ms], ax, (8, 2, 2)) * Q)
+        crsMat(θ) = ((H, A, inf) = blcFil(s, f, ax, (8, 2, 2), Pc, θ); (Q ./ sum(Q; dims = 1))' * blcMat(H, A, inf[:ms], ax, (8, 2, 2)) * Q)
         D = crsMat(θ); x = randn(rng, ComplexF64, 72)
         opr = GlaCmpOprVac{Float64}(crs; frqPhz = f, blc = (; ax, P = Pc, θ))
         @test norm(opr * x - D * x) < 4eps() * norm(D * x)
@@ -126,8 +138,8 @@ ptri(s) = Tuple(prat.(split(s, ",")))
     @testset "Psd" begin
         vol = GlaVol((4, 2, 2), (1//8, 1//8, 1//8))
         for f in (1.0 + 0.0im, 1.0 + 0.1im)
-            for M in (AsyGlaOprVac{Float64}(vol; frqPhz = f, blc = (ax = (1,), P = (6,), θ)) * Matrix{ComplexF64}(I, 48, 48),
-                      AsyGlaCmpOprVac{Float64}(cvol; frqPhz = f, blc = (; ax, P, θ)) * Matrix{ComplexF64}(I, 48, 48))
+            for M in (GlaOprVac{Float64}(vol; frqPhz = f, blc = (ax = (1,), P = (6,), θ), hrmPrt = :asy) * Matrix{ComplexF64}(I, 48, 48),
+                      GlaOprVac{Float64}(cvol; frqPhz = f, blc = (; ax, P, θ), hrmPrt = :asy) * Matrix{ComplexF64}(I, 48, 48))
                 λ = eigvals(Hermitian((M + M') / 2))
                 @test iszero(imag(f)) ? minimum(λ) >= -8eps() * maximum(λ) : minimum(λ) > 0
             end
@@ -156,10 +168,9 @@ ptri(s) = Tuple(prat.(split(s, ",")))
     end
 
     @testset "Rfs" begin
-        z3 = (QI(0), QI(0), QI(0)); s32 = (QI(1//32), QI(1//32), QI(1//32))
         # an exact Rayleigh-Wood anomaly (L f = 1 at θ = 0), a period off the cell lattice, a unit cell longer than its period
         for fun in (() -> GlaOprVac{Float64}(GlaVol((2, 2, 2), (1//8, 1//8, 1//8)); blc = (ax = (1,), P = (8,), θ = (0//1,))),
-                    () -> blcTns(z3, s32, s32, 1.0 + 0im, (1,), (QI(3//64),), (0.7,)),
+                    () -> blcCmp([GlaVol((1, 1, 1), s, s .// 2)], 1.0 + 0im, (1,), (3//64,), (0.7,)),
                     () -> GlaOprVac{Float64}(GlaVol((4, 2, 2), s); blc = (ax = (1,), P = (3,), θ)))
             rsl = @test_throws ErrorException fun()
             @test !occursin('\n', rsl.value.msg)

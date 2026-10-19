@@ -3,7 +3,6 @@
 # separation w = x - y with a per-axis box-box convolution weight, so every pair
 # is a positively weighted sum of axis-aligned boxes (parBxs): 2D with a frozen
 # offset (box2), 3D with none (box3). Generic in the number type.
-using Base.Threads
 using DoubleFloats
 using StaticArrays
 
@@ -49,7 +48,7 @@ end
 function lad1(m0::Int, mMax::Int, t1::T, t2::T, dsq::T) where {T}
     n = (mMax - m0) ÷ 2 + 1
     out = Vector{NTuple{3,T}}(undef, n)
-    L = t2 - t1; h = L / 2
+    L = t2 - t1
     q1 = t1^2 + dsq; q2 = t2^2 + dsq
     A1 = sqrt(q1); A2 = sqrt(q2)
     if m0 == -1
@@ -74,15 +73,6 @@ function lad1(m0::Int, mMax::Int, t1::T, t2::T, dsq::T) where {T}
     return out
 end
 
-# lad1's rungs at offset dh minus the same rungs at offset dl, formed without either:
-# dm1 the w = 1 rung at m = -1, the other three the w = 1, t - t1, t2 - t rungs at m = 1
-struct OffDif{T}
-    dm1::T                                # asinh difference at m = -1, negative
-    dOne::T
-    dRis::T
-    dFal::T
-end
-
 # "pick combination": dh^2 Jh - dl^2 Jl, by whichever of its two exact forms cancels less
 @inline function pikCmb(dhsq::T, dlsq::T, ddsq::T, D::T, Jh::T, Jl::T) where {T}
     aA = dhsq * abs(Jh) + dlsq * abs(Jl)
@@ -90,6 +80,9 @@ end
     return aA <= aB ? dhsq * Jh - dlsq * Jl : dhsq * D + ddsq * Jl
 end
 
+# lad1's rungs at offset dh minus the same rungs at offset dl, formed without either:
+# dm1 the w = 1 rung at m = -1 (an asinh difference, negative), the other three the
+# w = 1, t - t1, t2 - t rungs at m = 1
 function offDif(t1::T, t2::T, dlsq::T, dhsq::T, ddsq::T) where {T}
     A1l = sqrt(t1^2 + dlsq); A2l = sqrt(t2^2 + dlsq)
     A1h = sqrt(t1^2 + dhsq); A2h = sqrt(t2^2 + dhsq)
@@ -128,40 +121,15 @@ function offDif(t1::T, t2::T, dlsq::T, dhsq::T, ddsq::T) where {T}
     dO = (t2 * h2 - t1 * h1 + cO) / T(2)
     dR = (L * t2 * h2 - t1 * dO + cR) / T(3)
     dF = (t2 * dO - L * t1 * h1 + cF) / T(3)
-    return OffDif{T}(dmO, dO, dR, dF)
-end
-
-# asinh(z) - z, avoiding catastrophic cancellation
-function asnMns(z::T) where {T}
-    z > 1//2 && return asinh(z) - z
-    s = zero(T); t = -z^3 / 6; k = 1
-    while k < 400
-        s += t; k += 1
-        t *= -z^2 * T(2k - 1)^2 / (T(2k) * T(2k + 1))
-        abs(t) <= eps(T) * abs(s) && (s += t; break)
-    end
-    return s
-end
-# x - atan(x), avoiding catastrophic cancellation
-function atnMns(x::T) where {T}
-    x > 1//2 && return x - atan(x)
-    s = zero(T); t = x^3 / 3; k = 1
-    while k < 400
-        s += t; k += 1
-        t *= -x^2 * T(2k - 1) / T(2k + 1)
-        abs(t) <= eps(T) * abs(s) && (s += t; break)
-    end
-    return s
+    return (dm1 = dmO, dOne = dO, dRis = dR, dFal = dF)
 end
 
 # int_0^p int_0^q du dv/sqrt(u^2 + v^2 + c^2), avoiding catastrophic cancellation
 function potCrn(p::T, q::T, c::T) where {T}
     csq = c^2
     al = sqrt(p^2 + csq); be = sqrt(q^2 + csq); R = sqrt(p^2 + q^2 + csq)
-    if !iszero(c) && 2 * p <= al && 2 * q <= be
-        return p * q * (1 / be + q^2 / (al * R * (R + al))) +
-               p * asnMns(q / al) + q * asnMns(p / be) + c * atnMns(p * q / (c * R))
-    end
+    # p, q <= c/√3: the closed form below cancels there, and box2Tay, which converges in that region, is tried first
+    !iszero(c) && 2 * p <= al && 2 * q <= be && error("potCrn: box2Tay did not converge")
     at = iszero(c) ? zero(T) : c * atan(p * q / (c * R))
     return p * asinh(q / al) + q * asinh(p / be) - at
 end
@@ -215,8 +183,8 @@ end
 
 # box2Lad's W at a single m, from a finitely truncated Taylor series about the box centre:
 # exact and elementary, not a quadrature. Nothing where the series does not converge
-function box2Tay(m::Int, u1::T, u2::T, v1::T, v2::T, c::T;
-                 nMax::Int = 140, tol::T = eps(T)/16, cndMax::T = T(4)) where {T}
+function box2Tay(m::Int, u1::T, u2::T, v1::T, v2::T, c::T) where {T}
+    nMax = 140; tol = eps(T)/16; cndMax = T(4)
     hu0 = (u2 - u1)/2; um0 = (u2 + u1)/2
     hv0 = (v2 - v1)/2; vm0 = (v2 + v1)/2
     scl = max(um0, vm0, c)
@@ -294,20 +262,17 @@ function box2Tay(m::Int, u1::T, u2::T, v1::T, v2::T, c::T;
     for n in nUse:-1:0, a in 1:3, b in 1:3               # smallest levels first
         W[a,b] += lvs[n+1][a,b]
     end
-    dg = (0, 1, 1); cnd = zero(T)
+    dg = (0, 1, 1)
     for a in 1:3, b in 1:3
         (W[a,b] > 0 && runA[a,b] <= cndMax*W[a,b]) || return nothing
-        cnd = max(cnd, runA[a,b]/W[a,b])
         W[a,b] = ldexp(W[a,b], e*(m + 2 + dg[a] + dg[b]))
     end
-    return (W, nUse, cnd)
+    return W
 end
 
 # the 2D ladder: W[k][a,b] = int_u1^u2 int_v1^v2 w_a(u) w_b(v) (u^2 + v^2 + c^2)^(m/2),
 # m = m0 + 2(k-1) up to mMax and w = (1, u - u1, u2 - u), i.e. flat, rising and falling
-function box2Lad(m0::Int, mMax::Int, u1::T, u2::T, v1::T, v2::T, c::T;
-                 tayOn::Bool = true) where {T}
-    @assert m0 == -1 || m0 == 0
+function box2Lad(m0::Int, mMax::Int, u1::T, u2::T, v1::T, v2::T, c::T) where {T}
     n = (mMax - m0) ÷ 2 + 1
     csq = c^2
     a1 = u1^2 + csq; a2 = u2^2 + csq
@@ -320,38 +285,36 @@ function box2Lad(m0::Int, mMax::Int, u1::T, u2::T, v1::T, v2::T, c::T;
     Ju1 = iszero(v1) ? Ju2 : lad1(m0, mMax, u1, u2, b1)
 
     W = [zeros(T, 3, 3) for _ in 1:n]
-    tayOK = false
     if m0 == -1
-        WT = tayOn ? box2Tay(-1, u1, u2, v1, v2, c) : nothing
-        if WT !== nothing
-            W[1] .= WT[1]
-            tayOK = true
-            @goto seeded
+        WT = box2Tay(-1, u1, u2, v1, v2, c)
+        tayOK = WT !== nothing
+        if tayOK
+            W[1] .= WT
+        else
+            P = potBox(u1, u2, v1, v2, c)
+            Bv = offDif(v1, v2, a1, a2, Lu * (u2 + u1))
+            Bu = offDif(u1, u2, b1, b2, Lv * (v2 + v1))
+            Bvv = (Bv.dOne, Bv.dRis, Bv.dFal); Buu = (Bu.dOne, Bu.dRis, Bu.dFal)
+            um = (u2 + u1) / 2; vm = (v2 + v1) / 2
+            # both routes are exact; averaging restores the u<->v symmetry of the box
+            A1r = (P, iszero(u1) ? Bvv[1] : Bvv[1] - u1 * P, hu * P + (um * P - Bvv[1]))
+            A2r = (P, iszero(v1) ? Buu[1] : Buu[1] - v1 * P, hv * P + (vm * P - Buu[1]))
+            for a in 1:3, b in 1:3
+                r1 = b == 1 ? A1r[a] :
+                     b == 2 ? (iszero(v1) ? Buu[a] : Buu[a] - v1 * A1r[a]) :
+                              hv * A1r[a] + (vm * A1r[a] - Buu[a])
+                r2 = a == 1 ? A2r[b] :
+                     a == 2 ? (iszero(u1) ? Bvv[b] : Bvv[b] - u1 * A2r[b]) :
+                              hu * A2r[b] + (um * A2r[b] - Bvv[b])
+                W[1][a, b] = (r1 + r2) / 2
+            end
         end
-        P = potBox(u1, u2, v1, v2, c)
-        Bv = offDif(v1, v2, a1, a2, Lu * (u2 + u1))
-        Bu = offDif(u1, u2, b1, b2, Lv * (v2 + v1))
-        Bvv = (Bv.dOne, Bv.dRis, Bv.dFal); Buu = (Bu.dOne, Bu.dRis, Bu.dFal)
-        um = (u2 + u1) / 2; vm = (v2 + v1) / 2
-        # both routes are exact; averaging restores the u<->v symmetry of the box
-        A1r = (P, iszero(u1) ? Bvv[1] : Bvv[1] - u1 * P, hu * P + (um * P - Bvv[1]))
-        A2r = (P, iszero(v1) ? Buu[1] : Buu[1] - v1 * P, hv * P + (vm * P - Buu[1]))
-        for a in 1:3, b in 1:3
-            r1 = b == 1 ? A1r[a] :
-                 b == 2 ? (iszero(v1) ? Buu[a] : Buu[a] - v1 * A1r[a]) :
-                          hv * A1r[a] + (vm * A1r[a] - Buu[a])
-            r2 = a == 1 ? A2r[b] :
-                 a == 2 ? (iszero(u1) ? Bvv[b] : Bvv[b] - u1 * A2r[b]) :
-                          hu * A2r[b] + (um * A2r[b] - Bvv[b])
-            W[1][a, b] = (r1 + r2) / 2
-        end
-        @label seeded
     else
         Iu = (Lu, Lu^2 / 2, Lu^2 / 2); Iv = (Lv, Lv^2 / 2, Lv^2 / 2)
         for a in 1:3, b in 1:3
             W[1][a, b] = Iu[a] * Iv[b]
         end
-        tayOK = tayOn && box2Tay(0, u1, u2, v1, v2, c) !== nothing
+        tayOK = box2Tay(0, u1, u2, v1, v2, c) !== nothing
     end
 
     wu2 = (one(T), Lu, zero(T)); wu1 = (one(T), zero(T), Lu)
@@ -379,7 +342,7 @@ function box2Lad(m0::Int, mMax::Int, u1::T, u2::T, v1::T, v2::T, c::T;
         # convergence does not depend on m, so a seeded series serves every rung
         if tayOK
             WT = box2Tay(m, u1, u2, v1, v2, c)
-            WT === nothing || (Wm .= WT[1])
+            WT === nothing || (Wm .= WT)
         end
     end
     return W
@@ -394,9 +357,9 @@ function wgtSpl(cw::T, dw::T, t1::T, t2::T) where {T}
 end
 
 function box2(m0::Int, mMax::Int, lo::Vector{T}, hi::Vector{T},
-              cw::Vector{T}, dw::Vector{T}, off2::T; tayOn::Bool = true) where {T}
+              cw::Vector{T}, dw::Vector{T}, off2::T) where {T}
     u1, v1 = lo[1], lo[2]; u2, v2 = hi[1], hi[2]
-    W = box2Lad(m0, mMax, u1, u2, v1, v2, sqrt(off2); tayOn = tayOn)
+    W = box2Lad(m0, mMax, u1, u2, v1, v2, sqrt(off2))
     pu = wgtSpl(cw[1], dw[1], u1, u2)
     pv = wgtSpl(cw[2], dw[2], v1, v2)
     out = Vector{T}(undef, length(W))
@@ -513,7 +476,7 @@ function powSegD(n::Integer, lo::T, hi::T, d0::T, d1::T, e2::T) where {T}
 end
 
 # wmnSeg's n = -1 seed, avoiding catastrophic cancellation
-function wmnSed(lo::T, hi::T, d::T, q::T) where {T}
+function wmnSed(lo::T, hi::T, d::T) where {T}
     Sl = sqrt(lo^2 + d^2)
     Sh = sqrt(hi^2 + d^2)
     dl = hi - lo
@@ -522,33 +485,26 @@ function wmnSed(lo::T, hi::T, d::T, q::T) where {T}
     x = dl * kap / B0
     hs = ((hi^2 - lo^2) * (hi^2 + lo^2) + d^2 * (hi^2 - lo^2)) / (hi * Sh + lo * Sl)
     Pp = dl * ((lo + hi) * dl + hs) / (B0 * (Sl + Sh))
-    v = Pp - hi * logMns(x)
-    if q != hi
-        v += (q - hi) * powSeg(-1, lo, hi, d)
-    end
-    return v
+    return Pp - hi * logMns(x)
 end
 
-# "weight minus": int_lo^hi (q - t)(t^2 + d^2)^(n/2) dt, with q >= hi
-function wmnSeg(n::Integer, lo::T, hi::T, d::T, q::T) where {T}
+# "weight minus": int_lo^hi (hi - t)(t^2 + d^2)^(n/2) dt
+function wmnSeg(n::Integer, lo::T, hi::T, d::T) where {T}
     Sl = sqrt(lo^2 + d^2)
     Sh = sqrt(hi^2 + d^2)
     dl = hi - lo
     if isodd(n)
-        v = wmnSed(lo, hi, d, q)
+        v = wmnSed(lo, hi, d)
         k = -1
     else
-        v = dl * (q - (hi + lo) / 2)
+        v = dl * (hi - (hi + lo) / 2)
         k = 0
     end
     while k < n
         k += 2
-        tp = q * powSeg(k, lo, hi, d)
-        if q != hi
-            tp += hi * (q - hi) * Sh^k
-        end
+        tp = hi * powSeg(k, lo, hi, d)
         if !iszero(lo)
-            tp -= lo * (q - lo) * Sl^k
+            tp -= lo * (hi - lo) * Sl^k
         end
         v = (tp + k * d^2 * v) / (k + 2)
     end
@@ -600,30 +556,29 @@ function psiBox(n::Integer, t::T, a1::T, a2::T, b1::T, b2::T) where {T}
     return v
 end
 
-# psiBox with the weight q - a, q >= a2
-function psiWmn(n::Integer, t::T, a1::T, a2::T, b1::T, b2::T, q::T) where {T}
+# psiBox with the weight a2 - a
+function psiWmn(n::Integer, t::T, a1::T, a2::T, b1::T, b2::T) where {T}
     r1 = sqrt(t^2 + a1^2); r2 = sqrt(t^2 + a2^2)
     s1 = sqrt(t^2 + b1^2); s2 = sqrt(t^2 + b2^2)
     function bdy(k)
-        wh = wmnSeg(k, a1, a2, s2, q)
+        wh = wmnSeg(k, a1, a2, s2)
         z = (b2 - b1) * wh
-        iszero(b1) || (z += b1 * (wh - wmnSeg(k, a1, a2, s1, q)))
-        q == a2 || (z += a2 * (q - a2) * powSeg(k, b1, b2, r2))
+        iszero(b1) || (z += b1 * (wh - wmnSeg(k, a1, a2, s1)))
         return z
     end
     function led(k)
         p = psiBox(k, t, a1, a2, b1, b2)
-        z = (q - a1) * p
-        iszero(a1) || (z += a1 * (p - (q - a1) * powSeg(k, b1, b2, r1)))
+        z = (a2 - a1) * p
+        iszero(a1) || (z += a1 * (p - (a2 - a1) * powSeg(k, b1, b2, r1)))
         return z
     end
     if isodd(n)
         p = psiBox(-1, t, a1, a2, b1, b2)
-        v = (q - a1) * p
+        v = (a2 - a1) * p
         v += (iszero(a1) ? zero(T) : a1 * p) - powSegD(1, b1, b2, r1, r2, a2^2 - a1^2)
         k = -1
     else
-        v = (b2 - b1) * (a2 - a1) * (q - (a1 + a2) / 2)
+        v = (b2 - b1) * (a2 - a1) * (a2 - (a1 + a2) / 2)
         k = 0
     end
     while k < n
@@ -659,30 +614,27 @@ function box3Mom(m::Integer, lo, hi)
     return v / (m + 3)
 end
 
-# box3Mom with the weight q - u, u the first coordinate and q >= hi[1]
-function box3Wmn(m::Integer, lo, hi, q)
-    T = eltype(lo)
+# box3Mom with the weight hi[1] - u, u the first coordinate
+function box3Wmn(m::Integer, lo, hi)
     u1, u2 = lo[1], hi[1]; v1, v2 = lo[2], hi[2]; w1, w2 = lo[3], hi[3]
     K = box3Mom(m, lo, hi)
     if iszero(u1)
-        s = q * K
+        s = u2 * K
     else
         pu = psiBox(m, u1, v1, v2, w1, w2)
-        s = q * (K - (q - u1) * pu) + (q - u1)^2 * pu
+        s = u2 * (K - (u2 - u1) * pu) + (u2 - u1)^2 * pu
     end
-    q == u2 || (s += u2 * (q - u2) * psiBox(m, u2, v1, v2, w1, w2))
-    bv = psiWmn(m, v2, u1, u2, w1, w2, q)
+    bv = psiWmn(m, v2, u1, u2, w1, w2)
     s += (v2 - v1) * bv
-    iszero(v1) || (s += v1 * (bv - psiWmn(m, v1, u1, u2, w1, w2, q)))
-    bw = psiWmn(m, w2, u1, u2, v1, v2, q)
+    iszero(v1) || (s += v1 * (bv - psiWmn(m, v1, u1, u2, w1, w2)))
+    bw = psiWmn(m, w2, u1, u2, v1, v2)
     s += (w2 - w1) * bw
-    iszero(w1) || (s += w1 * (bw - psiWmn(m, w1, u1, u2, v1, v2, q)))
+    iszero(w1) || (s += w1 * (bw - psiWmn(m, w1, u1, u2, v1, v2)))
     return s / (m + 4)
 end
 
 # box3Mom with the weight u - p, u the first coordinate and p <= lo[1]
 function box3Wpl(m::Integer, lo, hi, p)
-    T = eltype(lo)
     u1, u2 = lo[1], hi[1]; v1, v2 = lo[2], hi[2]; w1, w2 = lo[3], hi[3]
     pu2 = psiBox(m, u2, v1, v2, w1, w2)
     if iszero(p)
@@ -757,7 +709,6 @@ end
 
 # the axis negligible against the other two, hi_i^2 <= (lo_j^2 + lo_k^2)/10000, else 0
 function thnAxs(lo, hi)
-    T = eltype(lo)
     for i in 1:3
         j = i % 3 + 1; k = j % 3 + 1
         hi[i]^2 <= (lo[j]^2 + lo[k]^2) / 10000 && return i
@@ -769,7 +720,7 @@ function wgt2(p::Integer, t::T, a1::T, a2::T, b1::T, b2::T, cw::T, dw::T) where 
     if p >= -1
         wl = cw + dw * a1; wh = cw + dw * a2; dl = a2 - a1
         v = zero(T)
-        iszero(wl) || (v += (wl / dl) * psiWmn(p, t, a1, a2, b1, b2, a2))
+        iszero(wl) || (v += (wl / dl) * psiWmn(p, t, a1, a2, b1, b2))
         iszero(wh) || (v += (wh / dl) * psiWpl(p, t, a1, a2, b1, b2, a1))
         return v
     end
@@ -853,7 +804,7 @@ function wplSeg(n::Integer, lo::T, hi::T, d::T) where {T}
     dl = hi - lo
     J = powSeg(n, lo, hi, d)
     P = dl * (hi + lo) * powSum(Sh, Sl, n + 2) / ((Sh + Sl) * T(n + 2))
-    W = wmnSeg(n, lo, hi, d, hi)
+    W = wmnSeg(n, lo, hi, d)
     return P + lo * J <= dl * J + W ? P - lo * J : dl * J - W
 end
 
@@ -863,7 +814,7 @@ function seg1(m::Integer, lo::T, hi::T, d::T, cw::T, dw::T) where {T}
     dl = hi - lo
     wl = cw + dw * lo; wh = cw + dw * hi
     v = zero(T)
-    iszero(wl) || (v += (wl / dl) * wmnSeg(m, lo, hi, d, hi))
+    iszero(wl) || (v += (wl / dl) * wmnSeg(m, lo, hi, d))
     iszero(wh) || (v += (wh / dl) * wplSeg(m, lo, hi, d))
     return v
 end
@@ -914,13 +865,8 @@ function box3(m::Integer, lo, hi, cw, dw)
     d == 0 || return box3Ser(m, lo, hi, cw, dw, d)
     d = thnAxs(lo, hi)
     d == 0 || return box3Thn(m, lo, hi, cw, dw, d)
-    k = 0
-    for i in 1:3
-        if !iszero(dw[i])
-            k == 0 || error("box3: more than one linearly weighted axis")
-            k = i
-        end
-    end
+    # the two faces fix one axis each, so only the third carries a linear weight
+    k = something(findfirst(!iszero, dw), 0)
     if k == 0
         return prod(cw) * box3Mom(m, lo, hi)
     end
@@ -931,15 +877,14 @@ function box3(m::Integer, lo, hi, cw, dw)
     whi = cw[k] + dw[k] * hi[k]
     dl = hi[k] - lo[k]
     v = zero(T)
-    iszero(wlo) || (v += (wlo / dl) * box3Wmn(m, lo2, hi2, hi2[1]))
+    iszero(wlo) || (v += (wlo / dl) * box3Wmn(m, lo2, hi2))
     iszero(whi) || (v += (whi / dl) * box3Wpl(m, lo2, hi2, lo2[1]))
     return cst * v
 end
 
 # per-axis box-box convolution weight; (:frozen, offset) or
-# (:pieces, [(lo, hi, c, d)]) with weight c + d w on [lo, hi]. tol, for coordinates with
-# no exact rational form, merges breakpoints closer than that fraction of the span
-function axsCnv(A, B, tol = nothing)
+# (:pieces, [(lo, hi, c, d)]) with weight c + d w on [lo, hi]
+function axsCnv(A, B)
     p, q = A
     r, s = B
     if p == q && r == s
@@ -952,14 +897,6 @@ function axsCnv(A, B, tol = nothing)
     dns(w) = max(zero(p), min(q, s + w) - max(p, r + w))
     lo = p - s; hi = q - r
     bps = sort(unique(filter(x -> lo <= x <= hi, [p - s, q - s, p - r, q - r])))
-    if tol !== nothing                       # merge near-coincident breakpoints
-        scl = max(abs(lo), abs(hi))
-        kep = [bps[1]]
-        for x in bps[2:end]
-            x - kep[end] > tol * scl && push!(kep, x)
-        end
-        bps = kep
-    end
     pcs = Tuple{typeof(p),typeof(p),typeof(p),typeof(p)}[]
     for i in 1:(length(bps) - 1)
         al, be = bps[i], bps[i + 1]
@@ -979,8 +916,8 @@ cnvQ(::Type{Q}, x::Double64) where {Q<:Rational} =
     Q(Rational{BigInt}(DoubleFloats.HI(x)) + Rational{BigInt}(DoubleFloats.LO(x)))
 cnvQ(::Type{Q}, x) where {Q} = Q(x)
 
-function parBxs(pA, pB, ::Type{T}, tol = nothing) where {T}
-    Q = tol === nothing ? Rational{BigInt} : typeof(pA[1][1])
+function parBxs(pA, pB, ::Type{T}) where {T}
+    Q = Rational{BigInt}
     qA = ((cnvQ(Q, pA[1][1]), cnvQ(Q, pA[1][2])), (cnvQ(Q, pA[2][1]), cnvQ(Q, pA[2][2])),
           (cnvQ(Q, pA[3][1]), cnvQ(Q, pA[3][2])))
     qB = ((cnvQ(Q, pB[1][1]), cnvQ(Q, pB[1][2])), (cnvQ(Q, pB[2][1]), cnvQ(Q, pB[2][2])),
@@ -988,7 +925,7 @@ function parBxs(pA, pB, ::Type{T}, tol = nothing) where {T}
     of2 = zero(Q)
     axs = Vector{Vector{NTuple{4,Q}}}()
     for i in 1:3
-        kind, val = axsCnv(qA[i], qB[i], tol)
+        kind, val = axsCnv(qA[i], qB[i])
         if kind == :frozen
             of2 += val^2
         else
@@ -1028,25 +965,15 @@ end
 # faces in the order yzL yzU xzL xzU xyL xyU: (degenerate axis, side)
 const FACES = [(1, -1), (1, 1), (2, -1), (2, 1), (3, -1), (3, 1)]
 
-function boxFace(c::Int, sig::Int, ctr::NTuple{3,T}, s::NTuple{3,T}) where {T}
-    iv = Vector{NTuple{2,T}}(undef, 3)
-    for d in 1:3
-        if d == c
-            v = ctr[d] + T(sig) * s[d] / 2
-            iv[d] = (v, v)
-        else
-            iv[d] = (ctr[d] - s[d] / 2, ctr[d] + s[d] / 2)
-        end
-    end
-    return (iv[1], iv[2], iv[3])
-end
+boxFace(c::Int, sig::Int, ctr::NTuple{3,T}, s::NTuple{3,T}) where {T} =
+    ntuple(d -> d == c ? (v = ctr[d] + T(sig) * s[d] / 2; (v, v)) : (ctr[d] - s[d] / 2, ctr[d] + s[d] / 2), 3)
 
-# the panel pair (face F of the cell centred at R, face Fp of the cell at the origin);
+# the panel pair (face F of the cell of edges s centred at R, face Fp of the cell of edges sS centred at the origin);
 # R is a displacement, not a cell index, so the cells need not sit on their own grid
-function parFac(R::NTuple{3,T}, F::Int, Fp::Int, s::NTuple{3,T}) where {T}
+function parFac(R::NTuple{3,T}, F::Int, Fp::Int, s::NTuple{3,T}, sS::NTuple{3,T} = s) where {T}
     c, sig = FACES[F]
     cp, sigp = FACES[Fp]
-    return (boxFace(c, sig, R, s), boxFace(cp, sigp, ntuple(_ -> zero(T), 3), s))
+    return (boxFace(c, sig, R, s), boxFace(cp, sigp, ntuple(_ -> zero(T), 3), sS))
 end
 
 parFac(D::NTuple{3,Int}, F::Int, Fp::Int, s::NTuple{3,T}) where {T} =
@@ -1067,13 +994,9 @@ end
 
 # I_m for m = -1 .. mMax, out[m + 2] = I_m. I_m(lam s) = lam^{m+4} I_m(s), so the pair is
 # prescaled to [1, 2) and each moment scaled back, both steps only moving exponents
-parMom(pA, pB, mMax::Integer; tol = nothing) =
-    parMom(pA, pB, mMax, float(typeof(pA[1][1])); tol = tol)
-
-function parMom(pA, pB, mMax::Integer, ::Type{T}; tol = nothing) where {T}
-    mMax >= -1 || error("parMom: mMax < -1")
+function parMom(pA, pB, mMax::Integer, ::Type{T} = float(typeof(pA[1][1]))) where {T}
     kx = panExp(pA, pB)
-    bxs, of2 = parBxs(sclPan(pA, kx), sclPan(pB, kx), T, tol)
+    bxs, of2 = parBxs(sclPan(pA, kx), sclPan(pB, kx), T)
     out = zeros(T, mMax + 2)
     isempty(bxs) && return out
     d = length(bxs[1][1])
@@ -1091,13 +1014,10 @@ function parMom(pA, pB, mMax::Integer, ::Type{T}; tol = nothing) where {T}
                 out[2 * k] += ve[k]                                 # m = 2(k-1)
             end
         end
-    elseif d == 3
-        iszero(of2) || error("parMom: 3D domain with a frozen offset")
+    else
         for (lo, hi, cw, dw) in bxs, m in -1:mMax
             out[m + 2] += box3(m, lo, hi, cw, dw)
         end
-    else
-        error("parMom: $d-dimensional domain")
     end
     iszero(kx) && return out
     for m in -1:mMax
@@ -1106,75 +1026,68 @@ function parMom(pA, pB, mMax::Integer, ::Type{T}; tol = nothing) where {T}
     return out
 end
 
-facMom(D::NTuple{3,Int}, F::Int, Fp::Int, s::NTuple{3,T}, mMax::Integer;
-            tol = nothing) where {T} =
-    parMom(parFac(D, F, Fp, s)..., mMax; tol = tol)
-
 # int_A int_B exp(2 pi i f r)/(4 pi r f^2) = (1/(4 pi f^2)) sum_n (2 pi i f)^n
-# I_{n-1}/n!. rel = |last term|/|sum| is the term-count stopping rule, NOT an
-# error bound: it certifies term decay, not the conditioning of the partial sum.
-momSer(pA, pB, frq, mMax::Integer) = momSer(parMom(pA, pB, mMax), frq)
-
+# I_{n-1}/n!, summed over every moment given
 function momSer(mom::AbstractVector{T}, frq) where {T}
     F = Complex{T}
     f = F(frq)
     z = 2 * T(pi) * im * f
-    acc = zero(F); cof = one(F); lst = zero(F)
+    acc = zero(F); cof = one(F)
     for n in eachindex(mom)
-        lst = cof * mom[n]
-        acc += lst
+        acc += cof * mom[n]
         cof *= z / n
     end
-    val = acc / (4 * T(pi) * f^2)
-    return (val, abs(lst) / abs(acc))
+    return acc / (4 * T(pi) * f^2)
 end
 
 #=
-Returns the scalar (Helmholtz) Green function. The separation dstMag is assumed 
-to be scaled by wavelength. 
+All unique pairs of cube faces. Row 1 is the target face and row 2 the source
+face, the convention srfSum! assembles by: the tensor component (a, b) sums the
+face pairs whose row 1 normal is a and row 2 normal is b.
 =#
-@inline function sclEgo_(dstMag::Number, frqPhz::Number)
-    # cispi reduces the argument exactly, as in sclEgoN_ below
-    return cispi(2 * dstMag * frqPhz) / (4 * π * dstMag * frqPhz^2)
-end
-function sclEgo(dstMag::Number, frqPhz::ComplexF64)
-    if imag(frqPhz) == zero(real(typeof(frqPhz)))
-        return sclEgo_(dstMag, real(frqPhz))
-    end
-    return sclEgo_(dstMag, frqPhz)
-end
-sclEgo(dstMag::Number, frqPhz::Number) = sclEgo_(dstMag, frqPhz)
+const facPar = SMatrix{2,36,Int}(vcat(repeat(1:6, inner=6)', repeat(1:6, outer=6)'))
+
 #=
-Returns the scalar (Helmholtz) Green function with the singularity removed. The 
-separation distance dstMag is assumed to be scaled by the wavelength.
+Update egoCrc to hold Green function interactions. The storage format of egoCrc 
+is [[ii, ji, ki]^{T}; [ij, jj, kj]^{T}; [ik, jk, kk]^{T}]. 
+See documentation for explanation.
 =#
-@inline function sclEgoN_(dstMag::Number, frqPhz::Number)
-    # Computes g = [exp(im z) - 1] / (4π dstMag frqPhz^2) with z = 2π dstMag frqPhz.
-    # Note that expressing g in terms of a sinc improves numerical stability for
-    # small z and for complex frqPhz. For very large imaginary parts, the sinc
-    # stays within a few ulp of a 256 bit BigFloat reference.
-    xPrd = dstMag * frqPhz
-    return im * cispi(xPrd) * sinc(xPrd) / (2 * frqPhz)
+function srfSum!(egoCrc::AbstractMatrix{<:Complex}, srfMat::AbstractVector{<:Complex})
+    # ii
+    egoCrc[1,1] = srfMat[15] - srfMat[16] - srfMat[21] + 
+    srfMat[22] + srfMat[29] - srfMat[30] - srfMat[35] + srfMat[36]
+    # ji
+    egoCrc[2,1] = - srfMat[13] + srfMat[14] + srfMat[19] - srfMat[20] 
+    # ki
+    egoCrc[3,1] = - srfMat[25] + srfMat[26] + srfMat[31] - srfMat[32] 
+    # ij
+    egoCrc[1,2] = - srfMat[3] + srfMat[4] + srfMat[9] - srfMat[10]
+    # jj
+    egoCrc[2,2] = srfMat[1] - srfMat[2] - srfMat[7] + srfMat[8] + 
+    srfMat[29] - srfMat[30] - srfMat[35] + srfMat[36]
+    # kj
+    egoCrc[3,2] = - srfMat[27] + srfMat[28] + srfMat[33] - srfMat[34]
+    # ik
+    egoCrc[1,3] = - srfMat[5] + srfMat[6] + srfMat[11] - srfMat[12]
+    # jk
+    egoCrc[2,3] = - srfMat[17] + srfMat[18] + srfMat[23] - srfMat[24]
+    # kk
+    egoCrc[3,3] = srfMat[1] - srfMat[2] - srfMat[7] + srfMat[8] + 
+    srfMat[15] - srfMat[16] - srfMat[21] + srfMat[22]
+    return nothing
 end
-function sclEgoN(dstMag::Number, frqPhz::ComplexF64)
-    if imag(frqPhz) == zero(real(typeof(frqPhz)))
-        return sclEgoN_(dstMag, real(frqPhz))
-    end
-    return sclEgoN_(dstMag, frqPhz)
-end
-sclEgoN(dstMag::Number, frqPhz::Number) = sclEgoN_(dstMag, frqPhz)
 
 const cntInd = CartesianIndices((2, 2, 2))
-# frequency-free, so one table serves every frequency at a given cell geometry
-const momMem = Dict{Tuple{NTuple{3,Rational},NTuple{3,Rational},Int},
+# the moments carry no frequency: one table per shape, the longest series asked for (a shorter
+# table is an exact prefix of a longer one); never evicted
+const momMem = Dict{Tuple{NTuple{3,Rational},NTuple{3,Rational}},
     Array{Vector{Double64},4}}()
 const momLck = ReentrantLock()
 
 #=
 Smallest N with (k rMax)^(N + 1) / (N + 1)! exp(k rMax) below eps(Double64),
 rMax being the corner-to-corner reach of the (1,1,1) offset. The bound governs
-truncation only; momSer's own indicator does not detect the cancellation the
-Double64 working type is there to absorb.
+truncation only, not the cancellation the Double64 working type is there to absorb.
 =#
 function serOrd(scl::NTuple{3,Rational}, stp::NTuple{3,Rational}, frq::Number)
     rMax = sqrt(sum(abs2, Float64.(scl .+ stp)))
@@ -1189,11 +1102,12 @@ function serOrd(scl::NTuple{3,Rational}, stp::NTuple{3,Rational}, frq::Number)
 end
 
 function cntMom(scl::NTuple{3,Rational}, stp::NTuple{3,Rational}, mMax::Int)
-    key = (scl, stp, mMax)
+    key = (scl, stp)
+    lng(tab) = !isnothing(tab) && length(first(tab)) >= mMax + 2
     hit = lock(momLck) do
         get(momMem, key, nothing)
     end
-    isnothing(hit) || return hit
+    lng(hit) && return hit
     # 288 face pairs of Double64 closed forms, so the table is built outside the lock
     sclDbl = Double64.(scl)
     stpDbl = Double64.(stp)
@@ -1205,25 +1119,27 @@ function cntMom(scl::NTuple{3,Rational}, stp::NTuple{3,Rational}, mMax::Int)
             sclDbl)..., mMax)
     end
     return lock(momLck) do
-        get!(momMem, key, mom)
+        old = get(momMem, key, nothing)
+        lng(old) ? old : (momMem[key] = mom)
     end
 end
 
 # the contact block of egoToe, from the face-pair moments, which are exact touching or
-# not. The signed 36-pair assembly runs at Double64 whatever genPrc is: its amplification
+# not. The signed 36-pair assembly runs in Double64: its amplification
 # and the series' digit loss together overrun Float64.
 function cntBlk!(egoToe::AbstractArray{<:Complex,5}, vol::GlaVol,
     cmpInf::GlaKerOpt)
 
     stp = ntuple(itr -> Rational(step(vol.grd[itr])), 3)
-    frq = ComplexDF64(frqPhz(cmpInf))
-    mom = cntMom(vol.scl, stp, serOrd(vol.scl, stp, frqPhz(cmpInf)))
+    frq = ComplexDF64(cmpInf.frqPhz)
+    nSer = serOrd(vol.scl, stp, cmpInf.frqPhz)
+    mom = cntMom(vol.scl, stp, nSer)
     celInv = inv(prod(Double64.(vol.scl)))
     srfMat = zeros(MVector{36,ComplexDF64})
     egoCel = zeros(MMatrix{3,3,ComplexDF64})
     for posInd ∈ CartesianIndices(ntuple(itr -> min(vol.cel[itr], 2), 3))
         for fp ∈ 1:36
-            srfMat[fp] = celInv * first(momSer(mom[posInd, fp], frq))
+            srfMat[fp] = celInv * momSer(view(mom[posInd, fp], 1:nSer + 2), frq)
         end
         srfSum!(egoCel, srfMat)
         view(egoToe, :, :, posInd) .= egoCel
@@ -1235,7 +1151,7 @@ end
 # I_{-1} / (4 pi f^2), less the 1/f^2 that genEgoSlf! applies once at the end.  What lands in
 # egoToe is therefore S itself, which carries no frequency.  genEgoSlf! calls this for the contact
 # offsets, then again for the near band farBlkQss! refuses.  The signed 36-pair assembly runs at
-# Double64 whatever genPrc is; its amplification alone overruns Float64.
+# Double64; its amplification alone overruns Float64.
 function momBlkQss!(egoToe::AbstractArray{<:Complex,5}, vol::GlaVol, Ds::Vector{NTuple{3,Int}})
 
     stp = ntuple(dir -> Int(step(vol.grd[dir]) // vol.scl[dir]), 3)

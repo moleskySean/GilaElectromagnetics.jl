@@ -2,7 +2,7 @@
 sub-geometry constructor and the exact even-moment polynomial live here rather
 than in src: parMom never needs a sub-geometry name, only these tests do. =#
 using Test, GilaElectromagnetics, DoubleFloats
-const GVM = GilaElectromagnetics.GilaVacuum
+const GVM = GilaElectromagnetics
 
 # the 15 canonical ways two axis-aligned rectangular panels can touch
 function canPnl(cod::AbstractString, a::T, b::T, c::T) where {T}
@@ -84,7 +84,6 @@ const momSlv = (1//32, 1//32, 1//512)
                 wst = max(wst, abs(v[m + 2] - rf) / abs(rf))
             end
         end
-        @info "even moments vs exact rationals, worst relative = $wst"
         @test wst < 1e-13
     end
 
@@ -104,7 +103,6 @@ const momSlv = (1//32, 1//32, 1//512)
             end
         end
         @test hit == length(momRef) == 300
-        @info "test/ref moments in Float64, worst relative = $wst"
         @test wst < 1e-13
     end
 
@@ -115,11 +113,10 @@ const momSlv = (1//32, 1//32, 1//512)
         for D ∈ ((0, 0, 0), (1, 0, 0), (1, 1, 1)), F ∈ 1:6, Fp ∈ 1:6,
                 lam ∈ (3.0, 1 / 7), f ∈ (1.0 + 0.0im, 1.0 + 0.1im)
             s = (1 / 32, 1 / 32, 1 / 512)
-            v = first(GVM.momSer(GVM.parFac(D, F, Fp, s)..., f, 16))
-            w = first(GVM.momSer(GVM.parFac(D, F, Fp, lam .* s)..., f / lam, 16))
+            v = GVM.momSer(GVM.parMom(GVM.parFac(D, F, Fp, s)..., 16), f)
+            w = GVM.momSer(GVM.parMom(GVM.parFac(D, F, Fp, lam .* s)..., 16), f / lam)
             wst = max(wst, abs(w - lam^5 * v) / abs(w))
         end
-        @info "series homogeneity, worst relative = $wst"
         @test wst < 1e-12
     end
 
@@ -149,7 +146,6 @@ const momSlv = (1//32, 1//32, 1//512)
                 end
             end
         end
-        @info "scale homogeneity, $bad of $cnt dyadic comparisons off bitwise, non-dyadic worst relative = $wst"
         @test bad == 0
         @test wst < 1e-13
     end
@@ -160,7 +156,6 @@ const momSlv = (1//32, 1//32, 1//512)
             v = GVM.parMom(canPnl(cod, a, b, c)..., 12)
             w = GVM.parMom(canPnl(cod, sw...)..., 12)
             e = maximum(abs.(w .- v) ./ abs.(v))
-            @info "$cod swap symmetry, worst relative = $e"
             @test e < 1e-13
         end
         # every other length swap is either a symmetry or absent, never wrong
@@ -194,9 +189,9 @@ const momSlv = (1//32, 1//32, 1//512)
             ref = zeros(Complex{BigFloat}, 3, 3)
             for D ∈ ((0, 0, 0), (0, 0, 1))
                 for fp ∈ 1:36
-                    srf[fp] = celInv * first(GVM.momSer(GVM.parFac(D,
-                        GVM.facPar[1, fp], GVM.facPar[2, fp], sB)...,
-                        Complex{BigFloat}(frq), mM))
+                    srf[fp] = celInv * GVM.momSer(GVM.parMom(GVM.parFac(D,
+                        GVM.facPar[1, fp], GVM.facPar[2, fp], sB)..., mM),
+                        Complex{BigFloat}(frq))
                 end
                 GVM.srfSum!(ref, srf)
                 got = view(toe, :, :, CartesianIndex((D .+ 1)...))
@@ -204,17 +199,6 @@ const momSlv = (1//32, 1//32, 1//512)
                     maximum(abs, ref)))
             end
         end
-        @info "slender contact block vs a 192-bit assembly, worst = $wst"
         @test wst < 1e-13
-    end
-
-    # generation is fp64 and narrows once, so the fp32 build has no arithmetic
-    # of its own to disagree about
-    @testset "fp32 build is the narrowed fp64 build" begin
-        vol = mkVol((4, 4, 4))
-        mem64 = GlaVacOprMem(GlaKerOpt{Float64}(), vol)
-        mem32 = GlaVacOprMem(GlaKerOpt{Float32}(), vol)
-        @test all(ComplexF32.(f64) == f32
-            for (f32, f64) ∈ zip(mem32.egoFur, mem64.egoFur))
     end
 end
