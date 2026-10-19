@@ -1,0 +1,61 @@
+% vie_continuity.tex: the unknown of each volume integral equation along a 1D cut
+% through a slab (eps = 4 inside, normalized units). Uses the preamble.tex palette.
+\begin{tikzpicture}[font=\small]
+  \pgfplotsset{
+    viecut/.style={
+      width=10.2cm, height=1.45cm, scale only axis,
+      xmin=0, xmax=10, ymin=-1.05, ymax=1.05,
+      axis lines=left, xtick=\empty, ytick=\empty,
+      ylabel style={rotate=-90}, clip=false,
+      % continuous normal displacement, piecewise
+      declare function={
+        dl(\x) = 0.6+0.25*sin(deg(1.5*\x));
+        dm(\x) = 0.356+0.3*sin(deg(2*(\x-3)));
+        dr(\x) = 0.653+0.2*sin(deg(1.5*(\x-7)));
+      },
+    },
+  }
+  \newcommand\slab{\fill[scatfill] (axis cs:3,-1.05) rectangle (axis cs:7,1.05);}
+
+  % ------------------------------------------------------------------
+  \begin{axis}[viecut, at={(0,0)}, anchor=north west, ylabel={$e_\parallel$}]
+    \slab
+    \node[scatdraw, anchor=south, font=\footnotesize] at (axis cs:5,1.05) {scatterer};
+    \addplot[vaccol, thick, domain=0:3, samples=60] {0.8*cos(deg(1.2*(x-3)))};
+    \addplot[vaccol, thick, domain=3:7, samples=80] {0.8*cos(deg(2.4*(x-3)))};
+    \addplot[vaccol, thick, domain=7:10, samples=60] {-0.79*cos(deg(1.2*(x-7)))};
+  \end{axis}
+  \node[anchor=west, align=left, text width=4.6cm, inner sep=0pt] at (10.9,-0.72)
+    {\textbf{EVIE}: $\vb*{e} \in H(\mathrm{curl})$\\Tangential part must be continuous};
+
+  % ------------------------------------------------------------------
+  \begin{axis}[viecut, at={(0,-1.95cm)}, anchor=north west, ylabel={$d_\perp$}]
+    \slab
+    \addplot[vaccol!45, dashed, domain=0:3, samples=60] {dl(x)};
+    \addplot[vaccol!45, dashed, domain=3:7, samples=80] {dm(x)/4};
+    \addplot[vaccol!45, dashed, domain=7:10, samples=60] {dr(x)};
+    \addplot[vaccol, thick, domain=0:3, samples=60] {dl(x)};
+    \addplot[vaccol, thick, domain=3:7, samples=80] {dm(x)};
+    \addplot[vaccol, thick, domain=7:10, samples=60] {dr(x)};
+    \node[vaccol!60, anchor=north, font=\footnotesize] at (axis cs:5,0.0)
+{$e_\perp = d_\perp/\varepsilon$ jumps};
+  \end{axis}
+  \node[anchor=west, align=left, text width=4.6cm, inner sep=0pt] at (10.9,-2.67)
+    {\textbf{DVIE}: $\vb*{d} \in H(\mathrm{div})$\\Normal part must be continuous};
+
+  % ------------------------------------------------------------------
+  \begin{axis}[viecut, at={(0,-3.9cm)}, anchor=north west, ylabel={$p$},
+      xlabel={position across the slab}]
+    \slab
+    \draw[black!25] (axis cs:0,0) -- (axis cs:10,0);
+    \addplot[matcol, thick, domain=0:3] {0};
+    \addplot[matcol, thick, domain=3:7, samples=80] {0.75*dm(x)};
+    \addplot[matcol, thick, domain=7:10] {0};
+    \addplot[only marks, mark=*, mark size=1.4pt, matcol]
+      coordinates {(3,{0.75*0.356}) (7,{0.75*0.653})};
+    \addplot[only marks, mark=*, mark size=1.4pt, matcol, fill=white]
+      coordinates {(3,0) (7,0)};
+  \end{axis}
+  \node[anchor=west, align=left, text width=4.6cm, inner sep=0pt] at (10.9,-4.62)
+    {\textbf{JVIE}: $\vb*{p} \in L^2$\\may jump at interfaces};
+\end{tikzpicture}

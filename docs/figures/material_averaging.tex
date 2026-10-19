@@ -1,0 +1,141 @@
+% material_averaging.tex: atoms -> blurred region -> scatterer, plus a 1D cut.
+% Uses the palette and tikz styles defined in preamble.tex.
+\begin{tikzpicture}[font=\small]
+  \def\W{4.6}   % panel width
+  \def\G{1.3}  % gap between panels
+
+  % ------------------------------------------------------------------
+  % (a) atoms: nuclei and electron clouds pushed against the field
+  % ------------------------------------------------------------------
+  \begin{scope}
+    \begin{scope}
+      \clip (0,0) rectangle (\W,\W);
+      \foreach \i in {0,1,2} {
+        \foreach \j in {0,1,2} {
+          \pgfmathsetmacro\x{0.9+1.4*\i}
+          \pgfmathsetmacro\y{0.95+1.35*\j}
+          \shade[inner color=black!40, outer color=white] (\x-0.25,\y) circle (0.55);
+          % unperturbed cloud, centred on the nucleus
+          \draw[inkcol, densely dashed, line width=0.4pt] (\x,\y) circle (0.42);
+          \fill[inkcol] (\x,\y) circle (0.13);
+          \draw[white, line width=0.7pt] (\x-0.075,\y) -- (\x+0.075,\y)
+            (\x,\y-0.075) -- (\x,\y+0.075);
+        }
+      }
+      \draw[->, matcol, thick] (2.05,2.3+0.42) -- (2.3,2.3+0.42)
+        node[above, pos=0.5, inner sep=2pt] {$q\vb*{x}$};
+      \draw[->, vaccol, thick] (0.3,\W-0.28) -- ++(0.8,0)
+        node[right, inner sep=2pt] {$\vb*{e}$};
+      \draw[|<->|, inkcol] (0.9,0.25) -- (2.3,0.25)
+        node[midway, fill=white, inner sep=1pt] {$a$};
+    \end{scope}
+    \draw[panel] (0,0) rectangle (\W,\W);
+    \node[paneltitle] at (0,\W) {\textbf{(a)} Atoms};
+  \end{scope}
+
+  % ------------------------------------------------------------------
+  % (b) one blurred region: many atoms, one P
+  % ------------------------------------------------------------------
+  \begin{scope}[shift={(\W+\G,0)}]
+    \begin{scope}
+      \clip (0,0) rectangle (\W,\W);
+      \shade[inner color=accent!50, outer color=white] (\W/2,\W/2) circle (1.15);
+      \foreach \i in {0,...,22} {
+        \foreach \j in {0,...,22} {
+          \fill[black!50] (0.08+0.2*\i,0.08+0.2*\j) circle (0.022);
+        }
+      }
+      \draw[->, very thick, matcol] (\W/2-0.5,\W/2) -- (\W/2+0.5,\W/2)
+        node[above, pos=0.5] {$\vb*{P}$};
+      \draw[|<->|, inkcol] (\W/2-1.15,0.6) -- (\W/2+1.15,0.6)
+        node[midway, fill=white, inner sep=1pt] {$\ell$};
+    \end{scope}
+    \draw[panel] (0,0) rectangle (\W,\W);
+    \node[paneltitle] at (0,\W) {\textbf{(b)} One blurred region};
+    % zoom box around 3x3 atoms, shown in (a)
+    \draw[inkcol, line width=0.5pt] (0.18,2.18) rectangle (0.78,2.78);
+    \coordinate (zb-tl) at (0.18,2.78);
+    \coordinate (zb-bl) at (0.18,2.18);
+  \end{scope}
+  \draw[zoom] (zb-tl) -- (\W,\W);
+  \draw[zoom] (zb-bl) -- (\W,0);
+
+  % ------------------------------------------------------------------
+  % (c) the scatterer: P varies smoothly on the scale 1/|k|
+  % ------------------------------------------------------------------
+  \begin{scope}[shift={(2*\W+2*\G,0)}]
+    \filldraw[fill=scatfill, draw=scatdraw, rounded corners=6pt]
+      (0.4,0.9) rectangle (4.2,3.5);
+    \foreach \x in {0.65,1.05,...,4.0} {
+      \foreach \y in {1.25,1.75,...,3.3} {
+        \pgfmathsetmacro\L{0.34*sin(deg(pi*(\x-0.4)/1.9))}
+        \pgfmathparse{abs(\L)>0.06 ? 1 : 0}
+        \ifnum\pgfmathresult=1
+          \draw[-{Stealth[length=1.3mm]}, matcol, thick]
+            (\x-\L/2,\y) -- (\x+\L/2,\y);
+        \else
+          \fill[matcol] (\x,\y) circle (0.025);
+        \fi
+      }
+    }
+    \draw[|<->|, inkcol] (0.4,0.5) -- (2.3,0.5)
+      node[midway, fill=white, inner sep=1pt] {$\sim 1/\abs{\vb*{k}}$};
+    \draw[panel] (0,0) rectangle (\W,\W);
+    \node[paneltitle] at (0,\W) {\textbf{(c)} The scatterer};
+    % zoom box, shown in (b)
+    \draw[inkcol, line width=0.5pt] (0.5,2.05) rectangle (0.8,2.35);
+    \coordinate (zc-tl) at (0.5,2.35);
+    \coordinate (zc-bl) at (0.5,2.05);
+  \end{scope}
+  \draw[zoom] (zc-tl) -- (2*\W+\G,\W);
+  \draw[zoom] (zc-bl) -- (2*\W+\G,0);
+
+  % ------------------------------------------------------------------
+  % (d) the same blurring along one line
+  % ------------------------------------------------------------------
+  \node[paneltitle] at (0,-1.1) {\textbf{(d)} Charge density along one line};
+  \begin{axis}[
+      at={(0.9cm,-1.25cm)}, anchor=north west,
+      width=15.2cm, height=2.6cm, scale only axis,
+      xmin=0, xmax=40, ymin=-5, ymax=15,
+      axis lines=left, xtick=\empty, ytick=\empty,
+      ylabel={$\rho$}, ylabel style={rotate=-90},
+      clip=false,
+      declare function={
+        tt(\x) = \x - floor(\x) - 0.5;
+        dd(\x) = 0.25*sin(deg(pi*\x/40))^2;
+        rhomic(\x) = exp(-(tt(\x)/0.1)^2)/0.1
+                   - exp(-((tt(\x)+dd(\x))/0.22)^2)/0.22;
+      },
+    ]
+    \fill[accent, opacity=0.2] (axis cs:9.5,-5) rectangle (axis cs:14.5,11);
+    \addplot[inkcol, line width=0.35pt, domain=0:40, samples=3201] {rhomic(x)};
+    \draw[|<->|, inkcol] (axis cs:9.5,12.5) -- (axis cs:14.5,12.5)
+      node[midway, fill=white, inner sep=1pt] {$\ell$};
+    \node[anchor=west, inkcol, font=\footnotesize] at (axis cs:14.8,12.5)
+      {average over this window};
+    \coordinate (band) at (axis cs:12,-5);
+  \end{axis}
+
+  \begin{axis}[
+      at={(0.9cm,-4.35cm)}, anchor=north west,
+      width=15.2cm, height=2.0cm, scale only axis,
+      xmin=0, xmax=40, ymin=-1.5, ymax=1.6,
+      axis lines=left, xtick=\empty, ytick=\empty,
+      ylabel={$\expval{\rho}$}, ylabel style={rotate=-90},
+      xlabel={position},
+      clip=false,
+    ]
+    \draw[black!25] (axis cs:0,0) -- (axis cs:40,0);
+    \addplot[matcol!70, dashed, domain=0:40, samples=200]
+      {1.2*sin(deg(pi*x/40))^2};
+    \addplot[accent, thick, domain=0:40, samples=200]
+      {-sin(deg(2*pi*x/40))};
+    \addplot[only marks, mark=*, mark size=1.8pt, accent]
+      coordinates {(12,{-sin(deg(2*pi*12/40))})};
+    \coordinate (dot) at (axis cs:12,{-sin(deg(2*pi*12/40))});
+    \node[matcol, anchor=south] at (axis cs:20,1.22) {$\vb*{P}$};
+    \node[accent, anchor=west] at (axis cs:25,-0.75) {$\expval{\rho} = -\div{\vb*{P}}$};
+  \end{axis}
+  \draw[accent, densely dotted] (band) -- (dot);
+\end{tikzpicture}
