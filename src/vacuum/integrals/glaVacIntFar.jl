@@ -305,8 +305,10 @@ const TABPRC = 192                  # precision at which the tables are stored a
 # a relative 2^-205, well under the 2^-192 the table is stored at
 const BLDPRC = 256
 const LEXT = 16                     # extra l levels summed so the "tail after L" is a real tail
-# Bound A over-states the remainder by a median 49, so 1e-14 delivers 1e-15 to 1e-14 per entry
-const TOL = 1e-14                   # relative to est(R), the a priori scale of the tensor
+# relative to est(R), the a priori scale of the tensor; bound A over-states the remainder by a median
+# 49, so a tolerance of 1e-14 delivers 1e-15 to 1e-14 per entry.  45 eps = 9.992e-15: below the 16.4
+# ulp max-norm floor of the expansion, so tightening it only adds terms
+const FARTOL = 45 * eps(Float64)
 # never evicted: 20-26 MB of BigFloat per cell shape at 16^3
 const SHPC = Dict{Tuple{NTuple{3,QI},NTuple{3,QI},Int},ShpTab}()   # keyed (a, b, nMax)
 # empty until the disk cache is asked for, and then a Scratch space
@@ -379,7 +381,7 @@ end
 farShp(s::NTuple{3,QI}; kw...) = farShp(ZQ3, s; kw...)
 # unequal pair (a, b): the trapezoid whole box goes in the whl slot, and Lo < 0 skips the octant
 # slot, which a trapezoid has none of; the skipped slot is written as the empty segment
-function farShp(ta::NTuple{3,QI}, tb::NTuple{3,QI}; Lw::Int = LDEF, Lo::Int = LDEF, nMax::Int = NMAX, disk::Bool = true)
+function farShp(ta::NTuple{3,QI}, tb::NTuple{3,QI}; Lw::Int = LDEF, Lo::Int = LDEF, nMax::Int = NMAX, disk::Bool = false)
     lock(SHPLK) do
         ky = (ta, tb, nMax)
         tb0 = get(SHPC, ky, nothing)
@@ -816,8 +818,8 @@ prfFrq(frq::Complex{T}, k::Complex{T}) where {T} =
     imag(frq) == 0 ? Complex(zero(T), 2 * T(pi) / real(frq)) : im * k / frq^2
 
 # frequency-contracted tables, thresholds and route cache for shape s at frequency f
-function farSet(sQ::NTuple{3,QI}, frq::Complex{T}; tol::Float64 = TOL, nMin::Int = 2, nBlk::Int = 128,
-                off = ZR3, disk::Bool = true) where {T}
+function farSet(sQ::NTuple{3,QI}, frq::Complex{T}; tol::Float64 = FARTOL, nMin::Int = 2, nBlk::Int = 128,
+                off = ZR3, disk::Bool = false) where {T}
     L = LMAX; nMax = NMAX; lDef = LDEF; nCap = NCAP
     s = ntuple(d -> T(sQ[d]), 3)
     k = 2 * T(pi) * frq
@@ -884,8 +886,6 @@ function farSet(sQ::NTuple{3,QI}, frq::Complex{T}; tol::Float64 = TOL, nMin::Int
                 Dict{NTuple{3,QI},Matrix{Complex{T}}}(), ReentrantLock())
 end
 
-# 45 eps = 9.992e-15: below the 16.4 ulp max-norm floor of the expansion, so tightening it only adds terms
-const FARTOL = 45 * eps(Float64)
 
 # A set is certified only on the radius interval [rNc, rHi = 4 nBlk r_d] the offsets it was BUILT
 # for fix, so nBlk and nMin belong in the key: one built for a 32^3 block and reused at 128^3
@@ -895,8 +895,8 @@ const ZR3 = (0.0, 0.0, 0.0)
 const FRQC = Dict{Tuple{NTuple{3,QI},DataType,Any,Float64,Int,Int,NTuple{3,Float64}},FrqSet}()
 const FRQLK = ReentrantLock()
 
-farSetMem(sQ::NTuple{3,QI}, frq::Complex{T}; tol::Float64 = TOL, nBlk::Int = 128,
-          nMin::Int = 2, off = ZR3, disk::Bool = true) where {T} =
+farSetMem(sQ::NTuple{3,QI}, frq::Complex{T}; tol::Float64 = FARTOL, nBlk::Int = 128,
+          nMin::Int = 2, off = ZR3, disk::Bool = false) where {T} =
     lock(FRQLK) do
         get!(() -> farSet(sQ, frq; tol = tol, nBlk = nBlk, nMin = nMin, off = off, disk = disk),
              FRQC, (sQ, T, frq, tol, nBlk, nMin, off))::FrqSet{T}
@@ -1198,7 +1198,7 @@ end
 # amplification Lambda = (sum_fp I_{-1})/(4 pi |f|^2 V_t)/est(R), so N is chosen for tol/Lambda.
 # route 3 of an equal-cell pair at the cell offset D: the cross-scale k-series and its cache with sT = sS
 tnsKsr(sQ::NTuple{3,QI}, D::NTuple{3,Int}, frq::Complex) = tnsKsr(sQ, sQ, ntuple(d -> D[d] * sQ[d], 3), frq)
-ksrCch!(fs::FrqSet, D::NTuple{3,Int}) = ksrCch!(fs.ksr, fs.lk, fs.sQ, fs.sQ, ntuple(d -> D[d] * fs.sQ[d], 3), fs.frq)
+ksrCch!(fs::FrqSet, D::NTuple{3,Int}, disk::Bool) = ksrCch!(fs.ksr, fs.lk, fs.sQ, fs.sQ, ntuple(d -> D[d] * fs.sQ[d], 3), fs.frq, disk)
 
 # the offsets (i .- 1) .* stp cells of the egoToe indices farBlk! and farBlkQss! fill, max(i) >= 3
 # (max-norm separation >= 2 cells), and the view of egoToe each one fills
@@ -1214,8 +1214,8 @@ end
 # shift off an external pair off the cell lattice carries.  Threaded; route 3 is exact-rational in
 # the cell, so an offset that needs it under a nonzero off has no route and throws.
 function farFil!(dst::F, Ds::Vector{NTuple{3,Int}}, sQ::NTuple{3,QI}, f::Complex{T},
-                 off::NTuple{3,T} = ntuple(_ -> zero(T), 3); tol::Float64 = TOL,
-                 fs::Union{Nothing,FrqSet} = nothing, disk::Bool = true) where {F,T}
+                 off::NTuple{3,T} = ntuple(_ -> zero(T), 3); tol::Float64 = FARTOL,
+                 fs::Union{Nothing,FrqSet} = nothing, disk::Bool = false) where {F,T}
     isempty(Ds) && return nothing
     zro = all(iszero, off)
     st = fs === nothing ?
@@ -1241,7 +1241,7 @@ function farFil!(dst::F, Ds::Vector{NTuple{3,Int}}, sQ::NTuple{3,QI}, f::Complex
                      "separate them by a further cell")
         setprecision(BigFloat, KSRPRC) do
             Threads.@threads :static for j in eachindex(ksq)
-                ksrCch!(st, Ds[ksq[j]])
+                ksrCch!(st, Ds[ksq[j]], disk)
             end
         end
     end
@@ -1254,7 +1254,7 @@ function farFil!(dst::F, Ds::Vector{NTuple{3,Int}}, sQ::NTuple{3,QI}, f::Complex
         elseif kn[q] == 2
             tnsOct!(G, st, ws, pos(q), lo[q])
         else
-            copyto!(G, ksrCch!(st, Ds[q]))
+            copyto!(G, ksrCch!(st, Ds[q], disk))
         end
     end
     return nothing
@@ -1263,7 +1263,7 @@ end
 # fill egoToe[:, :, i1, i2, i3] for every index with max(i) >= 3, at the offset (i .- 1) .* stp
 # cells: stp is the volume's grid step in cells, which exceeds one on a partitioned volume
 function farBlk!(egoToe::AbstractArray{Complex{T},5}, s::NTuple{3,<:Rational}, f::Complex{T};
-                 tol::Float64 = TOL, fs::Union{Nothing,FrqSet} = nothing, disk::Bool = true,
+                 tol::Float64 = FARTOL, fs::Union{Nothing,FrqSet} = nothing, disk::Bool = false,
                  stp::NTuple{3,Int} = (1, 1, 1)) where {T}
     Ds, dst = farOff(egoToe, stp)
     farFil!(dst, Ds, ntuple(d -> QI(s[d]), 3), f; tol = tol, fs = fs, disk = disk)
@@ -1317,8 +1317,8 @@ struct FrqSetX{T,E}
 end
 
 # frequency-contracted trapezoid table, thresholds and caches of the pair (sT, sS) at f
-function farSetX(sTQ::NTuple{3,QI}, sSQ::NTuple{3,QI}, frq::Complex{T}; tol::Float64 = TOL,
-                 nBlk::Int = 128, offs = (), disk::Bool = true) where {T}
+function farSetX(sTQ::NTuple{3,QI}, sSQ::NTuple{3,QI}, frq::Complex{T}; tol::Float64 = FARTOL,
+                 nBlk::Int = 128, offs = (), disk::Bool = false) where {T}
     L = LMAX; nMax = NMAX; lDef = LDEF; nCap = NCAP
     all(isinteger(sTQ[d] / sSQ[d]) || isinteger(sSQ[d] / sTQ[d]) for d in 1:3) ||
         error("farSetX: the edges must be integer multiples per axis (Gila's GlaExtInf rule)")
@@ -1380,7 +1380,7 @@ function covOff(fx::FrqSetX, offs)
     true
 end
 
-farSetXMem(sTQ::NTuple{3,QI}, sSQ::NTuple{3,QI}, frq::Complex{T}; tol::Float64 = TOL,
+farSetXMem(sTQ::NTuple{3,QI}, sSQ::NTuple{3,QI}, frq::Complex{T}; tol::Float64 = FARTOL,
            nBlk::Int = 128, offs = (), kw...) where {T} =
     lock(FRQLK) do
         ky = (sTQ, sSQ, T, frq, tol, nBlk)
@@ -1467,27 +1467,27 @@ function tnsKsr(sTQ::NTuple{3,QI}, sSQ::NTuple{3,QI}, RQ::NTuple{3,QI}, frq::Com
     (G, out[2], out[3], out[1])
 end
 
-# route 3 tensor of the pair (cell sTQ at RQ, cell sSQ at 0) from the memory cache ksr or the disk cache, else computed and stored;
-# one file per ordered pair and frequency, a line "r1n r1d r2n r2d r3n r3d N Lambda re im ..." (26 tokens)
+# route 3 tensor of the pair (cell sTQ at RQ, cell sSQ at 0) from the memory cache ksr or, with disk, the disk cache, else computed
+# and stored; one file per ordered pair and frequency, a line "r1n r1d r2n r2d r3n r3d N Lambda re im ..." (26 tokens)
 function ksrCch!(ksr::Dict{NTuple{3,QI},Matrix{Complex{T}}}, lk::ReentrantLock, sTQ::NTuple{3,QI}, sSQ::NTuple{3,QI},
-                 RQ::NTuple{3,QI}, frq::Complex{T}) where {T}
+                 RQ::NTuple{3,QI}, frq::Complex{T}, disk::Bool) where {T}
     lock(lk)
     try
         haskey(ksr, RQ) && return ksr[RQ]
     finally
         unlock(lk)
     end
-    fn = joinpath(ksrDir(), string("ksrx_", shpKey(sTQ, 0, 0), "_", shpKey(sSQ, 0, 0), "_f",
-                                   Float64(real(frq)), "_", Float64(imag(frq)), ".txt"))
-    if isfile(fn)
+    fn = disk ? joinpath(ksrDir(), string("ksrx_", shpKey(sTQ, 0, 0), "_", shpKey(sSQ, 0, 0), "_f",
+                                          Float64(real(frq)), "_", Float64(imag(frq)), ".txt")) : ""
+    if disk && isfile(fn)
         lock(lk)
         try
             for ln in eachline(fn)
                 tk = split(ln); length(tk) == 26 || continue
                 Rk = ntuple(d -> QI(parse(BigInt, tk[2d - 1]), parse(BigInt, tk[2d])), 3)
                 haskey(ksr, Rk) && continue
-                ksr[Rk] = reshape([Complex{T}(T(parse(BigFloat, tk[7 + 2i])),
-                                                 T(parse(BigFloat, tk[8 + 2i]))) for i in 1:9], 3, 3)
+                ksr[Rk] = reshape([Complex{T}(T(BigFloat(tk[7 + 2i]; precision = KSRPRC)),
+                                                 T(BigFloat(tk[8 + 2i]; precision = KSRPRC))) for i in 1:9], 3, 3)
             end
             haskey(ksr, RQ) && return ksr[RQ]
         finally
@@ -1498,7 +1498,7 @@ function ksrCch!(ksr::Dict{NTuple{3,QI},Matrix{Complex{T}}}, lk::ReentrantLock, 
     lock(lk)
     try
         ksr[RQ] = G
-        try
+        disk && try
             mkpath(ksrDir())
             setprecision(BigFloat, KSRPRC) do
                 open(fn, "a") do io
@@ -1515,7 +1515,7 @@ function ksrCch!(ksr::Dict{NTuple{3,QI},Matrix{Complex{T}}}, lk::ReentrantLock, 
     end
     G
 end
-ksrCch!(fx::FrqSetX, RQ::NTuple{3,QI}) = ksrCch!(fx.ksr, fx.lk, fx.sTQ, fx.sSQ, RQ, fx.frq)
+ksrCch!(fx::FrqSetX, RQ::NTuple{3,QI}, disk::Bool) = ksrCch!(fx.ksr, fx.lk, fx.sTQ, fx.sSQ, RQ, fx.frq, disk)
 
 # block size in fine cells that covers the offsets Rs and their sub-offsets
 function finBlk(Rs, gQ::NTuple{3,QI}, nT::NTuple{3,Int}, nS::NTuple{3,Int})
@@ -1553,7 +1553,7 @@ end
 # sum over a fine egoToe; returns the route kinds
 function farBlkX!(G::AbstractArray{Complex{T},3}, Rs::AbstractVector{NTuple{3,QI}},
                   sT::NTuple{3,<:Rational}, sS::NTuple{3,<:Rational}, f::Complex{T};
-                  tol::Float64 = TOL, disk::Bool = true) where {T}
+                  tol::Float64 = FARTOL, disk::Bool = false) where {T}
     n = length(Rs); size(G) == (3, 3, n) || error("farBlkX!: G must be 3 x 3 x $n")
     sTQ = ntuple(d -> QI(sT[d]), 3); sSQ = ntuple(d -> QI(sS[d]), 3)
     gQ, nT, nS = gcdCel(sTQ, sSQ)
@@ -1583,7 +1583,7 @@ function farBlkX!(G::AbstractArray{Complex{T},3}, Rs::AbstractVector{NTuple{3,QI
         setprecision(BigFloat, KSRPRC) do
             Threads.@threads :static for j in eachindex(ks3)
                 q = ks3[j]
-                copyto!(view(G, :, :, q), ksrCch!(fx, Rs[q]))
+                copyto!(view(G, :, :, q), ksrCch!(fx, Rs[q], disk))
             end
         end
     end
@@ -1723,7 +1723,7 @@ end
 # them is the caller's decision.  Their dst is left NaN, so dropping the return value cannot pass
 # for a zero tensor.  This is the one place that decides what the near band is.
 function farFilQss!(dst::F, Ds::Vector{NTuple{3,Int}}, sQ::NTuple{3,QI}, ::Type{T} = Float64;
-                    tol::Float64 = TOL, disk::Bool = true) where {F,T}
+                    tol::Float64 = FARTOL, disk::Bool = false) where {F,T}
     L = LMAX
     isempty(Ds) && return NTuple{3,Int}[]
     s6 = ntuple(d -> Float64(sQ[d]), 3); hf6 = ntuple(d -> s6[d] / 2, 3)
@@ -1771,7 +1771,7 @@ end
 # Returns the near band, in the same cell offsets as Ds: those entries hold NaN and are the
 # caller's to fill from the closed-form face-pair moments.
 function farBlkQss!(egoToe::AbstractArray{Complex{T},5}, s::NTuple{3,<:Rational};
-                    tol::Float64 = TOL, disk::Bool = true, stp::NTuple{3,Int} = (1, 1, 1)) where {T}
+                    tol::Float64 = FARTOL, disk::Bool = false, stp::NTuple{3,Int} = (1, 1, 1)) where {T}
     Ds, dst = farOff(egoToe, stp)
     farFilQss!(dst, Ds, ntuple(d -> QI(s[d]), 3), T; tol = tol, disk = disk)
 end
