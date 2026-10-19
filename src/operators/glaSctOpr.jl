@@ -62,8 +62,7 @@ vac(opr::GlaOpr) = vac(opr.sctOpr)
 
 The inverse scattering operator (I - XG₀) of `vol` on itself, with `sus` in any
 form `SusOpr` takes and `dev` defaulting as there. Other keywords go to
-`GlaOprVac`, or to `GlaCmpOprVac` for a composite volume. X and the √ΔV
-normalization of a composite volume are both diagonal, so they commute.
+`GlaOprVac`, or to `GlaCmpOprVac` for a composite volume.
 """
 InvSctOpr{T}(vol::Union{GlaVol, GlaCmpVol}, sus; dev::Backend=susDev(sus), kw...) where T<:AbstractFloat =
     InvSctOpr{T}(GlaOprVac{T}(vol; dev, kw...), sus)

@@ -159,9 +159,11 @@ its G₀ half, with the default solver rather than its own; a `SctOpr` and a
 LinearAlgebra.ldiv!(out, opr::AbstractGlaOpr, inp) = (out .= _invAct(opr, inp))
 Base.:\(opr::AbstractGlaOpr, inp::AbstractVector) = ldiv!(similar(inp, size(opr, 2)), opr, inp)
 
-# An operator only applies to fields on the tiling it was built on
-_chkFld(opr::AbstractGlaOpr, fld::GlaFld) = fld.cvol == _srcCvl(opr) ||
-    throw(ArgumentError("The field does not live on the source grid of the operator. An operator only applies to fields on the tiling it was built for."))
+# An operator only applies to fields on the tiling it was built on, which a masked operator does not have
+function _chkFld(opr::AbstractGlaOpr, fld::GlaFld)
+    isoverlappingoperator(opr) && throw(ArgumentError("This operator is built on the union of its two volumes and reads its input through a mask, so it does not take a field. Apply it to a plain array of the masked size instead."))
+    fld.cvol == _srcCvl(opr) || throw(ArgumentError("The field does not live on the source grid of the operator. An operator only applies to fields on the tiling it was built for."))
+end
 
 """
     *(opr::AbstractGlaOpr, fld::GlaFld)

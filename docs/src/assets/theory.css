@@ -1,0 +1,34 @@
+.admonition.is-category-convention {
+  border-color: #174076;
+  border-radius: 0;
+  background-color: #f6f9fc;
+}
+.admonition.is-category-convention > .admonition-header {
+  background-color: #174076;
+  color: #fff;
+}
+.admonition.is-category-convention > .admonition-header:before {
+  content: none;
+}
+html.theme--documenter-dark .admonition.is-category-convention,
+html.theme--catppuccin-frappe .admonition.is-category-convention,
+html.theme--catppuccin-macchiato .admonition.is-category-convention,
+html.theme--catppuccin-mocha .admonition.is-category-convention {
+  border-color: #215ca8;
+  background-color: rgba(33, 92, 168, 0.15);
+}
+html.theme--documenter-dark .admonition.is-category-convention > .admonition-header,
+html.theme--catppuccin-frappe .admonition.is-category-convention > .admonition-header,
+html.theme--catppuccin-macchiato .admonition.is-category-convention > .admonition-header,
+html.theme--catppuccin-mocha .admonition.is-category-convention > .admonition-header {
+  background-color: #215ca8;
+}
+html.theme--documenter-dark img[src*="assets/theory/"],
+html.theme--catppuccin-frappe img[src*="assets/theory/"],
+html.theme--catppuccin-macchiato img[src*="assets/theory/"],
+html.theme--catppuccin-mocha img[src*="assets/theory/"] {
+  filter: invert(1) hue-rotate(180deg);
+}
+a[id^="eq-"], a[id^="fig-"], a[id^="tab-"], a[id^="conv-"] {
+  scroll-margin-top: 5rem;
+}

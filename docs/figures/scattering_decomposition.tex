@@ -1,0 +1,56 @@
+% scattering_decomposition.tex: f_d + f_s = f_t once the scatterer responds.
+% Wavefronts come from scattering_fields.jl; uses the preamble.tex palette and styles.
+\begin{tikzpicture}[font=\small]
+  \def\W{4.5}
+  \def\H{3.6}
+  \def\G{1.2}
+  % \wavefronts{style}{field name}
+  \newcommand\wavefronts[2]{%
+    \def\fieldline##1{\draw[#1] plot[smooth] coordinates {##1};}%
+    \input{data/field_#2}}
+  \newcommand\source{%
+    \fill[white] (0.75,0.7) circle (0.2);
+    \draw[matcol, line width=2pt] (0.75,0.52) -- (0.75,0.88);
+    \fill[matcol] (0.75,0.52) circle (0.05) (0.75,0.88) circle (0.05);}
+  % the responding scatterer with its polarization currents
+  \newcommand\responding{%
+    \begin{scope}[shift={(2.75,1.7)}]
+      \fill[white] \scattererpath;
+      \fill[scatfill] \scattererpath;
+      \begin{scope}
+        \clip \scattererpath;
+        \foreach \x in {-1.2,-0.8,...,1.2} {
+          \foreach \y in {-0.75,-0.35,...,0.85} {
+            \pgfmathsetmacro\a{70 - 55*\x + 25*\y}
+            \draw[-{Stealth[length=1.2mm]}, matcol, thick]
+              ({\x-0.14*cos(\a)},{\y-0.14*sin(\a)}) -- ({\x+0.14*cos(\a)},{\y+0.14*sin(\a)});
+          }
+        }
+      \end{scope}
+      \draw[scatterer, fill=none] \scattererpath;
+    \end{scope}}
+
+  \foreach \n/\title/\math in {0/{\textbf{(a)} Driving field}/{$\vb*{f}_\text{d}$},
+                         1/{\textbf{(b)} Scattered field}/{$\vb*{f}_\text{s} = \bm{G}_\circ\vb*{p}_\text{s}$},
+                         2/{\textbf{(c)} Total field}/{$\vb*{f}_\text{t} = \vb*{f}_\text{d} + \vb*{f}_\text{s}$}} {
+    \begin{scope}[shift={(\n*\W+\n*\G,0)}]
+      \begin{scope}
+        \clip (0,0) rectangle (\W,\H);
+        \ifnum\n=0 \wavefronts{field, drvcol}{drv} \source \draw[ghost, shift={(2.75,1.7)}] \scattererpath; \fi
+        \ifnum\n=1 \wavefronts{field, vaccol}{sca} \responding \fi
+        \ifnum\n=2
+          \wavefronts{ingredient, drvcol}{drv}
+          \wavefronts{ingredient, vaccol}{sca}
+          \wavefronts{field, inkcol}{tot}
+          \source \responding
+        \fi
+      \end{scope}
+      \ifnum\n=1 \node[matcol, fill=white, inner sep=1pt] at (4.05,0.45) {$\vb*{p}_\text{s}$}; \fi
+      \draw[panel] (0,0) rectangle (\W,\H);
+      \node[paneltitle] at (0,\H) {\title};
+      \node[below, inner sep=4pt] at (\W/2,0) {\math};
+    \end{scope}
+  }
+  \node[font=\Large] at (\W+\G/2,\H/2) {$+$};
+  \node[font=\Large] at (2*\W+1.5*\G,\H/2) {$=$};
+\end{tikzpicture}

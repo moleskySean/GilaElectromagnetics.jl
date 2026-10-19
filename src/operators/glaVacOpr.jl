@@ -19,22 +19,14 @@ const VacuumGreenOperator = GlaOprVac
 
 A cross-scale block of a composite operator, computed as a same-scale `GlaOprVac`
 on the finer of the two meshes. Each coarse source value is repeated over its
-`srcRat` block of fine cells (a unit-density pulse), and the fine field is summed
-over each `trgRat` block of target cells.
-
-`wgt` is `sqrt(ΔV_trg / ΔV_src) / prod(trgRat)`, the basis normalization times
-the mean over a target block. The block is `wgt` times two zero-one matrices
-around the inner operator, so its adjoint swaps the ratios and conjugates `wgt`.
+`srcRat` block of fine cells (a unit-density pulse), and the fine field is
+averaged over each `trgRat` block of target cells.
 """
 struct GlaSndOprVac{T<:AbstractFloat} <: AbstractGlaVacOpr{T}
     opr::GlaOprVac{T}
     trgRat::NTuple{3,Int}
     srcRat::NTuple{3,Int}
-    wgt::Complex{T}
 end
-
-GlaSndOprVac(opr::GlaOprVac{T}, trgRat::NTuple{3,Int}, srcRat::NTuple{3,Int}, wgt::Number) where T<:AbstractFloat =
-    GlaSndOprVac{T}(opr, trgRat, srcRat, wgt)
 
 """
     GlaSndOprVac{T}(opr::GlaSndOprVac)
@@ -43,7 +35,7 @@ Convert the storage precision of the block to `T`, without regenerating its Four
 """
 GlaSndOprVac{T}(opr::GlaSndOprVac{T}) where T<:AbstractFloat = opr
 GlaSndOprVac{T}(opr::GlaSndOprVac) where T<:AbstractFloat =
-    GlaSndOprVac{T}(GlaOprVac{T}(opr.opr), opr.trgRat, opr.srcRat, opr.wgt)
+    GlaSndOprVac{T}(GlaOprVac{T}(opr.opr), opr.trgRat, opr.srcRat)
 
 """
     GlaCmpOprVac{T}
@@ -52,11 +44,8 @@ The vacuum Green operator between two composite volumes, as the block matrix of
 pairwise vacuum operators over their regions: the Galerkin discretization on the
 non-uniform mesh, with no stitching at region boundaries.
 
-Blocks work in the √ΔV normalized basis of `GlaFld`, so block `(i, j)` carries the
-scalar `sqrt(ΔV_i / ΔV_j)`. In this basis the Euclidean inner product is the
-physical L² pairing and the self operator is complex-symmetric. A raw vector
-holds √ΔV times the density `c`: `sqrt.(cellvolumes(cvol)) .* c`, or
-fill a `GlaFld` with `discretize!`.
+Blocks act on density coefficients, as a `GlaFld` holds them, with no cell
+volume weight.
 
 Cross-scale pairs in contact, and every cross-scale pair under a Bloch lattice,
 are a `GlaSndOprVac`; every other block is a `GlaOprVac`.
@@ -201,10 +190,6 @@ end
 _blkOpt(blk::GlaOprVac) = blk.mem.cmpInf
 _blkOpt(blk::GlaSndOprVac) = _blkOpt(blk.opr)
 
-# Normalization of block (i, j) in the √ΔV basis
-_nrmWgt(trgReg::GlaVol, srcReg::GlaVol) =
-    sqrt(Float64(prod(trgReg.scl) // prod(srcReg.scl)))
-
 #= Check for contact between two regions to then run the contact quadrature
 subroutine (sandwich). =#
 _cntChk(trgReg::GlaVol, srcReg::GlaVol) =
@@ -220,8 +205,7 @@ function _sndBlk(::Type{T}, trgReg::GlaVol, srcReg::GlaVol; frqPhz, blc, kc, blk
     # a periodic pair's block is the fine pair's, equal cells
     blc === nothing || (blk = _blcCmp([trgFin, srcFin], ComplexF64(frqPhz), blc, kc)[(1, 2)])
     innOpr = GlaOprVac{T}(trgFin, srcFin; frqPhz, blc, blk, kw..., prxWrn=false)
-    return GlaSndOprVac{T}(innOpr, trgRat, srcRat,
-        _nrmWgt(trgReg, srcReg) / prod(trgRat))
+    return GlaSndOprVac{T}(innOpr, trgRat, srcRat)
 end
 
 function _cmpBlk(::Type{T}, trgReg::GlaVol, srcReg::GlaVol, isSlf::Bool,
@@ -233,11 +217,7 @@ function _cmpBlk(::Type{T}, trgReg::GlaVol, srcReg::GlaVol, isSlf::Bool,
     # periodic images put every cross-scale pair in contact
     trgReg.scl != srcReg.scl && (blc !== nothing || _cntChk(trgReg, srcReg)) &&
         return _sndBlk(T, trgReg, srcReg; blc, kc, kw...)
-    opr = GlaOprVac{T}(trgReg, srcReg; blc, kw..., prxWrn=false)
-    nrm = _nrmWgt(trgReg, srcReg)
-    # A real scalar on the Fourier coefficients survives adjoint! untouched
-    nrm != 1 && map!(fur -> T(nrm) .* fur, opr.mem.egoFur)
-    return opr
+    return GlaOprVac{T}(trgReg, srcReg; blc, kw..., prxWrn=false)
 end
 
 # One warning for the closest pair of regions, none when the two bodies meet
@@ -439,14 +419,14 @@ function mulAct!(opr::GlaSndOprVac{T}, act::AbstractVector{Complex{T}}) where T<
         finAct = vec(finInn)
     end
     out = reshape(mulAct!(opr.opr, finAct), glaSze(opr.opr, 1))
-    # Sum every block of fine cells into the coarse target cell holding it
+    # Average every block of fine cells into the coarse target cell holding it
     if !all(opr.trgRat .== 1)
         rat = opr.trgRat
         cel = size(out)[1:3] .÷ rat
         blk = reshape(out, rat[1], cel[1], rat[2], cel[2], rat[3], cel[3], 3)
-        out = reshape(sum(blk; dims=(1, 3, 5)), cel..., 3)
+        out = reshape(sum(blk; dims=(1, 3, 5)) ./ prod(rat), cel..., 3)
     end
-    return rmul!(vec(out), opr.wgt)
+    return vec(out)
 end
 
 #= Block row sums over the flat layout. A region block of the buffer is already
@@ -466,24 +446,6 @@ function mulAct!(opr::GlaCmpOprVac{T}, act::AbstractVector{Complex{T}}) where T<
     return outDat
 end
 
-"""
-    *(opr::GlaOprVac, fld::GlaFld)
-
-Apply a vacuum operator to a field whose tiling is the single region `srcVol`,
-giving a field on `trgVol`. The √ΔV normalization contributes the scalar
-`sqrt(ΔV_trg / ΔV_src)`. Overlapping (masked) operators take arrays, not fields.
-"""
-function Base.:*(opr::GlaOprVac{T}, fld::GlaFld{T}) where T<:AbstractFloat
-    if isoverlappingoperator(opr)
-        throw(ArgumentError("This operator is built on the union of its two volumes and reads its input through a mask, so it does not take a field. Apply it to a plain array of the masked size instead."))
-    end
-    _chkFld(opr, fld)
-    outDat = opr * fld.dat
-    nrm = _nrmWgt(opr.mem.trgVol, opr.mem.srcVol)
-    nrm != 1 && rmul!(outDat, nrm)
-    return GlaFld(outDat, _trgCvl(opr))
-end
-
 # The tilings a vacuum operator reads from and writes to; a plain volume is a tiling of one region
 _srcCvl(opr::GlaOprVac) = GlaCmpVol(opr.mem.srcVol)
 _trgCvl(opr::GlaOprVac) = GlaCmpVol(opr.mem.trgVol)
@@ -495,11 +457,15 @@ _trgCvl(opr::GlaCmpOprVac) = opr.trgCvl
 
 The adjoint of `opr`, reusing its memory. Use only the return value afterwards:
 the argument may have been mutated or replaced. `adjoint!(adjoint!(opr))` restores
-the original; `adjoint` works on a copy instead.
+the original; `adjoint` works on a copy instead. This is the adjoint in the ΔV
+inner product of `GlaFld`, which is the matrix adjoint whenever all cells are the same size.
 """
-function adjoint!(opr::GlaOprVac)
+function adjoint!(opr::GlaOprVac{T}) where T<:AbstractFloat
     # A Hermitian part of a self operator is its own adjoint
     isselfoperator(opr) && opr.mem.cmpInf.hrmPrt !== nothing && return opr
+
+    # Physical adjoint of a cross-scale block: (ΔV_trg / ΔV_src) M†
+    ratVol = T(prod(opr.mem.trgVol.scl) / prod(opr.mem.srcVol.scl))
 
     # Mark the adjoint
     opr.mem.cmpInf.adjMod = !opr.mem.cmpInf.adjMod
@@ -513,14 +479,13 @@ function adjoint!(opr::GlaOprVac)
     # Take the conjugate of the Fourier coefficients (conjugate transpose)
     # Also swap the last two axes because they hold the source and target
     # partition of a cross-scale pair (which must be transposed for the adjoint)
-    opr.mem.egoFur = collect(map(arr -> conj.(permutedims(arr, (1, 2, 3, 4, 6, 5))), opr.mem.egoFur))
+    opr.mem.egoFur = collect(map(arr -> ratVol .* conj.(permutedims(arr, (1, 2, 3, 4, 6, 5))), opr.mem.egoFur))
 
     # The masks are immutable fields, so the transpose needs a new wrapper
     return GlaOprVac(opr.mem, opr.trgMsk, opr.srcMsk)
 end
 
-adjoint!(opr::GlaSndOprVac) =
-    GlaSndOprVac(adjoint!(opr.opr), opr.srcRat, opr.trgRat, conj(opr.wgt))
+adjoint!(opr::GlaSndOprVac) = GlaSndOprVac(adjoint!(opr.opr), opr.srcRat, opr.trgRat)
 
 adjoint!(opr::GlaCmpOprVac{T}) where T<:AbstractFloat =
     GlaCmpOprVac{T}(opr.srcCvl, opr.trgCvl, permutedims(map(adjoint!, opr.blkMat)))

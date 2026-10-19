@@ -1,10 +1,9 @@
 # Composite operator tests
 # The reference for a composite operator is the same operator on a uniform mesh
 # at the finest cell size of the tiling. A composite target row is the mean of
-# the fine rows it covers, a composite source column injects unit density into
-# the fine cells it covers, and the √ΔV basis puts sqrt(ΔVᵢ/ΔVⱼ) on block (i, j).
+# the fine rows it covers, and a composite source column injects unit density into
+# the fine cells it covers.
 import GilaElectromagnetics: _lwrEdg
-import GilaElectromagnetics: _nrmWgt
 
 # The smallest tiling this file uses: one region of 2×2×2 cells of 1/16 λ
 const smlVol = GlaVol((2, 2, 2), scl16, stdOrg)
@@ -60,11 +59,10 @@ function cmpMap(cvol::GlaCmpVol, refVol::GlaVol, val)
 end
 
 #= The composite operator predicted by the uniform reference refOpr: a source
-dof injects unit density, a target dof takes the mean, and the √ΔV basis
-divides by the source and multiplies by the target cell volume. =#
+dof injects unit density and a target dof takes the mean. =#
 function cmpRef(trgCvl::GlaCmpVol, trgRef::GlaVol, srcCvl::GlaCmpVol, srcRef::GlaVol, refOpr)
-    inj = cmpMap(srcCvl, srcRef, (vol, _) -> 1 / sqrt(vol))
-    agr = transpose(cmpMap(trgCvl, trgRef, (vol, num) -> sqrt(vol) / num))
+    inj = cmpMap(srcCvl, srcRef, (vol, _) -> 1)
+    agr = transpose(cmpMap(trgCvl, trgRef, (vol, num) -> 1 / num))
     return LinearMap(agr) * LinearMap(refOpr) * LinearMap(inj)
 end
 
@@ -100,8 +98,9 @@ end
     @test prbErr(mnyOpr, mnyAgr) < 1e-12
     # A composite target row is a mean, not a sum, so the wrong convention shows
     @test prbErr(mnyOpr, 8 * mnyAgr) > 1e-3
-    # A self operator is complex symmetric
-    @test symErr(mnyOpr) < 1e-13
+    # A self operator weighted by the cell volumes is complex symmetric
+    @test symErr(mnyOpr; wgt=cellvolumes(mnyCvl)) < 1e-13
+    @test adjErr(mnyOpr, adjoint(mnyOpr); wgt=cellvolumes(mnyCvl)) < 1e-14
 end
 
 @testset "Composite operator on a field" begin
@@ -125,8 +124,8 @@ end
 end
 
 #= The two Hermitian parts are read entry by entry off the composite matrix,
-which the complex symmetry of the self operator makes exact. Each part is rebuilt
-from the tiling, and a matvec costs one application of G₀. =#
+which the complex symmetry of the ΔV weighted self operator makes exact. Each
+part is rebuilt from the tiling, and a matvec costs one application of G₀. =#
 @testset "Composite operator Hermitian parts" begin
     asyOpr, symOpr = asym(mnyOpr), glaSym(mnyOpr)
     @test asyOpr isa GlaCmpOprVac && symOpr isa GlaCmpOprVac
@@ -141,9 +140,9 @@ from the tiling, and a matvec costs one application of G₀. =#
     asyOut, symOut = asyOpr * inp, symOpr * inp
     @test frbErr(asyOut, asyPrb(mnyOpr, inp)) < 1e-12
     @test frbErr(symOut, symPrb(mnyOpr, inp)) < 1e-12
-    # Both parts are Hermitian, and together they rebuild the operator
-    @test adjErr(asyOpr, asyOpr) < 1e-12
-    @test adjErr(symOpr, symOpr) < 1e-12
+    # Both parts are Hermitian in the ΔV inner product, and together they rebuild the operator
+    @test adjErr(asyOpr, asyOpr; wgt=cellvolumes(mnyCvl)) < 1e-12
+    @test adjErr(symOpr, symOpr; wgt=cellvolumes(mnyCvl)) < 1e-12
     @test frbErr(symOut + im .* asyOut, out) < 1e-12
     # The operator the part was taken from is untouched
     @test mnyOpr * inp == out
@@ -188,7 +187,7 @@ const triRef = GlaVol((12, 8, 8), stdScl, stdOrg)
     # Three self blocks, the two coarse regions apart in x, four sandwiches
     @test cmpBlkCnt(triOpr) == (3, 2, 0, 4)
     @test prbErr(triOpr, cmpRef(triCvl, triRef, GlaOprVac{Float64}(triRef))) < 1e-13
-    @test symErr(triOpr) < 1e-13
+    @test symErr(triOpr; wgt=cellvolumes(triCvl)) < 1e-13
     # Sandwich blocks in both orientations, plus a same-scale external pair
     inp = randn(ComplexF64, 960, 3)
     @test frbErr(asym(triOpr) * inp, asyPrb(triOpr, inp)) < 1e-12
@@ -221,8 +220,7 @@ end
     @test isexternaloperator(opr.blkMat[2, 1])
     # Apart, so every block is a plain operator rather than a fine mesh one
     @test cmpBlkCnt(opr) == (2, 2, 0, 0)
-    #= The dense form assembles from the blocks each region pair would build on
-    its own, scaled by the √ΔV weight of the pair. =#
+    # The dense form assembles from the blocks each region pair would build on its own
     regs = regions(gapCvl)
     off = cumsum([0; [3 * prod(reg.cel) for reg in regs]])
     ref = zeros(ComplexF64, off[end], off[end])
@@ -230,9 +228,10 @@ end
         blk = trgIdx == srcIdx ? GlaOprVac{Float64}(regs[trgIdx]) :
             GlaOprVac{Float64}(regs[trgIdx], regs[srcIdx]; prxWrn=false)
         ref[(off[trgIdx] + 1):off[trgIdx + 1], (off[srcIdx] + 1):off[srcIdx + 1]] .=
-            _nrmWgt(regs[trgIdx], regs[srcIdx]) .* dnsMat(blk)
+            dnsMat(blk)
     end
     @test frbErr(dnsMat(opr), ref) < 1e-14
+    @test adjErr(opr, adjoint(opr); wgt=cellvolumes(gapCvl)) < 1e-13
 end
 
 @testset "Composite operator cross-scale near pair" begin
@@ -289,7 +288,7 @@ end
     @test opr isa GlaCmpOprVac
     @test isselfoperator(opr)
     @test cmpBlkCnt(opr) == (1, 0, 0, 0)
-    # One region means one cell volume, so the normalization is the identity
+    # One region is the plain operator
     @test prbErr(opr, GlaOprVac{Float64}(smlVol)) == 0
     # One region reproduces the plain anti-Hermitian operator
     @test prbErr(asym(opr), asym(GlaOprVac{Float64}(smlVol))) < 1e-12
@@ -300,7 +299,7 @@ end
 
 @testset "Plain against composite on a field" begin
     #= A plain operator over one region is the one region composite, so the two
-    have to agree on a field, including the sqrt(ΔV_trg / ΔV_src) of the basis. =#
+    have to agree on a field. =#
     trgVol = GlaVol((4, 4, 4), stdScl, (3//8, 0//1, 0//1))
     fld = discretize!(zeros(ComplexF64, smlVol), tstDns)
     cmpOut = prxBld(() -> GlaCmpOprVac{Float64}(GlaCmpVol(trgVol), smlCvl)) * fld
