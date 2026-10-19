@@ -101,16 +101,16 @@ ptri(s) = Tuple(prat.(split(s, ",")))
     # coarse (2, 2, 2) at (1/16, 1/32, 1/32) next to fine (4, 2, 2) along the periodic axis: the 8 × 2 × 2 box at 1/32 with pairs of cells merged
     @testset "CrsCmp" begin
         crs = GlaCmpVol([GlaVol((2, 2, 2), (1//16, 1//32, 1//32), (1//16, 1//32, 1//32)), GlaVol((4, 2, 2), s, (3//16, 1//32, 1//32))])
-        # composite degree of freedom → normalized box degrees of freedom
+        # composite degree of freedom → box degrees of freedom it injects into
         lnB = LinearIndices((8, 2, 2)); Q = zeros(96, 72); k = 0
         for (r, reg) in enumerate(regions(crs)), a in 1:3, c in CartesianIndices(reg.cel)
             k += 1
             for x in (r == 1 ? (2c[1] - 1, 2c[1]) : (c[1] + 4,))
-                Q[lnB[x, c[2], c[3]] + 32 * (a - 1), k] = r == 1 ? 1 / sqrt(2) : 1
+                Q[lnB[x, c[2], c[3]] + 32 * (a - 1), k] = 1
             end
         end
         f = 1.0 + 0.1im; Pc = (10,)
-        crsMat(θ) = ((H, A, inf) = blcFil(s, f, ax, (8, 2, 2), Pc, θ); Q' * blcMat(H, A, inf[:ms], ax, (8, 2, 2)) * Q)
+        crsMat(θ) = ((H, A, inf) = blcFil(s, f, ax, (8, 2, 2), Pc, θ); (Q ./ sum(Q; dims = 1))' * blcMat(H, A, inf[:ms], ax, (8, 2, 2)) * Q)
         D = crsMat(θ); x = randn(rng, ComplexF64, 72)
         opr = GlaCmpOprVac{Float64}(crs; frqPhz = f, blc = (; ax, P = Pc, θ))
         @test norm(opr * x - D * x) < 4eps() * norm(D * x)

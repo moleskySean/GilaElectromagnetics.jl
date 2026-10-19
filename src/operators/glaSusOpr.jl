@@ -7,7 +7,7 @@ drives, over the tiling `cvol`.
 `sus` is either a vector in the flat degree of freedom layout, applied entrywise,
 or a `(celTot, 3, 3)` array of cell tensors in `coordinates(cvol)` order, applied
 as a matrix in each cell (gyrotropy, rotated crystals). χ is dimensionless and
-diagonal in position, so it commutes with the √ΔV normalization of `GlaFld`.
+diagonal in position, so it commutes with the ΔV weight of the `GlaFld` inner product.
 `X \\ f` divides pointwise and throws where χ vanishes.
 """
 mutable struct SusOpr{T<:AbstractFloat, A<:AbstractArray{Complex{T}}} <: AbstractGlaOpr{T}
@@ -205,8 +205,6 @@ in position, so the inverse action is the pointwise one. =#
 _invAct(opr::SusOpr, v) = mulAct!(_invSus(opr), _devCpy(opr, v))
 isvarying(::SusOpr) = false
 
-#= A susceptibility carries no normalization factor of its own: it is
-dimensionless and diagonal in position, so it commutes with the √ΔV of GlaFld. =#
 _srcCvl(opr::SusOpr) = opr.cvol
 _trgCvl(opr::SusOpr) = opr.cvol
 

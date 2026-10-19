@@ -126,18 +126,15 @@ end
 @testset "GlaFld physical convention" begin
     cvol = mkFldRef()
     fld = discretize!(zeros(ComplexF64, cvol), pos -> (1, 0, 0))
-    # Dividing a region block by the square root of its cell volume gives the
-    # density back, whatever the scale of the region
-    for (idx, reg) in enumerate(regions(cvol))
-        dns = regionview(fld, idx) ./ sqrt(Float64(prod(reg.scl)))
+    # Every region block holds the density, whatever the scale of the region
+    for idx in 1:nregions(cvol)
+        dns = regionview(fld, idx)
         @test all(dns[:, :, :, 1] .≈ 1)
         @test all(iszero, dns[:, :, :, 2])
         @test all(iszero, dns[:, :, :, 3])
     end
-    # Two regions of different scale carry different stored values
-    sclSet = Set(regions(cvol)[idx].scl for idx in 1:nregions(cvol))
-    @test length(sclSet) == 2
-    @test regionview(fld, 1)[1, 1, 1, 1] != regionview(fld, 2)[1, 1, 1, 1]
+    # Regions of different scale carry the same stored value
+    @test regionview(fld, 1)[1, 1, 1, 1] == regionview(fld, 2)[1, 1, 1, 1]
     # The norm of a unit density is the square root of the domain volume
     @test norm(fld)^2 ≈ Float64(prod(mkFldVol().cel .* mkFldVol().scl)) rtol=1e-12
 end
@@ -151,13 +148,13 @@ end
     @test size(rsm) == (16, 16, 16, 3)
     # Sampling on the uniform fine mesh directly, read back as a density
     stpFin = discretize!(zeros(ComplexF64, GlaCmpVol(volFin)), fldStp)
-    dnsFin = regionview(stpFin, 1) ./ sqrt(Float64(prod(volFin.scl)))
+    dnsFin = regionview(stpFin, 1)
     @test maximum(abs, rsm .- dnsFin) < 1e-12
     # The explicit scale is the default
     @test regrid(stpRef, stdScl) == rsm
     # A trivial composite regrids to itself
     stpUni = discretize!(zeros(ComplexF64, mkFldUni()), fldStp)
-    dnsUni = regionview(stpUni, 1) ./ sqrt(Float64(prod(scl16)))
+    dnsUni = regionview(stpUni, 1)
     @test maximum(abs, regrid(stpUni) .- dnsUni) < 1e-12
     # Finer than every region is allowed and just repeats values
     rsmFin = regrid(stpRef, (1//64, 1//64, 1//64))
@@ -174,8 +171,9 @@ end
     fldX = discretize!(zeros(ComplexF64, cvol), fldSmt)
     fldY = discretize!(zeros(ComplexF64, cvol), fldStp)
     @test dot(fldX, fldX) ≈ norm(fldX)^2
-    @test dot(fldX, fldY) ≈ dot(fldX.dat, fldY.dat)
-    @test norm(fldX, 1) ≈ norm(fldX.dat, 1)
+    celVol = cellvolumes(cvol)
+    @test dot(fldX, fldY) ≈ sum(celVol .* conj.(fldX.dat) .* fldY.dat)
+    @test norm(fldX, 1) ≈ sum(celVol .* abs.(fldX.dat))
     @test norm(fldX, Inf) ≈ norm(fldX.dat, Inf)
     # axpy! and axpby! match their broadcast equivalents
     axp = axpy!(2.0 + 1im, fldX, copy(fldY))
@@ -202,7 +200,7 @@ end
     @test iszero(norm(fldZ))
     fldZ .+= fldX
     @test norm(fldZ) ≈ norm(fldX)
-    @test norm(abs.(fldX)) ≈ norm(fldX)
+    @test norm(abs.(fldX)) ≈ norm(fldX.dat)
     # A comparison drops the wrapper, since the buffer cannot hold Bools
     @test all(fldX .== fldX)
     @test (fldX .== fldX) isa AbstractVector{Bool}

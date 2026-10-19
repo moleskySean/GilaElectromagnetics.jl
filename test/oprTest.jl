@@ -1,5 +1,5 @@
 # Operator tests
-import GilaElectromagnetics: mskRng, setSus!
+import GilaElectromagnetics: mskRng, setSus!, _trgCvl, _srcCvl
 
 const oprOvrOrg = ntuple(i -> Rational(4) * stdScl[i] // 2, 3)
 const oprVolOvr = GlaVol((4,4,4), stdScl, oprOvrOrg)
@@ -63,7 +63,9 @@ const oprAdjCmp = GlaCmpOprVac{Float64}(refine(GlaCmpVol(GlaVol((4,2,2), scl16, 
         gyr, _invScts(), _scts(), _glas())
         inp = randn(ComplexF64, size(opr, 2))
         out = opr * inp
-        @test adjErr(opr, adjoint(opr)) < 1e-7
+        # Unequal cells make the adjoint the one in the ΔV inner product
+        wgt, srcWgt = opr === oprAdjXsc || opr === oprAdjCmp ? cellvolumes.((_trgCvl(opr), _srcCvl(opr))) : (1, 1)
+        @test adjErr(opr, adjoint(opr); wgt, srcWgt) < 1e-7
         @test !isadjoint(opr) && opr * inp == out
         @test norm(adjoint!(adjoint!(deepcopy(opr))) * inp - out) < 1e-7 * norm(out)
     end

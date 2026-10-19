@@ -139,18 +139,18 @@ function prbErr(oprA, oprB)
     return frbErr(oprA * inp, mul!(similar(inp, size(oprA, 1), 3), oprB, inp))
 end
 
-# The dot identity dot(y, A x) = dot(B y, x) of an adjoint pair; adjErr(A, A) measures A against Hermitian
-function adjErr(opr, adj)
+# The dot identity dot(W y, A x) = dot(W B y, x) of an adjoint pair, W the target or source cell volumes; adjErr(A, A) measures A against Hermitian
+function adjErr(opr, adj; wgt=1, srcWgt=wgt)
     x, y = randn(eltype(opr), size(opr, 2)), randn(eltype(opr), size(opr, 1))
-    lhs = dot(y, opr * x)
-    return abs(lhs - dot(adj * y, x)) / abs(lhs)
+    lhs = dot(wgt .* y, opr * x)
+    return abs(lhs - dot(srcWgt .* (adj * y), x)) / abs(lhs)
 end
 
 # The transpose identity transpose(y) A x = transpose(x) A y of a complex-symmetric A
-function symErr(opr)
+function symErr(opr; wgt=1)
     x, y = randn(eltype(opr), size(opr, 2)), randn(eltype(opr), size(opr, 1))
-    lhs = transpose(y) * (opr * x)
-    return abs(lhs - transpose(x) * (opr * y)) / abs(lhs)
+    lhs = transpose(wgt .* y) * (opr * x)
+    return abs(lhs - transpose(wgt .* x) * (opr * y)) / abs(lhs)
 end
 
 # The anti-Hermitian and Hermitian parts of opr applied to inp
