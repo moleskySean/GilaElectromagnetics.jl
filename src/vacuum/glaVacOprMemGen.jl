@@ -1,6 +1,18 @@
 include("integrals/glaVacIntMom.jl") # near-field moments and contact block
 include("integrals/glaVacIntFar.jl") # far-field expansion and block fills
 
+# empty the in-memory caches the fills never evict, so creation can be timed cold; the shpCch disk caches stay
+function clrCch!()
+    @lock SHPLK empty!(SHPC)
+    @lock FRQLK (empty!(FRQC); empty!(FRQCX))
+    @lock KSRLK empty!(MOMCX)
+    @lock momLck empty!(momMem)
+    @lock Bloch.GLCK empty!(Bloch.GLC)
+    @lock Bloch.MUFK empty!(Bloch.MUF)
+    foreach(empty!, Bloch.MOMMC.d)   # per-thread, unlocked by design
+    nothing
+end
+
 function genEgoCrc!(egoCrc::AbstractArray{<:Complex}, trgVol::GlaVol, srcVol::GlaVol, mixInf::GlaExtInf, cmpInf::GlaKerOpt; shpCch::Bool = false, blk = nothing)
     # self green function case
     if srcVol == trgVol

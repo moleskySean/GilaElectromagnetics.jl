@@ -19,11 +19,6 @@ docs/site/
 # MacOS
 .DS_Store
 
-# Benchmark data
-benchmark/*.jld2
-benchmark/*.png
-benchmark/results/
-
 # Profiling
 statprof
 

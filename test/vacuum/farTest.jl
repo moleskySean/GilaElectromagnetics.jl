@@ -176,3 +176,13 @@ end
         @test maximum(abs, ego .- prod(sclSrc) / prod(sclTrg) .* egoSwp) < 1e-13 * maximum(abs, ego)
     end
 end
+
+@testset "clrCch! empties the caches and the rebuild is bitwise equal" begin
+    B = GVF.Bloch
+    vol = mkVol((8,8,8))
+    mem = GlaVacOprMem(GlaKerOpt{Float64}(), vol)
+    @test !isempty(GVF.SHPC) && !isempty(GVF.momMem)
+    GVF.clrCch!()
+    @test all(isempty, (GVF.SHPC, GVF.FRQC, GVF.MOMCX, GVF.FRQCX, GVF.momMem, B.GLC, B.MUF, B.MOMMC.d...))
+    @test GlaVacOprMem(GlaKerOpt{Float64}(), vol).egoFur == mem.egoFur
+end
