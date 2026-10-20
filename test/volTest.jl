@@ -1,9 +1,8 @@
-# GilaVolumes tests
-import GilaElectromagnetics.GilaVolumes:
-    GlaExtInf, genVolEve, genEveExtInf, genCntVol, sepGrd, crcIndClc, uniVol
+# Volume tests
+import GilaElectromagnetics: GlaExtInf, uniVol
 
 @testset "GlaVol construction" begin
-    for dim in volSizes
+    for dim in [(2,2,2), (4,4,4), (6,6,6), (8,8,8), (6,4,8), (8,2,10)]
         volObj = mkVol(dim)
         @test volObj.cel == Tuple(dim)
         @test volObj.scl == stdScl
@@ -39,7 +38,7 @@ end
     v1 = mkVol((4,4,4))
     v2 = mkVol((4,4,4))
     v3 = mkVol((4,4,4); org=extOrg)
-    v4 = mkVol((4,4,4); scl=(1//16, 1//16, 1//16))
+    v4 = mkVol((4,4,4); scl=scl16)
     v5 = mkVol((6,4,4))
     @test v1 == v2
     @test v1 != v3
@@ -49,7 +48,7 @@ end
 
 @testset "GlaVol constructor error" begin
     # celScl > grdScl should throw
-    @test_throws ErrorException GlaVol((4,4,4), (1//16, 1//16, 1//16), stdOrg, (1//32, 1//32, 1//32))
+    @test_throws ErrorException GlaVol((4,4,4), scl16, stdOrg, stdScl)
     # celScl == grdScl is fine
     @test_nowarn GlaVol((4,4,4), stdScl, stdOrg, stdScl)
 end
@@ -64,8 +63,8 @@ end
     uprEdg2 = last.(v2.grd) .+ (v2.scl .// 2)
     lwrEdgU = first.(uni.grd) .- (uni.scl .// 2)
     uprEdgU = last.(uni.grd) .+ (uni.scl .// 2)
-    @test Tuple(lwrEdgU) == Tuple(min.(lwrEdg1, first.(v2.grd) .- v2.scl .// 2))
-    @test Tuple(uprEdgU) == Tuple(uprEdg2)
+    @test lwrEdgU == min.(lwrEdg1, first.(v2.grd) .- v2.scl .// 2)
+    @test uprEdgU == uprEdg2
     @test uni.scl == min.(v1.scl, v2.scl)
     @test all(isinteger.(uni.cel))
     # Base.union agrees
@@ -75,36 +74,7 @@ end
     @test union(v1, v2, v3) == reduce(uniVol, [v1, v2, v3])
     # Incommensurate scales throw
     vBad = GlaVol((4,4,4), (1//48, 1//48, 1//48), extOrg)
-    @test_throws AssertionError uniVol(v1, vBad)
-end
-
-@testset "GlaExtInf equal-scale" begin
-    v1 = mkVol((4,4,4))
-    v2 = mkVol((4,4,4); org=extOrg)
-    inf = GlaExtInf(v1, v2)
-    @test inf.minScl == stdScl
-    @test inf.trgDiv == (1,1,1)
-    @test inf.srcDiv == (1,1,1)
-    @test inf.trgCel == (4,4,4)
-    @test inf.srcCel == (4,4,4)
-    @test length(inf.trgPar) == 1
-    @test length(inf.srcPar) == 1
-end
-
-@testset "GlaExtInf mixed-scale (ratio 2)" begin
-    sclCoarse = (2//32, 2//32, 2//32)
-    vCoarse = GlaVol((4,4,4), sclCoarse, stdOrg)
-    vFine   = GlaVol((8,8,8), stdScl, extOrg)
-    inf = GlaExtInf(vCoarse, vFine)
-    # minScl = (1/32), maxScl = (2/32)
-    # trgDiv = maxScl/coarseScl = 1; srcDiv = maxScl/fineScl = 2
-    @test inf.minScl == stdScl
-    @test inf.trgDiv == (1,1,1)
-    @test inf.srcDiv == (2,2,2)
-    @test inf.trgCel == (4,4,4)
-    @test inf.srcCel == (4,4,4)
-    @test length(inf.trgPar) == 1
-    @test length(inf.srcPar) == 8
+    @test_throws ArgumentError uniVol(v1, vBad)
 end
 
 @testset "GlaExtInf error cases" begin
@@ -118,75 +88,14 @@ end
     @test_throws ErrorException GlaExtInf(vCoarse, vFine)
 end
 
-@testset "genEveExtInf" begin
-    # Even+even → no regen, no warn
-    v1 = mkVol((4,4,4))
-    v2 = mkVol((4,4,4); org=extOrg)
-    @test_nowarn genEveExtInf(v1, v2)
-    inf = genEveExtInf(v1, v2)
-    @test isa(inf, GlaExtInf)
-
-    # Odd+odd where dim-wise sum is all-even → no regen, no warn
-    vOdd  = mkVol((3,3,3))
-    vOdd2 = mkVol((3,3,3); org=extOrg)
-    @test_nowarn genEveExtInf(vOdd, vOdd2)
-
-    # Source bug: when regen IS triggered (sum has odd elements), genVolEve changes cell scales
-    # non-uniformly, making the resulting scales incommensurate between the two volumes.
-    # GlaExtInf then throws "Volume pair must share a common scale grid."
-    # Document with @test_throws: the regen path is broken.
-    vOddS  = mkVol((3,3,3))
-    vEvenS = mkVol((4,4,4); org=extOrg)
-    @test_throws ErrorException genEveExtInf(vOddS, vEvenS)
+# The branching algorithm needs an even sum of target and source cells in every direction
+@testset "Odd and even volume pair" begin
+    vOdd, vEve = mkVol((3,3,3)), mkVol((4,4,4); org=extOrg)
+    @test_throws ArgumentError GlaOprVac{Float64}(vOdd, vEve)
 end
 
-@testset "genVolEve" begin
-    # Even → returned unchanged
-    vEve = mkVol((4,4,4))
-    @test genVolEve(vEve) == vEve
-    # Odd → warns, physical extent preserved
-    vOdd = mkVol((3,3,3))
-    eveVol = @test_logs (:warn,) genVolEve(vOdd)
-    @test all(iseven.(eveVol.cel))
-    @test all(Rational.(eveVol.cel) .* eveVol.scl .== Rational.(vOdd.cel) .* vOdd.scl)
-    @test eveVol.org == vOdd.org
-end
-
-@testset "genCntVol" begin
-    v1 = mkVol((4,4,4))
-    v2 = mkVol((4,4,4); org=extOrg)
-    cnt = genCntVol(v1, v2)
-    @test cnt.scl == min.(v1.scl, v2.scl)
-    @test cnt.org == (0//1, 0//1, 0//1)
-    # cel = trgDiv + srcDiv for each dim; with equal scales, div=(1,1,1)
-    @test cnt.cel == (2, 2, 2)
-end
-
-@testset "sepGrd" begin
-    vSrc = mkVol((4,4,4))
-    vTrg = mkVol((4,4,4); org=extOrg)
-    # flip==1: grid over source
-    sep1 = sepGrd(vTrg, vSrc, 1)
-    @test length(sep1) == 3
-    @test Tuple(length.(sep1)) == vSrc.cel
-    # flip==2: grid over target
-    sep2 = sepGrd(vTrg, vSrc, 2)
-    @test length(sep2) == 3
-    @test Tuple(length.(sep2)) == vTrg.cel
-end
-
-@testset "crcIndClc" begin
-    cntVol = GlaVol((4,4,4), stdScl, stdOrg)
-    # Positive separation: index is trgInd - srcInd + CartesianIndex(1,1,1)
-    trgInd = CartesianIndex(3, 3, 3)
-    srcInd = CartesianIndex(1, 1, 1)
-    idx = crcIndClc(cntVol, trgInd, srcInd)
-    @test idx == CartesianIndex(3, 3, 3)
-    # Negative separation: wraps with +2*cel+1 per dim
-    trgInd2 = CartesianIndex(1, 1, 1)
-    srcInd2 = CartesianIndex(3, 3, 3)
-    idx2 = crcIndClc(cntVol, trgInd2, srcInd2)
-    sep = trgInd2 - srcInd2  # (-2,-2,-2)
-    expected = CartesianIndex(ntuple(i -> -2 + 2*4 + 1, 3))  # = (7,7,7)
-    @test idx2 == expected
+@testset "GlaVol show" begin
+    @test shwChk(mkVol((4,4,4)))
+    # A lattice with gaps between cells, whose grid step is printed too
+    @test shwChk(GlaVol((4,4,4), stdScl, stdOrg, 2 .* stdScl))
 end

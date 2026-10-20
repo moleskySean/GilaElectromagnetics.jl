@@ -1,27 +1,20 @@
 # Physics tests
-# Requires: uniVol imported in volTest.jl (same scope), eigvals from LinearAlgebra
 
-# PSD tolerance: assert min eigenvalue > -rtol * opnorm(Asym).
-# Starting from 1e-9; raise to next power of ten if empirically needed.
-const psdRtol = 1e-9
+# PSD tolerance: assert min eigenvalue > -rtol * opnorm(Asym). The worst measured
+# here is -1.1e-15 normalized; posDefTest.jl carries the tight per-shape bars.
+const psdRtol = 1e-12
 
-function checkPsd(mat, label)
+function checkPsd(mat)
     # mat should already be the matrix to check for PSD (callers extract Asym if needed)
     nrm = opnorm(mat)
-    if nrm == 0
-        @info "$label: zero matrix (trivially PSD)"
-        @test true
-        return
-    end
     λs  = eigvals(Hermitian((mat + mat') / 2))
     wrs = minimum(λs)
-    @info "$label: worst normalized eigenvalue = $(wrs / nrm)"
     @test wrs >= -psdRtol * nrm
 end
 
-# Analytic free-space dyadic Green function for a point dipole (see anaTest.jl)
+# Analytic free-space dyadic Green function for a point dipole
 function egoAna!(anaOut::AbstractVector{ComplexF64}, slfVol::GlaVol,
-                 trgRng::Vector{<:StepRange}, dipPos::Vector{<:Rational},
+                 trgRng::NTuple{3,<:StepRange}, dipPos::Vector{<:Rational},
                  dipVec::Vector{ComplexF64})
     sepTol = 1.0e-9
     linItr = zeros(Int, 3)
@@ -50,115 +43,58 @@ function egoAna!(anaOut::AbstractVector{ComplexF64}, slfVol::GlaVol,
     return nothing
 end
 
-@testset "Asym(G₀) PSD — self GlaOprVac" begin
-    # Use precomputed _selfMem4 — no new GlaVacOprMem construction
-    checkPsd(asymMat(dnsMat(_g0())), "self GlaOprVac (4,4,4)")
-end
-
-@testset "Asym(G₀) PSD — AsyGlaOprVac itself" begin
-    # AsyGlaOprVac(_g0()) deepcopies egoFur then takes Im part — cheap (no integration)
+@testset "Asym(G₀) PSD — the operator itself" begin
     mat = dnsMat(_asy())
     @test mat ≈ mat'
-    checkPsd(mat, "AsyGlaOprVac (4,4,4)")
+    checkPsd(mat)
 end
 
-@testset "Asym(G₀) PSD — overlapping as union" begin
-    # The union GlaOprVac uses volume masks, which break the PSD property of Asym(G₀).
-    # The masked operator's asymmetric part has large negative eigenvalues (~0.4 normalized).
-    # This is a known limitation: PSD only holds for un-masked self-operators.
-    @test_broken begin
-        ovrOrg = ntuple(i -> Rational(4) * stdScl[i] // 2, 3)
-        volOvr = GlaVol((4,4,4), stdScl, ovrOrg)
-        gOvr   = GlaOprVac(volOvr, _vol4)
-        mat = asymMat(dnsMat(gOvr))
-        nrm = opnorm(mat)
-        minimum(eigvals(Hermitian((mat + mat') / 2))) >= -1e-9 * nrm
-    end
+@testset "Asym(G₀) PSD — gapped GlaCmpOprVac" begin
+    op = GlaCmpOprVac{Float64}(GlaCmpVol([_vol4, _trgV4]))
+    checkPsd(asymMat(dnsMat(op)))
 end
 
-@testset "Asym(G₀) PSD — MulRegGlaOprVac" begin
-    op = MulRegGlaOprVac([_vol4, _trgV4], [_vol4, _trgV4])
-    checkPsd(asymMat(dnsMat(op)), "MulRegGlaOprVac 2 regions")
-end
-
-@testset "Asym undefined for external (negative control)" begin
-    # _gExt() reuses precomputed _extMem4 — no new integration
-    gExt = _gExt()
-    @test (try AsyGlaOprVac(gExt); false catch e; isa(e, ArgumentError) end)
-end
-
-@testset "G₀ = Sym + i·Asym" begin
-    # All built from precomputed _selfMem4 — no new GlaVacOprMem constructions
-    D = dnsMat(_g0())
-    S = dnsMat(_sym())
-    A = dnsMat(_asy())
-    @test S + im .* A ≈ D   rtol=1e-12
-end
-
-@testset "Sym/Asym vs LinearMap decomposition" begin
-    g = _g0()
-    D = Matrix(LinearMap(g))
-    @test relErr(dnsMat(_asy()), asymMat(D)) < 1e-14
-    @test relErr(dnsMat(_sym()), symMat(D))  < 1e-14
-end
-
+#= The one absolute physical check in the suite: the discretized operator against
+the point-dipole dyadic. The 5 % bar is the discretization error of a pulse basis
+at 32 cells per wavelength, not slack, and cannot be tightened. (6,6,6) is the
+smallest volume that leaves cells outside the exclusion window. =#
 @testset "Analytic dyadic Green function" begin
     lowTol = 1.0e-12
-    # Use (6,6,6) — enough cells for Green function to converge; (4,4,4) gives winInt=2
-    # which would require index 0 (out of bounds for dipLoc=[2,2,2]).
-    for volDim in [(6,6,6)]
-        vol    = mkVol(volDim)
-        oprMem = GlaVacOprMem(CPUKerOpt(), vol)
-        dipVec = zeros(ComplexF64, 3)
-        relErrDir = zeros(Float64, 3)
-        anaOut = Array{ComplexF64}(undef, 3 * prod(vol.cel))
-        numOut = Array{ComplexF64}(undef, vol.cel..., 3)
-        difMat = Array{Float64}(undef, vol.cel..., 3)
-        innVec = Array{ComplexF64}(undef, vol.cel..., 3)
+    # half width, in cells, of the window around the dipole where the pulse-basis
+    # field is not the point-dipole field
+    winInt = 2
+    vol    = mkVol((6,6,6))
+    oprMem = GlaVacOprMem(GlaKerOpt{Float64}(), vol)
+    dipVec = zeros(ComplexF64, 3)
+    relErrDir = zeros(Float64, 3)
+    anaOut = Array{ComplexF64}(undef, 3 * prod(vol.cel))
+    numOut = Array{ComplexF64}(undef, vol.cel..., 3)
+    difMat = Array{Float64}(undef, vol.cel..., 3)
+    innVec = Array{ComplexF64}(undef, vol.cel..., 3)
+    dipLoc = div.(vol.cel, 2)
+    dipPos = Rational.([vol.grd[d][dipLoc[d]] for d in 1:3])
 
-        winInt = min(Int(div(1//2 * 4 * minimum(vol.scl), minimum(vol.scl))),
-                     minimum(vol.cel))
+    for dipDir in 1:3
+        dipVec .= 0.0im
+        dipVec[dipDir] = 1.0 + 0.0im
+        fill!(innVec, zero(ComplexF64))
+        innVec[dipLoc..., dipDir] = (1.0 + 0.0im) / prod(vol.scl)
+        copyto!(numOut, egoOpr!(oprMem, innVec))
+        egoAna!(anaOut, vol, vol.grd, dipPos, dipVec)
+        anaRsh = reshape(anaOut, vol.cel..., 3)
 
-        for dipDir in 1:3
-            dipLoc = [div(vol.cel[1], 2), div(vol.cel[2], 2), div(vol.cel[3], 2)]
-            dipVec .= 0.0im
-            dipVec[dipDir] = 1.0 + 0.0im
-            dipPos = Rational.([vol.grd[1][dipLoc[1]], vol.grd[2][dipLoc[2]], vol.grd[3][dipLoc[3]]])
-            trgRng = deepcopy(vol.grd)
-
-            fill!(innVec, zero(ComplexF64))
-            innVec[dipLoc[1], dipLoc[2], dipLoc[3], dipDir] = (1.0 + 0.0im) / prod(vol.scl)
-            copyto!(numOut, egoOpr!(oprMem, innVec))
-            egoAna!(anaOut, vol, trgRng, dipPos, dipVec)
-            anaOut_r = reshape(anaOut, vol.cel..., 3)
-
-            for crtItr in CartesianIndices((vol.cel..., 3))
-                fldDif = abs(anaOut_r[crtItr] - numOut[crtItr])
-                difMat[crtItr] = min(fldDif, fldDif / max(abs(numOut[crtItr]), lowTol))
-            end
-            difMat[(dipLoc[1]-winInt):(dipLoc[1]+winInt),
-                   (dipLoc[2]-winInt):(dipLoc[2]+winInt),
-                   (dipLoc[3]-winInt):(dipLoc[3]+winInt), :] .= 0.0
-            relErrDir[dipDir] = maximum(difMat)
+        #= The clip is load-bearing, not slack: the pure relative worst is 0.0468
+        against the 0.05 bar, so entries where the numerical field nearly vanishes
+        would push it over on their absolute difference alone. =#
+        for crtItr in CartesianIndices((vol.cel..., 3))
+            fldDif = abs(anaRsh[crtItr] - numOut[crtItr])
+            difMat[crtItr] = min(fldDif, fldDif / max(abs(numOut[crtItr]), lowTol))
         end
-        @test all(relErrDir .< 0.05)
+        difMat[(dipLoc[1]-winInt):(dipLoc[1]+winInt),
+               (dipLoc[2]-winInt):(dipLoc[2]+winInt),
+               (dipLoc[3]-winInt):(dipLoc[3]+winInt), :] .= 0.0
+        relErrDir[dipDir] = maximum(difMat)
     end
+    @test all(relErrDir .< 0.05)
 end
 
-@testset "Scattering composition" begin
-    v      = rand(ComplexF64, prod((4,4,4)) * 3)
-    invSct = _invSct()
-    sct    = _sct()
-    gVac   = _g0()
-    gla    = _gla()
-    glaVac = _glaVac()
-
-    # InvSctOpr * (SctOpr * v) ≈ v (self and external)
-    @test invSct * (sct * v) ≈ v
-
-    # Zero-susceptibility GlaOpr matches GlaOprVac
-    @test glaVac * v ≈ gVac * v
-
-    # GlaOpr field: G₀ * (SctOpr * v)
-    @test gla * v ≈ gVac * (sct * v)
-end

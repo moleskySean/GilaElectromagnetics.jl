@@ -2,10 +2,11 @@ using GilaElectromagnetics
 
 num_cells = (8, 8, 8)
 cell_size = (1//32, 1//32, 1//32)
-has_gpu = false # Set to true if you have a CUDA enabled GPU
-const T = ComplexF32 # Set to ComplexF64 for double precision
+dev = CPU() # swap for CUDABackend(), MetalBackend() or OpenCLBackend()
+const T = Float32 # Float64 for double precision
 
-G = GlaOpr(num_cells, cell_size; useGpu=has_gpu, setTyp=T)
+vol = GlaVol(num_cells, cell_size, (0//1, 0//1, 0//1))
+G = GlaOprVac{T}(vol; dev=dev)
 source_vec = rand(eltype(G), size(G, 2))
-field_vec = G * source_vec # Apply the Green operator to the source vector
+field_vec = G * source_vec # Apply the vacuum Green function to the source vector
 println("It works!")

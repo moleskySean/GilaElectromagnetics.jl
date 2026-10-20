@@ -1,0 +1,38 @@
+\usepackage{mathtools}
+\usepackage{fontspec}
+\usepackage[warnings-off={mathtools-colon,mathtools-overbracket}]{unicode-math}
+\defaultfontfeatures{Ligatures=TeX}
+\setmainfont{Latin Modern Roman}
+\setsansfont{Latin Modern Sans}
+\setmonofont{Latin Modern Mono}[Scale=MatchLowercase]
+\setmathfont{Latin Modern Math}
+\usepackage{fixdif}
+\usepackage{pgfplots}
+\usepackage{physics2}
+\usephysicsmodule{ab,ab.legacy,nabla.legacy,bm-um.legacy}
+\usetikzlibrary{arrows.meta,decorations.markings,decorations.pathmorphing,calc,positioning,3d}
+\pgfplotsset{compat=1.18}
+
+\NewDocumentCommand{\vb}{s m}{\IfBooleanTF{#1}{\bm{#2}}{\symbf{#2}}}
+\NewDocumentCommand{\expval}{s m}{\IfBooleanTF{#1}{\langle #2\rangle}{\left\langle #2\right\rangle}}
+\newcommand{\dd}[2][]{\d^{#1}{#2}}
+\newcommand*\circled[1]{\tikz[baseline=(char.base)]{\node[shape=circle,draw,inner sep=2pt] (char) {#1};}}
+
+\definecolor{matcol}{RGB}{190,52,48}
+\definecolor{vaccol}{RGB}{33,92,168}
+\definecolor{drvcol}{RGB}{40,140,70}
+\definecolor{accent}{RGB}{214,130,20}
+\colorlet{inkcol}{black!75}
+\colorlet{scatfill}{matcol!10}
+\colorlet{scatdraw}{matcol!60!black}
+\tikzset{
+  >={Stealth[length=2mm]},
+  panel/.style={draw=black!45, line width=0.5pt},
+  zoom/.style={draw=black!40, line width=0.4pt, dashed},
+  paneltitle/.style={anchor=south west, inner sep=2pt},
+  scatterer/.style={fill=scatfill, draw=scatdraw, line width=0.6pt},
+  ghost/.style={draw=scatdraw!45, dashed, line width=0.5pt},
+  field/.style={line width=0.6pt},
+  ingredient/.style={line width=0.5pt, opacity=0.3},
+}
+\input{data/scatterer_path}

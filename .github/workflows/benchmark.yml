@@ -1,0 +1,17 @@
+name: Benchmark
+on:
+  pull_request:
+    branches:
+      - main
+permissions:
+  contents: read
+jobs:
+  benchmark:
+    runs-on: macos-15
+    steps:
+      - uses: MilesCranmer/AirspeedVelocity.jl@action-v1
+        with:
+          job-summary: 'true'
+          bench-on: ${{ github.event.pull_request.head.sha }} # both revisions run the PR's benchmarks.jl, not main's
+          exeflags: '--threads=auto'
+          extra-pkgs: 'Metal'

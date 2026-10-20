@@ -1,0 +1,65 @@
+% bloch_film.tex: meshing one Bloch-periodic unit cell of an infinite film (tutorial 07).
+% Uses the palette and styles defined in preamble.tex.
+\begin{tikzpicture}[font=\small]
+  \def\D{0.3}    % cell size Delta
+  \def\L{0.6}    % period L = 2 Delta
+  \def\W{12.6}   % panel width, 21 periods
+  \def\H{6.4}
+  \def\zb{2.4}   % film bottom
+  \def\zt{4.2}   % film top
+  \def\c{12}     % index of the meshed period
+  \pgfmathsetmacro\xc{\c*\L}
+  \pgfmathsetmacro\pb{\zb-4*\D}
+  \pgfmathsetmacro\pt{\zt+4*\D}
+  % the film as a row of identical periods, fading towards both ends
+  \foreach \i in {0,...,20} {
+    \pgfmathsetmacro\op{min(1, 0.15 + 0.3*min(\i, 20-\i))}
+    \fill[scatfill, opacity=\op] (\i*\L,\zb) rectangle (\i*\L+\L,\zt);
+    \draw[scatdraw, line width=0.6pt, opacity=\op] (\i*\L,\zb) -- (\i*\L+\L,\zb) (\i*\L,\zt) -- (\i*\L+\L,\zt);
+    \draw[scatdraw!35, line width=0.4pt, opacity=\op] (\i*\L,\zb) -- (\i*\L,\zt);
+  }
+  \node[fill=scatfill, inner sep=1pt] at (0.3,{(\zb+\zt)/2}) {$\cdots$};
+  \node[fill=scatfill, inner sep=1pt] at (\W-0.3,{(\zb+\zt)/2}) {$\cdots$};
+  \node[fill=scatfill, inner sep=1.5pt] at (5.1,{(\zb+\zt)/2}) {$\chi = 1.25$};
+  % neighbouring copies of the meshed column
+  \draw[inkcol!50, dashed] (\xc-\L,\pb) rectangle (\xc,\pt) (\xc+\L,\pb) rectangle (\xc+2*\L,\pt);
+  % the meshed unit cell: 2 cells across, four vacuum cells above and below the film
+  \fill[white] (\xc,\pb) rectangle (\xc+\L,\zb) (\xc,\zt) rectangle (\xc+\L,\pt);
+  \fill[scatfill!70!matcol!25] (\xc,\zb) rectangle (\xc+\L,\zt);
+  \draw[inkcol!45, line width=0.3pt] (\xc+\D,\pb) -- (\xc+\D,\pt);
+  \foreach \k in {1,...,13} \draw[inkcol!45, line width=0.3pt] (\xc,\pb+\k*\D) -- (\xc+\L,\pb+\k*\D);
+  \draw[scatdraw, line width=0.6pt] (\xc,\zb) -- (\xc+\L,\zb) (\xc,\zt) -- (\xc+\L,\zt);
+  \draw[inkcol, line width=0.7pt] (\xc,\pb) rectangle (\xc+\L,\pt);
+  \draw[<-, inkcol] (\xc-0.05,\pt-0.45) -- (\xc-\L-0.35,\pt-0.45) node[left, inner sep=2pt] {unit cell};
+  % dimensions
+  \draw[|-|, inkcol] (\xc,\pb-0.2) -- (\xc+\D,\pb-0.2) node[midway, below, inner sep=2pt] {$\Delta$};
+  \draw[|<->|, inkcol] (\xc+0.5*\L,\pt+0.3) -- (\xc+1.5*\L,\pt+0.3) node[midway, above, inner sep=6pt] {$L = 2\Delta$};
+  \node[anchor=west, inner sep=2pt] at (\xc+2*\L+0.3,\pt+0.3) {$p(\vb*{r}+L\hat{\vb*{x}}) = e^{-i\theta}\,p(\vb*{r})$};
+  \draw[decorate, decoration={brace, amplitude=4pt}, inkcol] (\xc+2*\L+0.12,\pt) -- (\xc+2*\L+0.12,\zt)
+    node[midway, right, inner sep=6pt] {4 vacuum cells};
+  \draw[decorate, decoration={brace, amplitude=4pt}, inkcol] (\xc+2*\L+0.12,\zb) -- (\xc+2*\L+0.12,\pb)
+    node[midway, right, inner sep=6pt] {4 vacuum cells};
+  \draw[|<->|, inkcol] (10.5,\zb) -- (10.5,\zt) node[midway, fill=scatfill, inner sep=1.5pt] {$d = \lambda/2$};
+  % incident wave from below, reflected wave going back down
+  \def\th{35}
+  \coordinate (hit) at (3.0,\zb);
+  \draw[inkcol!60, dashed] (hit) -- ++(0,-2.1);
+  \begin{scope}[shift={(hit)}, rotate=180-\th]
+    \foreach \y in {1.0,1.35,...,2.5} \draw[field, drvcol] (-0.4,\y) -- (0.4,\y);
+  \end{scope}
+  \draw[->, drvcol, line width=1.1pt] ($(hit)+({-90-\th}:2.75)$) -- ($(hit)+({-90-\th}:0.25)$);
+  \node[drvcol, anchor=east, inner sep=2pt] at ($(hit)+({-90-\th}:1.0)+(-0.4,0)$) {$\vb*{k}$};
+  \begin{scope}[shift={(hit)}, rotate=180+\th]
+    \foreach \y in {1.0,1.35,...,2.5} \draw[field, vaccol] (-0.4,\y) -- (0.4,\y);
+  \end{scope}
+  \draw[->, vaccol, line width=1.1pt] ($(hit)+({-90+\th}:0.25)$) -- ($(hit)+({-90+\th}:2.75)$);
+  \node[vaccol, anchor=west, inner sep=3pt] at ($(hit)+({-90+\th}:2.6)$) {$r$};
+  \draw[inkcol] ($(hit)+(-90:0.6)$) arc[start angle=-90, end angle=-90-\th, radius=0.6];
+  \node[inkcol, anchor=east, inner sep=1pt] at ($(hit)+({-90-\th}:0.6)+(-0.05,0.05)$) {$\theta_\text{inc}$};
+  % axes
+  \begin{scope}[shift={(0.35,0.3)}]
+    \draw[->, inkcol] (0,0) -- (0.6,0) node[right, inner sep=1pt] {$x$};
+    \draw[->, inkcol] (0,0) -- (0,0.6) node[above, inner sep=1pt] {$z$};
+  \end{scope}
+  \draw[panel] (0,0) rectangle (\W,\H);
+\end{tikzpicture}

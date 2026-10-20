@@ -1,0 +1,92 @@
+% multipole_terms.tex: what survives the blurring of dipoles, loops and free charges.
+% Uses the palette and tikz styles defined in preamble.tex.
+\begin{tikzpicture}[
+    font=\small,
+    poschg/.style={circle, fill=inkcol, draw=inkcol, inner sep=0pt, minimum size=3.2mm,
+      path picture={\draw[white, line width=0.6pt]
+        ([xshift=-0.8mm]path picture bounding box.center) -- ([xshift=0.8mm]path picture bounding box.center)
+        ([yshift=-0.8mm]path picture bounding box.center) -- ([yshift=0.8mm]path picture bounding box.center);}},
+    negchg/.style={circle, fill=white, draw=inkcol, inner sep=0pt, minimum size=3.2mm,
+      path picture={\draw[inkcol, line width=0.6pt]
+        ([xshift=-0.8mm]path picture bounding box.center) -- ([xshift=0.8mm]path picture bounding box.center);}},
+    loop/.style={black!50, line width=0.5pt, postaction={decorate},
+      decoration={markings,
+        mark=at position 0.125 with {\arrow{Stealth[length=1.4mm]}},
+        mark=at position 0.375 with {\arrow{Stealth[length=1.4mm]}},
+        mark=at position 0.625 with {\arrow{Stealth[length=1.4mm]}},
+        mark=at position 0.875 with {\arrow{Stealth[length=1.4mm]}}}},
+    edge/.style={accent, line width=1.4pt, postaction={decorate},
+      decoration={markings,
+        mark=at position 0.10 with {\arrow{Stealth[length=2.6mm]}},
+        mark=at position 0.35 with {\arrow{Stealth[length=2.6mm]}},
+        mark=at position 0.60 with {\arrow{Stealth[length=2.6mm]}},
+        mark=at position 0.85 with {\arrow{Stealth[length=2.6mm]}}}},
+  ]
+  \def\W{5.0}
+  \def\H{4.4}
+  \def\G{0.72}
+
+  % ------------------------------------------------------------------
+  % (a) dipoles: pairs cancel inside, charge left over at the edges
+  % ------------------------------------------------------------------
+  \begin{scope}
+    \draw[panel] (0,0) rectangle (\W,\H);
+    \node[paneltitle] at (0,\H) {\textbf{(a)} Dipoles, $\vb*{P}$};
+    \foreach \y in {1.4,2.2,3.0} {
+      \foreach \x in {1.1,1.95,2.8,3.65} {
+        \draw[black!30, rounded corners=5pt]
+          (\x-0.38,\y-0.24) rectangle (\x+0.38,\y+0.24);
+        \node[negchg] at (\x-0.18,\y) {};
+        \node[poschg] at (\x+0.18,\y) {};
+      }
+    }
+    \draw[accent, thick, rounded corners=5pt] (0.71,1.1) rectangle (1.13,3.3);
+    \draw[accent, thick, rounded corners=5pt] (3.62,1.1) rectangle (4.04,3.3);
+    \draw[->, very thick, matcol] (2.0,3.75) -- (3.0,3.75) node[right] {$\vb*{P}$};
+    \node[accent] at (\W/2,0.5) {leftover charge: $-\div{\vb*{P}}$};
+  \end{scope}
+
+  % ------------------------------------------------------------------
+  % (b) current loops: shared walls cancel, only the edge survives
+  % ------------------------------------------------------------------
+  \begin{scope}[shift={(\W+\G,0)}]
+    \draw[panel] (0,0) rectangle (\W,\H);
+    \node[paneltitle] at (0,\H) {\textbf{(b)} Current loops, $\vb*{M}$};
+    \foreach \i in {0,...,3} {
+      \foreach \j in {0,...,2} {
+        \pgfmathsetmacro\x{0.9+0.8*\i}
+        \pgfmathsetmacro\y{1.0+0.8*\j}
+        \draw[loop] (\x+0.1,\y+0.1) -- (\x+0.7,\y+0.1) -- (\x+0.7,\y+0.7)
+          -- (\x+0.1,\y+0.7) -- cycle;
+      }
+    }
+    \draw[edge, rounded corners=3pt]
+      (0.85,0.95) -- (4.15,0.95) -- (4.15,3.45) -- (0.85,3.45) -- cycle;
+    \node[matcol] at (2.5,3.85) {$\odot\,\vb*{M}$};
+    \node[accent] at (\W/2,0.5) {net edge current: $\curl{\vb*{M}}$};
+  \end{scope}
+
+  % ------------------------------------------------------------------
+  % (c) free charges: electrons wander across a lattice of ions
+  % ------------------------------------------------------------------
+  \begin{scope}[shift={(2*\W+2*\G,0)}]
+    \draw[panel] (0,0) rectangle (\W,\H);
+    \node[paneltitle] at (0,\H) {\textbf{(c)} Free charges};
+    \foreach \i in {0,...,11} {
+      \foreach \j in {0,...,8} {
+        \fill[black!25] (0.3+0.4*\i,1.0+0.35*\j) circle (0.04);
+      }
+    }
+    \draw[inkcol, thick] (4.7,3.6) -- (4.3,3.75) -- (4.1,3.35) -- (3.6,3.5)
+      -- (3.45,3.8) -- (2.9,3.65) -- (2.65,3.3) -- (2.1,3.45);
+    \draw[inkcol, thick] (4.8,2.5) -- (4.4,2.25) -- (4.0,2.6) -- (3.7,2.35)
+      -- (3.2,2.55) -- (2.95,2.2) -- (2.4,2.4) -- (2.0,2.15) -- (1.6,2.4);
+    \draw[inkcol, thick] (4.5,1.5) -- (4.2,1.25) -- (3.75,1.5) -- (3.5,1.2)
+      -- (2.95,1.35) -- (2.75,1.65) -- (2.3,1.4);
+    \foreach \p in {(2.1,3.45),(1.6,2.4),(2.3,1.4)} {
+      \node[negchg] at \p {};
+    }
+    \draw[->, very thick, matcol] (1.6,0.5) -- (3.2,0.5)
+      node[right] {$\vb*{j}_\text{free}$};
+  \end{scope}
+\end{tikzpicture}

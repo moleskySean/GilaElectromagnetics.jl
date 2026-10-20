@@ -1,333 +1,65 @@
 using KernelAbstractions
-using CUDA
-using Serialization
+using KernelAbstractions: supports_float64
 
 """
-    GlaKerOpt
+    GlaKerOpt{T<:AbstractFloat, B<:KernelAbstractions.Backend}
 
-Abstract type for computational information that determines how the Green function
-operator is computed. Concrete implementations include `CPUKerOpt` for CPU computation
-and `GPUKerOpt` for GPU computation.
-"""
-abstract type GlaKerOpt end
-
-"""
-    CPUKerOpt <: GlaKerOpt
-
-Options for CPU computation of the Green function operator.
-
-`CPUKerOpt` determines the accuracy of the Green function computation for cells in contact through its integration order. Higher values give better accuracy but require more computation. The phase factor allows for complex frequencies, which is useful for modeling dispersive media or for numerical stability.
+Options that determine how the Green function operator is computed. `T` is the
+real storage precision of the operator data (`Complex{T}`), generated in
+Float64 and rounded once, and `dev` the KernelAbstractions backend the operator
+computes on.
 
 # Fields
-- `frqPhz::Number`: Multiplicative scaling factor allowing for complex frequencies
-- `intOrd::Integer`: Gauss-Legendre integration order for cells in contact
+- `frqPhz::ComplexF64`: Multiplicative scaling factor allowing for complex frequencies
+- `qssApx::Bool`: Quasistatic approximation flag (true to generate the quasistatic kernel)
 - `adjMod::Bool`: Adjoint mode flag (true if adjoint mode is enabled)
-- `bckEnd::CPU`: Backend for CPU computation
+- `hrmPrt::Union{Nothing,Symbol}`: `:sym` or `:asy` keeps only the entry by entry real or imaginary part of the kernel, which for a self operator is its Hermitian part `(G₀ + G₀†) / 2` or `(G₀ - G₀†) / 2i`; `nothing` is the full kernel
+- `dev::B`: Backend the operator computes on
+- `blc::Union{Nothing,NamedTuple}`: Bloch lattice `(ax, P, θ)` of a periodic unit cell: periodic axes, periods in cells, one Bloch phase per axis (radians, or an exact twist θ/2π as a `Rational`), a composite block's with the periods `L` in λ for `P`; `nothing` is vacuum
+- `blcSet`: The `BlcSet` of the current frequency, kept for `setBlc!`
+- `kapCch`: A composite operator's κ cache of the current frequency, kept for `setBlc!` (first block only)
+
+`Float64` storage on a backend without double precision throws an `ArgumentError`.
 """
-mutable struct CPUKerOpt <: GlaKerOpt
-    frqPhz::Number
-    intOrd::Integer
+mutable struct GlaKerOpt{T<:AbstractFloat, B<:KernelAbstractions.Backend}
+    frqPhz::ComplexF64
+    qssApx::Bool
     adjMod::Bool
-    bckEnd::CPU
+    hrmPrt::Union{Nothing,Symbol}
+    dev::B
+    blc::Union{Nothing,NamedTuple}
+    blcSet::Union{Nothing,BlcSet}
+    kapCch::Union{Nothing,Bloch.KapCache}
+    function GlaKerOpt{T}(dev::B = CPU(); frqPhz::Number = 1.0+0.0im,
+        qssApx::Bool = false, adjMod::Bool = false, hrmPrt::Union{Nothing,Symbol} = nothing, blc = nothing, blcSet = nothing, kapCch = nothing) where {T<:AbstractFloat, B<:KernelAbstractions.Backend}
+        hrmPrt ∈ (nothing, :sym, :asy) || throw(ArgumentError("hrmPrt is :sym, :asy or nothing, got $(repr(hrmPrt))."))
+        T === Float64 && !supports_float64(dev) && throw(ArgumentError("$(nameof(B)) has no Float64. Build the operator in Float32."))
+        qssApx && blc !== nothing && throw(ArgumentError("The quasistatic kernel has no Bloch lattice."))
+        return new{T, B}(frqPhz, qssApx, adjMod, hrmPrt, dev, blc, blcSet, kapCch)
+    end
 end
 
 """
-    CPUKerOpt()
+    GlaKerOpt{T}(dev::KernelAbstractions.Backend=CPU(); frqPhz=1.0+0.0im, qssApx=false, adjMod=false, hrmPrt=nothing, blc=nothing, blcSet=nothing, kapCch=nothing)
+    GlaKerOpt(dev::KernelAbstractions.Backend=CPU(); kwargs...)
 
-Construct a CPUKerOpt with default values.
-
-The default integration order of 32 provides a good balance between accuracy and computational cost for most applications.
-
-# Returns
-- `CPUKerOpt`: A new CPU kernel options object with:
-  - Phase factor of 1.0 + 0.0im
-  - Integration order of 32
-  - Adjoint mode disabled
-  - Default CPU backend
+Options on `dev`, by default a phase factor of 1, the full
+kernel and not only a Hermitian part of it, not adjoint and no Bloch lattice. The storage precision `T` defaults to `dflPrc`.
 """
-CPUKerOpt() = CPUKerOpt(1.0+0.0im, 32, false, CPU())
+GlaKerOpt(dev::KernelAbstractions.Backend=CPU(); kw...) = GlaKerOpt{dflPrc}(dev; kw...)
 
 """
-    frqPhz(opt::CPUKerOpt) -> Number
+    GlaKerOpt{T}(opt::GlaKerOpt; dev::KernelAbstractions.Backend=opt.dev)
 
-Get the multiplicative scaling factor allowing for complex frequencies.
-
-# Arguments
-- `opt::CPUKerOpt`: The CPU kernel options object
-
-# Returns
-- `Number`: The phase factor
+Copy of `opt` with storage precision `T`, on `dev`.
 """
-frqPhz(opt::CPUKerOpt) = opt.frqPhz
+GlaKerOpt{T}(opt::GlaKerOpt; dev::KernelAbstractions.Backend=opt.dev) where T<:AbstractFloat =
+    GlaKerOpt{T}(dev; opt.frqPhz, opt.qssApx, opt.adjMod, opt.hrmPrt, opt.blc, opt.blcSet, opt.kapCch)
 
 """
-    intOrd(opt::CPUKerOpt)
+    devMem(dev::KernelAbstractions.Backend)
 
-Get the integration order from a CPU kernel options object.
-
-# Arguments
-- `opt::CPUKerOpt`: The CPU kernel options object
-
-# Returns
-- `Integer`: The integration order
+Bytes free on `dev` for the Fourier stage of operator creation, `typemax(Int)`
+where the backend does not say. `GilaCUDAExt` answers for CUDA.
 """
-intOrd(opt::CPUKerOpt) = opt.intOrd
-
-"""
-    adjMod(opt::CPUKerOpt)
-
-Get the adjoint mode flag from a CPU kernel options object.
-
-# Arguments
-- `opt::CPUKerOpt`: The CPU kernel options object
-
-# Returns
-- `Bool`: True if adjoint mode is enabled, false otherwise
-"""
-adjMod(opt::CPUKerOpt) = opt.adjMod
-
-"""
-    bckEnd(opt::CPUKerOpt)
-
-Get the CPU backend from a CPU kernel options object.
-
-# Arguments
-- `opt::CPUKerOpt`: The CPU kernel options object
-
-# Returns
-- `CPU`: The CPU backend
-"""
-bckEnd(opt::CPUKerOpt) = opt.bckEnd
-
-"""
-    arrTyp(opt::CPUKerOpt)
-
-Get the array type from a CPU kernel options object.
-
-# Arguments
-- `opt::CPUKerOpt`: The CPU kernel options object
-
-# Returns
-- `Type`: Array{ComplexF64}
-"""
-arrTyp(::CPUKerOpt) = Array{ComplexF64}
-
-"""
-    useCpu(opt::CPUKerOpt)
-
-Does nothing. This function is a placeholder for consistency with the GPU version.
-
-# Arguments
-- `opt::CPUKerOpt`: The CPU kernel options object
-
-# Returns
-- `CPUKerOpt`: The same CPU kernel options object
-"""
-useCpu(opt::CPUKerOpt) = opt
-
-"""
-    useGpu(opt::CPUKerOpt)
-
-Switch to GPU computation for the given CPU kernel options object.
-
-Creates a new `GPUKerOpt` object with the same phase factor and integration order as the original `CPUKerOpt`, but with default thread and block counts for GPU computation. The adjoint mode flag is also preserved.
-
-# Arguments
-- `opt::CPUKerOpt`: The CPU kernel options object
-
-# Returns
-- `GPUKerOpt`: A new GPU kernel options object with:
-  - Phase factor of `opt.frqPhz`
-  - Integration order of `opt.intOrd`
-  - Default thread and block counts for GPU computation
-  - Adjoint mode flag from `opt`
-  - Default CUDA backend
-"""
-useGpu(opt::CPUKerOpt) = GPUKerOpt(opt.frqPhz, opt.intOrd, (128, 2, 1), (1, 128, 256), opt.adjMod, CUDABackend())
-
-"""
-    GPUKerOpt <: GlaKerOpt
-
-Options for GPU computation of the Green function operator.
-
-`GPUKerOpt` determines the parallelization strategy for GPU computation through its thread and block counts. The integration order determines the accuracy of the Green function computation for cells in contact. Higher values give better accuracy but require more computation. The phase factor allows for complex frequencies, which is useful for modeling dispersive media or for numerical stability.
-
-# Fields
-- `frqPhz::Number`: Multiplicative scaling factor allowing for complex frequencies
-- `intOrd::Integer`: Gauss-Legendre integration order for cells in contact
-- `numTrd::NTuple{3, Integer}`: Number of threads to use when running GPU kernels
-- `numBlk::NTuple{3, Integer}`: Number of thread blocks to use when running GPU kernels
-- `adjMod::Bool`: Adjoint mode flag (true if adjoint mode is enabled)
-- `bckEnd::GPU`: Backend for GPU computation
-"""
-mutable struct GPUKerOpt <: GlaKerOpt
-    frqPhz::Number
-    intOrd::Integer
-    numTrd::NTuple{3, Integer}
-    numBlk::NTuple{3, Integer}
-    adjMod::Bool
-    bckEnd::GPU
-end
-
-"""
-    GPUKerOpt()
-
-Construct a GPUKerOpt with default values.
-
-The default thread and block counts are chosen to provide good performance on most NVIDIA GPUs. The default integration order of 32 provides a good balance between accuracy and computational cost for most applications.
-
-# Returns
-- `GPUKerOpt`: A new GPU kernel options object with:
-  - Phase factor of 1.0 + 0.0im
-  - Integration order of 32
-  - 128 threads per block
-  - 256 blocks
-  - Adjoint mode disabled
-  - Default CUDA backend
-"""
-GPUKerOpt() = GPUKerOpt(1.0+0.0im, 32, (128, 2, 1), (1, 128, 256), false, CUDABackend())
-
-"""
-    frqPhz(opt::GPUKerOpt)
-
-Get the phase factor from a GPU kernel options object.
-
-# Arguments
-- `opt::GPUKerOpt`: The GPU kernel options object
-
-# Returns
-- `Number`: The phase factor
-"""
-frqPhz(opt::GPUKerOpt) = opt.frqPhz
-
-"""
-    intOrd(opt::GPUKerOpt)
-
-Get the integration order from a GPU kernel options object.
-
-# Arguments
-- `opt::GPUKerOpt`: The GPU kernel options object
-
-# Returns
-- `Integer`: The integration order
-"""
-intOrd(opt::GPUKerOpt) = opt.intOrd
-
-"""
-    adjMod(opt::GPUKerOpt)
-
-Get the number of threads to use when running GPU kernels.
-
-The thread count determines the parallelization strategy for GPU computation. Higher values may improve performance but require more GPU resources.
-"""
-numTrd(opt::GPUKerOpt) = opt.numTrd
-
-"""
-    numBlk(opt::GPUKerOpt) -> NTuple{3, Integer}
-
-Get the number of thread blocks to use when running GPU kernels.
-
-The block count determines the parallelization strategy for GPU computation. Higher values may improve performance but require more GPU resources.
-"""
-numBlk(opt::GPUKerOpt) = opt.numBlk
-
-"""
-    adjMod(opt::GPUKerOpt) -> Bool
-
-# Arguments
-- `opt::GPUKerOpt`: The GPU kernel options object
-
-# Returns
-- `Bool`: True if adjoint mode is enabled, false otherwise
-"""
-adjMod(opt::GPUKerOpt) = opt.adjMod
-
-"""
-    bckEnd(opt::GPUKerOpt)
-
-Get the GPU backend from a GPU kernel options object.
-
-# Arguments
-- `opt::GPUKerOpt`: The GPU kernel options object
-
-# Returns
-- `GPU`: The GPU backend
-"""
-bckEnd(opt::GPUKerOpt) = opt.bckEnd
-
-"""
-    arrTyp(opt::GPUKerOpt)
-
-Get the array type from a GPU kernel options object.
-
-# Arguments
-- `opt::GPUKerOpt`: The GPU kernel options object
-
-# Returns
-- `Type`: CuArray{ComplexF64}
-"""
-arrTyp(::GPUKerOpt) = CuArray{ComplexF64}
-
-
-"""
-    useCpu(opt::GPUKerOpt)
-
-Switch to CPU computation for the given GPU kernel options object.
-
-Creates a new `CPUKerOpt` object with the same phase factor and integration order as the original `GPUKerOpt`, but with default values for CPU computation. The thread and block counts are ignored in this case. The adjoint mode flag is also preserved.
-
-# Arguments
-- `opt::GPUKerOpt`: The GPU kernel options object
-
-# Returns
-- `CPUKerOpt`: A new CPU kernel options object with:
-  - Phase factor of `opt.frqPhz`
-  - Integration order of `opt.intOrd`
-  - Adjoint mode flag from `opt`
-  - Default CPU backend
-"""
-useCpu(opt::GPUKerOpt) = CPUKerOpt(opt.frqPhz, opt.intOrd, opt.adjMod, CPU())
-
-"""
-    useGpu(opt::GPUKerOpt)
-
-Does nothing. This function is a placeholder for consistency with the CPU version.
-
-# Arguments
-- `opt::GPUKerOpt`: The GPU kernel options object
-
-# Returns
-- `GPUKerOpt`: The same GPU kernel options object
-"""
-useGpu(opt::GPUKerOpt) = opt
-
-# Add serialization support for GlaKerOpt
-function Serialization.serialize(io::IO, opt::CPUKerOpt)
-    serialize(io, opt.frqPhz)
-    serialize(io, opt.intOrd)
-    serialize(io, opt.adjMod)
-end
-
-function Serialization.deserialize(io::IO, ::Type{CPUKerOpt})
-    frqPhz = deserialize(io)
-    intOrd = deserialize(io)
-    adjMod = deserialize(io)
-    return CPUKerOpt(frqPhz, intOrd, adjMod, CPU())
-end
-
-function Serialization.serialize(io::IO, opt::GPUKerOpt)
-    serialize(io, opt.frqPhz)
-    serialize(io, opt.intOrd)
-    serialize(io, opt.numTrd)
-    serialize(io, opt.numBlk)
-    serialize(io, opt.adjMod)
-end
-
-function Serialization.deserialize(io::IO, ::Type{GPUKerOpt})
-    frqPhz = deserialize(io)
-    intOrd = deserialize(io)
-    numTrd = deserialize(io)
-    numBlk = deserialize(io)
-    adjMod = deserialize(io)
-    return GPUKerOpt(frqPhz, intOrd, numTrd, numBlk, adjMod, CUDABackend())
-end
+devMem(::KernelAbstractions.Backend) = typemax(Int)

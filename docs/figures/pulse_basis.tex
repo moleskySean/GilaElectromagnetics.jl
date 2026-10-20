@@ -1,0 +1,56 @@
+% pulse_basis.tex: projecting a field onto pulse functions, and one voxel.
+% Uses the palette and styles defined in preamble.tex.
+% Step heights are the exact voxel averages of the plotted f.
+\begin{tikzpicture}[font=\small]
+  % ------------------------------------------------------------------
+  % (a) a smooth field and its voxel averages
+  % ------------------------------------------------------------------
+  \node[paneltitle] at (0,0.35) {\textbf{(a)} A field and its pulse projection};
+  \begin{axis}[
+      at={(0.5cm,0)}, anchor=north west,
+      width=9.4cm, height=3.6cm, scale only axis,
+      xmin=0, xmax=8, ymin=0, ymax=2.0,
+      axis lines=left, ytick=\empty,
+      xtick={0,...,8}, xticklabels={},
+      ylabel={$f_\alpha$}, ylabel style={rotate=-90},
+      xlabel={$\vb*{r}$}, xlabel style={at={(1,0)}, anchor=west},
+      clip=false,
+    ]
+    % the pulse P_n of voxel n = 4 (fifth voxel), scaled by its coefficient
+    \fill[accent, opacity=0.18] (axis cs:4,0) rectangle (axis cs:5,0.604);
+    \addplot[black!15, ycomb, mark=none] coordinates {(1,2) (2,2) (3,2) (4,2) (5,2) (6,2) (7,2)};
+    \addplot[vaccol, thick, domain=0:8, samples=200]
+      {1.0 + 0.6*sin(deg(0.8*x)) + 0.25*cos(deg(1.9*x))};
+    \addplot[inkcol, line width=1.4pt, jump mark left] coordinates
+      {(0,1.352) (1,1.339) (2,1.539) (3,1.395) (4,0.604) (5,0.333) (6,0.693) (7,0.813) (8,0.813)};
+    \draw[<-, accent, thick] (axis cs:4.5,0.66) -- (axis cs:5.6,1.45)
+      node[above, inner sep=2pt, align=center, font=\footnotesize]
+        {$\mathsf{f}_{n\alpha}P_n(\vb*{r})$\\voxel $n$};
+    \draw[|<->|, inkcol] (axis cs:0,-0.22) -- (axis cs:1,-0.22)
+      node[midway, below, inner sep=2pt] {$\ell_x$};
+    \node[vaccol, anchor=south west, inner sep=2pt] at (axis cs:2.15,1.62) {$f_\alpha(\vb*{r})$};
+    \node[inkcol, anchor=south east, inner sep=3pt, font=\footnotesize] at (axis cs:8,1.0) {voxel averages $\mathsf{f}_{n\alpha}$};
+  \end{axis}
+
+  % ------------------------------------------------------------------
+  % (b) one voxel: axis-aligned box with center r_n
+  % ------------------------------------------------------------------
+  \begin{scope}[shift={(11.6,-3.4)},
+      x={(1cm,0cm)}, y={(0.5cm,0.36cm)}, z={(0cm,1cm)}]
+    \def\lx{2.6} \def\ly{1.9} \def\lz{1.9}
+    \node[paneltitle] at (-0.6,0,3.75) {\textbf{(b)} Voxel $n$};
+    % hidden edges
+    \draw[black!35, dashed] (0,\ly,0) -- (\lx,\ly,0) (0,\ly,0) -- (0,0,0) (0,\ly,0) -- (0,\ly,\lz);
+    % faces
+    \filldraw[fill=accent!25, fill opacity=0.45, draw=inkcol] (0,0,0) -- (\lx,0,0) -- (\lx,0,\lz) -- (0,0,\lz) -- cycle;
+    \filldraw[fill=accent!35, fill opacity=0.45, draw=inkcol] (\lx,0,0) -- (\lx,\ly,0) -- (\lx,\ly,\lz) -- (\lx,0,\lz) -- cycle;
+    \filldraw[fill=accent!12, fill opacity=0.45, draw=inkcol] (0,0,\lz) -- (\lx,0,\lz) -- (\lx,\ly,\lz) -- (0,\ly,\lz) -- cycle;
+    % center
+    \fill[inkcol] (\lx/2,\ly/2,\lz/2) circle (1.6pt);
+    \node[right, inner sep=3pt] at (\lx/2,\ly/2,\lz/2) {$\vb*{r}_n$};
+    % dimensions
+    \draw[|<->|, inkcol] (0,-0.35,0) -- (\lx,-0.35,0) node[midway, below, inner sep=2pt] {$\ell_x$};
+    \draw[|<->|, inkcol] (\lx+0.3,0,0) -- (\lx+0.3,\ly,0) node[midway, anchor=north west, inner sep=3pt] {$\ell_y$};
+    \draw[|<->|, inkcol] (-0.3,0,0) -- (-0.3,0,\lz) node[midway, left, inner sep=2pt] {$\ell_z$};
+  \end{scope}
+\end{tikzpicture}

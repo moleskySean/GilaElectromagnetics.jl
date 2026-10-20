@@ -19,11 +19,6 @@ docs/site/
 # MacOS
 .DS_Store
 
-# Benchmark data
-benchmark/*.jld2
-benchmark/*.png
-benchmark/results/
-
 # Profiling
 statprof
 
@@ -34,3 +29,9 @@ Manifest.toml
 # Code coverage (run ] test --coverage)
 *.jl.cov
 *.jl.*.cov
+
+# Claude
+.claude/
+
+# Generated from examples/ by docs/make.jl
+docs/src/tutorials/[0-9][0-9]_*.md
