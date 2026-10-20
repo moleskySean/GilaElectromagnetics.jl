@@ -1,0 +1,10 @@
+[deps]
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+GilaElectromagnetics = "d021e48d-d5bb-41e2-b1a9-c560019218de"
+KrylovKit = "0b1a1467-8014-51b9-945f-bf0ae24f4b77"
+Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
+VoxelShapes = "e571a3b5-8c16-454b-ac54-7ac4b35e7290"
+
+[sources]
+GilaElectromagnetics = {path = ".."}
+VoxelShapes = {url = "https://github.com/PaulVirally/VoxelShapes.jl", rev = "main"}

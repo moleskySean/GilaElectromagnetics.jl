@@ -1,3 +1,12 @@
 [deps]
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+DocumenterCitations = "daee34ce-89f3-4625-b898-19384cb65244"
 GilaElectromagnetics = "d021e48d-d5bb-41e2-b1a9-c560019218de"
+Literate = "98b081ad-f1c9-55d3-8b20-4c87d4299306"
+Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
+VoxelShapes = "e571a3b5-8c16-454b-ac54-7ac4b35e7290"
+
+[sources]
+GilaElectromagnetics = {path = ".."}
+VoxelShapes = {url = "https://github.com/PaulVirally/VoxelShapes.jl", rev = "main"}

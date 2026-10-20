@@ -5,10 +5,8 @@ is a Julia package that provides a very efficient implementation of the discrete
 three-dimensional electromagnetic Green function. For a technical description of
 the implementation, see the associated
 [paper](https://github.com/moleskySean/GilaElectromagnetics.jl/blob/main/docs/gilaDoc.pdf).
-For a high-level overview of what GilaElectromagnetics does, see the
-[concepts](./concepts.md) and [usage](./usage.md) pages. Detailed examples can
-be found in the [examples](./examples.md) page. The public [API
-reference](./library.md) is also available.
+The [Theory](@ref sec-1) section explains what Gila computes and how. The
+public [API reference](./library.md) lists every exported function and type.
 
 ## Use cases
 
@@ -16,9 +14,9 @@ GilaElectromagnetics, or Gila for short, enables fast and precise sub-wavelength
 electromagnetic simulations. Below are some features Gila provides:
 
 - Solving Maxwell's equations numerically in vacuum and in matter.
-- Application of the Green's function of the vacuum Maxwell vacuum operator.
+- Application of the Green function of the vacuum Maxwell vacuum operator.
 - Solving the scattering problem in non-magnetic materials.
-- GPU accelerated computations with [CUDA.jl](https://github.com/JuliaGPU/CUDA.jl).
+- GPU accelerated computations with CUDA, Metal or OpenCL.
 
 ## Installation
 

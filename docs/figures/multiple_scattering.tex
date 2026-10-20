@@ -1,0 +1,122 @@
+% multiple_scattering.tex: one representative walk per Born order, and a zoom
+% on the first-order term showing the many walks it sums.
+% Uses the palette, styles and \scattererpath defined in preamble.tex.
+\begin{tikzpicture}[
+    font=\small,
+    drive/.style={inkcol, line width=0.6pt, decorate,
+      decoration={snake, amplitude=0.55mm, segment length=2mm, post length=0.6mm}},
+    prop/.style={->, vaccol, line width=0.8pt, shorten <=1.2pt, shorten >=1.2pt},
+    readout/.style={->, vaccol!60, dashed, line width=0.6pt, shorten <=1.2pt},
+    event/.style={circle, fill=matcol, inner sep=0pt, minimum size=1.6mm},
+    obs/.style={circle, draw=inkcol, fill=white, inner sep=0pt, minimum size=1.8mm, line width=0.6pt},
+  ]
+  \def\W{3.7}
+  \def\H{2.6}
+  \def\G{1.0}
+  \def\X{0.0}   % left edge of the top row
+
+  % ------------------------------------------------------------------
+  % top row: one walk per order, same incoming direction and readout point
+  % ------------------------------------------------------------------
+  \foreach \n/\title in {0/{$\bm{X}\vb*{f}_\text{d}$},
+                         1/{$\bm{X}\bm{G}_\circ\bm{X}\vb*{f}_\text{d}$},
+                         2/{$\ab(\bm{X}\bm{G}_\circ)^2\bm{X}\vb*{f}_\text{d}$}} {
+    \begin{scope}[shift={(\X+\n*\W+\n*\G,0)}]
+      \draw[scatterer, shift={(1.65,1.25)}, scale=0.75] \scattererpath;
+      \coordinate (o) at (3.4,2.25);
+      \ifnum\n=0
+        \coordinate (a) at (1.45,1.15);
+        \draw[drive] (0.1,1.15) -- (a);
+        \draw[readout] (a) -- (o);
+        \node[event] at (a) {};
+      \fi
+      \ifnum\n=1
+        \coordinate (a) at (1.05,1.0);
+        \coordinate (b) at (2.1,1.5);
+        \draw[drive] (0.1,1.0) -- (a);
+        \draw[prop] (a) -- (b);
+        \draw[readout] (b) -- (o);
+        \node[event] at (a) {}; \node[event] at (b) {};
+      \fi
+      \ifnum\n=2
+        \coordinate (a) at (1.1,1.4);
+        \coordinate (b) at (1.75,0.8);
+        \coordinate (c) at (2.3,1.4);
+        \draw[drive] (0.1,1.4) -- (a);
+        \draw[prop] (a) -- (b);
+        \draw[prop] (b) -- (c);
+        \draw[readout] (c) -- (o);
+        \node[event] at (a) {}; \node[event] at (b) {}; \node[event] at (c) {};
+      \fi
+      \node[obs] at (o) {};
+      \draw[panel] (0,0) rectangle (\W,\H);
+      \pgfmathtruncatemacro\letter{97+\n}
+      \node[paneltitle] at (0,\H) {\textbf{(\char\letter)} \title};
+    \end{scope}
+  }
+  \node[font=\Large] at (\X+\W+\G/2,\H/2) {$+$};
+  \node[font=\Large] at (\X+2*\W+1.5*\G,\H/2) {$+$};
+  \node[font=\Large, anchor=west] at (\X+3*\W+2*\G+0.15,\H/2) {$+\,\cdots$};
+
+  % ------------------------------------------------------------------
+  % (d) zoom on the first-order term: every ordered pair of material points
+  % ------------------------------------------------------------------
+  \def\IW{9.7}
+  \def\IH{4.2}
+  \def\IY{-1.0-\IH}  % bottom of the inset
+  \draw[zoom] (\X+\W+\G,0) -- (0,-1.0);
+  \draw[zoom] (\X+2*\W+\G,0) -- (\IW,-1.0);
+  \begin{scope}[shift={(0,\IY)}]
+    \begin{scope}
+      \clip (0,0) rectangle (\IW,\IH);
+      \begin{scope}[shift={(4.3,2.2)}, scale=1.55]
+        \draw[scatterer] \scattererpath;
+        \coordinate (o) at (2.95,0.95);
+        % faint walks: a few entry points r' and exit points r, joined pairwise,
+        % so the sum reads as a fan rather than as noise
+        \begin{scope}[opacity=0.35]
+          \foreach \ay/\ax in {0.3/-1.05, 0.55/-0.4, -0.65/-0.3} {
+            \draw[drive] (-2.9,\ay) -- (\ax,\ay);
+          }
+          \foreach \bx/\by in {1.0/-0.2, 0.35/-0.45} {
+            \draw[readout] (\bx,\by) -- (o);
+          }
+          \foreach \ax/\ay/\bx/\by in {-0.3/-0.65/0.35/-0.45, -0.3/-0.65/1.0/-0.2,
+              -0.85/-0.35/0.35/-0.45, -0.85/-0.35/1.0/-0.2, -1.05/0.3/0.55/0.35,
+              -0.4/0.55/0.55/0.35, -0.4/0.55/1.0/-0.2} {
+            \draw[prop] (\ax,\ay) -- (\bx,\by);
+          }
+          \foreach \x/\y in {-1.05/0.3, -0.4/0.55, -0.3/-0.65, 1.0/-0.2, 0.35/-0.45} {
+            \node[event] at (\x,\y) {};
+          }
+        \end{scope}
+        % the representative walk of panel (b)
+        \coordinate (a) at (-0.85,-0.35);
+        \coordinate (b) at (0.55,0.35);
+        \draw[drive, line width=0.9pt] (-2.9,-0.35) -- (a);
+        \draw[prop, line width=1.2pt] (a) -- (b);
+        \draw[readout, line width=0.9pt, vaccol] (b) -- (o);
+        \node[event, minimum size=2.2mm] at (a) {};
+        \node[event, minimum size=2.2mm] at (b) {};
+        \node[below left, inner sep=2pt] at (a) {$\vb*{r}'$};
+        \node[above, inner sep=4pt] at (b) {$\vb*{r}$};
+        \node[obs, minimum size=2.4mm] at (o) {};
+        \node[above, inner sep=4pt] at (o) {$\vb*{r}_\text{obs}$};
+        \node[inkcol, above, inner sep=2pt] at (-2.3,-0.35) {$\vb*{f}_\text{d}$};
+      \end{scope}
+    \end{scope}
+    \draw[panel] (0,0) rectangle (\IW,\IH);
+    \node[anchor=north west, inner sep=3pt] at (0,\IH) {\textbf{(d)}};
+  \end{scope}
+
+  % the sum the inset draws
+  \node[anchor=west, align=left, text width=6.3cm, inner sep=0pt] at (\IW+0.4,\IY+\IH/2) {%
+    $\begin{aligned}
+      &\ab[\bm{X}\bm{G}_\circ\bm{X}\vb*{f}_\text{d}](\vb*{r}) \\
+      &= \bm{X}(\vb*{r}) \int_{\Omega} \dd{V'}\, \bm{\mathcal{G}}_\circ(\vb*{r},\vb*{r}')\,
+        \bm{X}(\vb*{r}')\,\vb*{f}_\text{d}(\vb*{r}')
+    \end{aligned}$%\\[8pt]
+    %One walk for every ordered pair $(\vb*{r}',\vb*{r})$ in the scatterer, each
+    %weighted by $\bm{\mathcal{G}}_\circ(\vb*{r},\vb*{r}')$ and summed coherently.
+    };
+\end{tikzpicture}

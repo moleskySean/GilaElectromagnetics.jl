@@ -1,0 +1,67 @@
+% singular_cases.tex: how a target voxel m (blue) can sit relative to a source
+% voxel n (red), with the shared corner, edge or face where R = 0 highlighted.
+% Uses the palette and styles defined in preamble.tex.
+\begin{tikzpicture}[font=\small]
+  \def\W{2.95}   % panel width
+  \def\G{0.375} % gap
+  \def\H{2.8}   % panel height
+  \def\a{0.9}   % voxel edge
+  % \cuboid{x0}{y0}{z0}{colour}: translucent axis-aligned cube in oblique projection
+  \newcommand\cuboid[4]{%
+    \begin{scope}[x={(1cm,0cm)}, y={(0.5cm,0.36cm)}, z={(0cm,1cm)}]
+      \draw[black!35, dashed] (#1,#2+\a,#3) -- (#1+\a,#2+\a,#3)
+        (#1,#2+\a,#3) -- (#1,#2,#3) (#1,#2+\a,#3) -- (#1,#2+\a,#3+\a);
+      \filldraw[fill=#4, fill opacity=0.12, draw=inkcol]
+        (#1,#2,#3) -- (#1+\a,#2,#3) -- (#1+\a,#2,#3+\a) -- (#1,#2,#3+\a) -- cycle;
+      \filldraw[fill=#4, fill opacity=0.12, draw=inkcol]
+        (#1+\a,#2,#3) -- (#1+\a,#2+\a,#3) -- (#1+\a,#2+\a,#3+\a) -- (#1+\a,#2,#3+\a) -- cycle;
+      \filldraw[fill=#4, fill opacity=0.12, draw=inkcol]
+        (#1,#2,#3+\a) -- (#1+\a,#2,#3+\a) -- (#1+\a,#2+\a,#3+\a) -- (#1,#2+\a,#3+\a) -- cycle;
+    \end{scope}}
+  \tikzset{oblique/.style={x={(1cm,0cm)}, y={(0.5cm,0.36cm)}, z={(0cm,1cm)}}}
+
+  \foreach \n/\title/\how in {0/{Separated}/{},
+                              1/{Corner}/{},
+                              2/{Edge}/{},
+                              3/{Face}/{},
+                              4/{Coincident}/{}} {
+    \begin{scope}[shift={(\n*\W+\n*\G,0)}]
+      \draw[panel] (0,0) rectangle (\W,\H);
+      \pgfmathtruncatemacro\letter{97+\n}
+      \node[paneltitle] at (0,\H) {\textbf{(\char\letter)} \title};
+      \node[below, inner sep=4pt, font=\footnotesize, inkcol] at (\W/2,0) {\how};
+    \end{scope}
+  }
+
+  % (a) separated
+  \begin{scope}[shift={(0.3,0.35)}]
+    \cuboid{0}{0}{0}{matcol}
+    \cuboid{1.45}{0}{0.9}{vaccol}
+    \node[matcol, font=\footnotesize] at (0.55,1.5) {$\Omega_n$};
+    \node[vaccol, font=\footnotesize, anchor=north] at (1.9,0.9) {$\Omega_m$};
+  \end{scope}
+  % (b) shared corner
+  \begin{scope}[shift={(\W+\G+0.12,0.2)}]
+    \cuboid{0}{0}{0}{matcol}
+    \cuboid{\a}{\a}{\a}{vaccol}
+    \fill[accent, oblique] (\a,\a,\a) circle (2pt);
+  \end{scope}
+  % (c) shared edge
+  \begin{scope}[shift={(2*\W+2*\G+0.5,0.35)}]
+    \cuboid{0}{0}{0}{matcol}
+    \cuboid{\a}{0}{\a}{vaccol}
+    \draw[accent, line width=2pt, oblique] (\a,0,\a) -- (\a,\a,\a);
+  \end{scope}
+  % (d) shared face
+  \begin{scope}[shift={(3*\W+3*\G+0.4,0.75)}]
+    \cuboid{0}{0}{0}{matcol}
+    \fill[accent, opacity=0.45, oblique] (\a,0,0) -- (\a,\a,0) -- (\a,\a,\a) -- (\a,0,\a) -- cycle;
+    \cuboid{\a}{0}{0}{vaccol}
+  \end{scope}
+  % (e) coincident
+  \begin{scope}[shift={(4*\W+4*\G+0.85,0.65)}]
+    \cuboid{0}{0}{0}{matcol}
+    \cuboid{0}{0}{0}{vaccol}
+    \node[font=\footnotesize, anchor=north] at (0.45,0) {$\Omega_m = \Omega_n$};
+  \end{scope}
+\end{tikzpicture}
