@@ -1,6 +1,7 @@
 using Documenter
 using DocumenterCitations
 using GilaElectromagnetics
+using Literate
 
 mth = MathJax3(Dict(:tex => Dict(
     "inlineMath" => [["\$", "\$"], ["\\(", "\\)"]],
@@ -34,7 +35,20 @@ mth = MathJax3(Dict(:tex => Dict(
 )))
 
 push!(LOAD_PATH,"../src/")
-makedocs(sitename="GilaElectromagnetics.jl Documentation",
+
+# Each examples/NN_name.jl becomes a tutorial page whose code Documenter runs,
+# and each figure on it is shown in a light and a dark version
+include("tutorial_figures.jl")
+themeFigures(src) = replace(src, r"^fig$"m => "fig\nMain.TutorialFigures.themed(fig) #hide")
+examples = joinpath(@__DIR__, "..", "examples")
+tutorials = filter(contains(r"^\d\d_.*\.jl$"), readdir(examples))
+notExecuted = ["08_band_structure.jl"] # too slow for a docs build
+for file in tutorials
+    kw = file in notExecuted ? (; codefence = "```julia" => "```") : (; preprocess = themeFigures)
+    Literate.markdown(joinpath(examples, file), joinpath(@__DIR__, "src", "tutorials"); kw...)
+end
+
+makedocs(sitename="GilaElectromagnetics.jl",
          pages = [
             "Home" => "index.md",
             "Theory" => [
@@ -48,7 +62,7 @@ makedocs(sitename="GilaElectromagnetics.jl Documentation",
                "theory/references.md",
             ],
             "The Integrals of Gila" => "integrals/index.md",
-            "Tutorials" => "tutorials/index.md",
+            "Tutorials" => ["tutorials/index.md"; ["tutorials/" * replace(file, ".jl" => ".md") for file in tutorials]],
             "How-to Guide" => [
                "howto/volumes.md",
                "howto/fields.md",

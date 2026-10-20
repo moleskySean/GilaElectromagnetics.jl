@@ -1,0 +1,34 @@
+% units_flow.tex: units go on before Gila and come off after it (tutorial 06).
+% Uses the palette and styles defined in preamble.tex.
+\begin{tikzpicture}[font=\small,
+    qty/.style={draw=inkcol, fill=white, line width=0.6pt, rounded corners=2pt, align=center, inner sep=4pt, minimum height=1.05cm},
+    flow/.style={->, inkcol, line width=0.7pt},
+    lbl/.style={inkcol, align=center, inner sep=2pt, font=\footnotesize},
+    ]
+  \def\W{14.4}
+  \def\H{5.6}
+  \def\xa{2.6}   % SI | Gila
+  \def\xb{11.2} % Gila | SI
+  \def\yf{3.65}  % field row
+  \def\yp{1.15}  % power row
+  % the Gila region: plain numbers, lengths in wavelengths
+  \fill[vaccol!8] (\xa,0) rectangle (\xb,\H);
+  \node[vaccol, anchor=north, inner sep=5pt] at ({(\xa+\xb)/2},\H) {\textbf{Inside Gila} (lengths in wavelengths)};
+  \node[matcol, anchor=north, inner sep=5pt] at ({\xa/2},\H) {\textbf{SI}};
+  \node[matcol, anchor=north, inner sep=5pt] at ({(\xb+\W)/2},\H) {\textbf{SI}};
+  % field row
+  \node[qty, minimum width=1.6cm] (J) at (1.1,\yf) {$\vb*{J}$\\A/m$^2$};
+  \node[qty, minimum width=2.3cm] (p) at (4.6,\yf) {$\vb*{p} = i\vb*{J}/k_\circ$\\A/m};
+  \node[qty, minimum width=2.3cm] (eZ) at (9.3,\yf) {$\vb*{e}/Z_\circ$\\A/m};
+  \node[qty, minimum width=1.6cm] (e) at (12.85,\yf) {$\vb*{e}$\\V/m};
+  \draw[flow] (J) -- (p) node[lbl, midway, above] {$\times\,i/k_\circ$} node[lbl, midway, below] {\texttt{ustrip}};
+  \draw[flow] (p) -- (eZ) node[lbl, midway, above] {$G_\circ$};
+  \draw[flow] (eZ) -- (e) node[lbl, midway, above] {$\times\,Z_\circ$};
+  % power row
+  \node[qty, minimum width=2.2cm] (dot) at (8.2,\yp) {\texttt{dot(p, e)}};
+  \node[qty] (P) at (12.85,\yp) {$P = \frac{k_\circ Z_\circ}{2}\operatorname{Im}\langle\vb*{p}|\vb*{e}\rangle$\\W};
+  \draw[flow] (p.south) -- (dot);
+  \draw[flow] (eZ.south) -- (dot);
+  \draw[flow] (dot) -- (P) node[lbl, midway, above] {$\times\,\lambda^3$} node[lbl, midway, below] {$\times\,$(A/m)$^2$};
+  \draw[panel] (0,0) rectangle (\W,\H);
+\end{tikzpicture}

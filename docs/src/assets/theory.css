@@ -26,8 +26,28 @@ html.theme--catppuccin-mocha .admonition.is-category-convention > .admonition-he
 html.theme--documenter-dark img[src*="assets/theory/"],
 html.theme--catppuccin-frappe img[src*="assets/theory/"],
 html.theme--catppuccin-macchiato img[src*="assets/theory/"],
-html.theme--catppuccin-mocha img[src*="assets/theory/"] {
+html.theme--catppuccin-mocha img[src*="assets/theory/"],
+html.theme--documenter-dark img[src*="assets/tutorials/"][src$=".svg"],
+html.theme--catppuccin-frappe img[src*="assets/tutorials/"][src$=".svg"],
+html.theme--catppuccin-macchiato img[src*="assets/tutorials/"][src$=".svg"],
+html.theme--catppuccin-mocha img[src*="assets/tutorials/"][src$=".svg"] {
   filter: invert(1) hue-rotate(180deg);
+}
+/* Julia figures come in a light and a dark rendering, see docs/tutorial_figures.jl */
+img.fig-dark {
+  display: none;
+}
+html.theme--documenter-dark img.fig-light,
+html.theme--catppuccin-frappe img.fig-light,
+html.theme--catppuccin-macchiato img.fig-light,
+html.theme--catppuccin-mocha img.fig-light {
+  display: none;
+}
+html.theme--documenter-dark img.fig-dark,
+html.theme--catppuccin-frappe img.fig-dark,
+html.theme--catppuccin-macchiato img.fig-dark,
+html.theme--catppuccin-mocha img.fig-dark {
+  display: inline;
 }
 a[id^="eq-"], a[id^="fig-"], a[id^="tab-"], a[id^="conv-"] {
   scroll-margin-top: 5rem;

@@ -32,3 +32,6 @@ Manifest.toml
 
 # Claude
 .claude/
+
+# Generated from examples/ by docs/make.jl
+docs/src/tutorials/[0-9][0-9]_*.md
