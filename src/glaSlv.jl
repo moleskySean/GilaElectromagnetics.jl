@@ -675,6 +675,18 @@ function solve(opr, inp::AbstractArray{T}, slv::GCRODRSolver; x0 = nothing,
     end
     # Small matrices cross to the device in the precision of the operator
     toDev(sml) = copyto!(similar(inp, T, size(sml)), T.(sml))
+    # CholeskyQR2 on C, with U divided by the same factor to keep opr * U = C
+    function chlQr2!(bas, img, alt)
+        tri = Matrix{ComplexF64}(I, size(img, 2), size(img, 2))
+        for _ in 1:2
+            fac = cholesky!(Hermitian(ComplexF64.(Array(img' * img)))).U
+            mul!(alt, img, toDev(Matrix(inv(fac))))
+            copyto!(img, alt)
+            tri = fac * tri
+        end
+        mul!(alt, bas, toDev(Matrix(inv(UpperTriangular(tri)))))
+        copyto!(bas, alt)
+    end
 
     if !isnothing(rcy) && !isnothing(rcy.bas) && rcyDim > 0 &&
         size(rcy.bas, 1) == dim && eltype(rcy.bas) == T
@@ -702,17 +714,7 @@ function solve(opr, inp::AbstractArray{T}, slv::GCRODRSolver; x0 = nothing,
                 oprApp!(view(rcyC, :, i), view(rcyU, :, i))
             end
             rcyApp += nRcy
-            #= CholeskyQR2 on opr * U, one Gram matrix on the device and one
-            Cholesky on the host per pass. U / S restores opr * U = C. =#
-            sFac = Matrix{ComplexF64}(I, nRcy, nRcy)
-            for _ in 1:2
-                fac = cholesky!(Hermitian(ComplexF64.(Array(rcyCv' * rcyCv)))).U
-                mul!(view(rcyAlt, :, 1:nRcy), rcyCv, toDev(Matrix(inv(fac))))
-                copyto!(rcyCv, view(rcyAlt, :, 1:nRcy))
-                sFac = fac * sFac
-            end
-            mul!(view(rcyAlt, :, 1:nRcy), rcyUv, toDev(Matrix(inv(UpperTriangular(sFac)))))
-            copyto!(rcyUv, view(rcyAlt, :, 1:nRcy))
+            chlQr2!(rcyUv, rcyCv, view(rcyAlt, :, 1:nRcy))
         end
     end
 
@@ -768,10 +770,14 @@ function solve(opr, inp::AbstractArray{T}, slv::GCRODRSolver; x0 = nothing,
         if j == 1
             if nRcy > 0
                 #= The optimal correction in range(U) is free, and is folded into
-                the update this cycle makes rather than applied on its own. =#
-                mul!(rcyDotv, rcyCv', vk)
-                view(gCof, 1:nRcy) .= Array(rcyDotv)
-                mul!(vk, rcyCv, rcyDotv, -one(T), one(T))
+                the update this cycle makes rather than applied on its own. The
+                second pass is for a residual mostly in range(C), which cancels. =#
+                fill!(view(gCof, 1:nRcy), zero(ComplexF64))
+                for _ in 1:2
+                    mul!(rcyDotv, rcyCv', vk)
+                    view(gCof, 1:nRcy) .+= Array(rcyDotv)
+                    mul!(vk, rcyCv, rcyDotv, -one(T), one(T))
+                end
             end
             β = norm(vk)
             iszero(β) || rmul!(vk, inv(β)) # An exact guess leaves no direction to normalize
@@ -784,9 +790,6 @@ function solve(opr, inp::AbstractArray{T}, slv::GCRODRSolver; x0 = nothing,
         if nRcy > 0
             bCol = view(bMat, 1:nRcy, j)
             fill!(bCol, zero(ComplexF64))
-            #= C is rebuilt from the previous C in every cycle, so a loss of
-            orthogonality there compounds where V's is discarded at the restart.
-            One pass is enough for V and not for C. =#
             for _ in 1:2
                 mul!(rcyDotv, rcyCv', vkp1)
                 mul!(vkp1, rcyCv, rcyDotv, -one(T), one(T))
@@ -794,12 +797,16 @@ function solve(opr, inp::AbstractArray{T}, slv::GCRODRSolver; x0 = nothing,
             end
         end
 
-        # Orthogonalize vₖ₊₁ against previous basis vectors
-        for i in 1:j
-            col = @view basVec[:, i]
-            hij = dot(col, vkp1)
-            hss[i, j] = hij
-            axpy!(-hij, col, vkp1) # vkp1 .-= hij .* col
+        #= Orthogonalize vₖ₊₁ against previous basis vectors, twice when
+        recycling: the next C is built from V₊, so V outlives the restart. =#
+        # ponytail: MGS2 costs 2j reductions a step, CGS2 two if they show on the GPU
+        for pss in 1:(rcyDim > 0 ? 2 : 1)
+            for i in 1:j
+                col = @view basVec[:, i]
+                hij = dot(col, vkp1)
+                hss[i, j] = pss == 1 ? hij : hss[i, j] + hij
+                axpy!(-hij, col, vkp1) # vkp1 .-= hij .* col
+            end
         end
 
         # Normalize vₖ₊₁ and compute the residual
@@ -911,6 +918,8 @@ function solve(opr, inp::AbstractArray{T}, slv::GCRODRSolver; x0 = nothing,
                 rcyU, rcyC, rcyAlt = rcyAlt, rcyU, rcyC
                 nRcy = nNew
                 rcyUv, rcyCv, rcyDotv = view(rcyU, :, 1:nRcy), view(rcyC, :, 1:nRcy), view(rcyDot, 1:nRcy)
+                # Any loss of orthogonality in [C V₊] would otherwise compound across cycles
+                chlQr2!(rcyUv, rcyCv, view(rcyAlt, :, 1:nRcy))
                 isnothing(rcy) || (rcy.bas = rcyUv; rcy.img = rcyCv)
                 isnothing(log) || push!(log.rcyErr, norm(Array(rcyCv' * rcyCv) - I))
             end
