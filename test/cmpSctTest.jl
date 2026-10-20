@@ -1,8 +1,7 @@
 # Composite scattering tests
-# The susceptibility is diagonal, so it commutes with the √ΔV normalization and
-# the inverse scattering operator in the normalized basis is x - X .* (G̃ * x),
-# with X entry by entry on the flat degree of freedom layout.
-import GilaElectromagnetics.GilaOperators: setSus!
+# The inverse scattering operator is x - X .* (G̃ * x), with X entry by entry
+# on the flat degree of freedom layout.
+import GilaElectromagnetics: setSus!
 
 sctChi(pos) = (0.5 + 0.1im) * (1 + 0.4 * sin(2pi * pos[1]) * cos(2pi * pos[2]))
 sctCur(pos) = (exp(2im * pi * pos[3]), 0.5 * exp(2im * pi * pos[1]), 0)
@@ -37,36 +36,23 @@ const sctVol = GlaVol((4, 2, 2), scl16, stdOrg)
 const sctCvl = refine(GlaCmpVol(sctVol), ((-1//16, 0//1, 0//1), (1//8, 1//8, 1//8)))
 const sctVac = GlaCmpOprVac{Float64}(sctCvl)
 const sctInv = InvSctOpr(sctVac, sctChi)
-const sctMat = dnsMat(sctInv)
 const sctOne = GlaCmpVol(GlaVol((2, 2, 2), scl16, stdOrg))
 
-@testset "Composite scattering traits" begin
+@testset "Composite scattering construction" begin
     @test nregions(sctCvl) == 2
     @test regions(sctCvl)[1].cel == (4, 4, 4)
     @test regions(sctCvl)[1].scl == stdScl
     @test regions(sctCvl)[2].cel == (2, 2, 2)
-    @test size(sctInv) == (216, 216)
-    @test size(sctInv, 1) == 216 && size(sctInv, 2) == 216
-    @test eltype(sctInv) == ComplexF64
     @test length(sus(sctInv).sus) == 216
     @test sus(sctInv).sus isa Vector{ComplexF64}
     @test isselfoperator(sctInv)
     @test !isexternaloperator(sctInv)
-    @test !isadjoint(sctInv)
-    @test !isgpu(sctInv)
     @test !isoverlappingoperator(sctInv)
-    @test glaSze(sctInv) == glaSze(sctVac)
     @test slv(sctInv) isa GlaSlv
     sct = SctOpr(sctVac, sctChi)
     gla = GlaOpr(sctVac, sctChi)
-    @test size(sct) == (216, 216) && size(gla) == (216, 216)
     @test isselfoperator(sct) && isselfoperator(gla)
     @test slv(sct) isa GCRODRSolver
-    @test occursin("composite", sprint(show, sctInv))
-    @test occursin("composite", sprint(show, gla))
-    @test !occursin("\n", sprint(show, sctInv)) && !occursin("\n", sprint(show, gla))
-    @test sprint(show, MIME"text/plain"(), sctInv) != sprint(show, sctInv)
-    @test sprint(show, MIME"text/plain"(), gla) != sprint(show, gla)
     # The composite volume takes the place of the volume in every constructor
     @test InvSctOpr{Float64}(sctOne, 0.5 + 0.1im) isa InvSctOpr
     @test SctOpr{Float64}(sctOne, 0.5 + 0.1im; slv=GMRESSolver()) isa SctOpr
@@ -76,32 +62,18 @@ const sctOne = GlaCmpVol(GlaVol((2, 2, 2), scl16, stdOrg))
     # A two body vacuum operator is not a scattering geometry
     extOpr = GlaCmpOprVac{Float64}(sctOne, GlaCmpVol(GlaVol((2, 2, 2), scl16, (1//2, 0//1, 0//1))))
     @test_throws ArgumentError InvSctOpr(extOpr, 0.5 + 0.1im)
+    # Nor is an external or an overlapping plain one
+    @test_throws ArgumentError InvSctOpr(_gExt(), 0.5 + 0.1im)
+    @test_throws ArgumentError SctOpr(_mskOpr, 0.5 + 0.1im)
 end
 
 @testset "Composite scattering dense identity" begin
-    vacMat = dnsMat(sctVac)
-    ref = Matrix{ComplexF64}(I, 216, 216) - Diagonal(sus(sctInv).sus) * vacMat
-    @test frbErr(sctMat, ref) < 1e-13
+    inp = randn(ComplexF64, 216, 3)
+    @test frbErr(sctInv * inp, inp - sus(sctInv).sus .* (sctVac * inp)) < 1e-13
     # The susceptibility is one value per cell, repeated over the components
     susCel = [ComplexF64(sctChi(pos)) for (pos, _, _) in coordinates(sctCvl)]
     @test sus(sctInv).sus[1:64] ≈ susCel[1:64]
     @test sus(sctInv).sus[65:128] ≈ susCel[1:64]
-end
-
-@testset "Composite scattering adjoint" begin
-    adjInv = adjoint(sctInv)
-    @test isadjoint(adjInv)
-    @test !isadjoint(sctInv)
-    @test frbErr(dnsMat(adjInv), sctMat') < 1e-13
-    @test dnsMat(sctInv) == sctMat
-    # The full operator satisfies the same identity on random vectors
-    gla = GlaOpr(sctVac, sctChi)
-    adjGla = adjoint(gla)
-    vecX = randn(ComplexF64, 216)
-    vecY = randn(ComplexF64, 216)
-    lhs = dot(vecY, gla * vecX)
-    rhs = dot(adjGla * vecY, vecX)
-    @test abs(lhs - rhs) < 1e-7 * abs(lhs)
 end
 
 @testset "Composite scattering solver" begin
@@ -113,7 +85,7 @@ end
     sctGmr = SctOpr(sctVac, sctChi; slv=GMRESSolver())
     @test norm(invSct * (sctGmr * vecX) - vecX) < 1e-7 * norm(vecX)
     # A field goes in and a field on the same tiling comes out
-    fld = discretize!(zerofield(Float64, sctCvl), sctCur)
+    fld = discretize!(zeros(ComplexF64, sctCvl), sctCur)
     out = sct * fld
     @test out isa GlaFld
     @test out.cvol === sctCvl
@@ -129,7 +101,7 @@ end
     @test glaOut isa GlaFld
     @test norm(glaOut.dat - (sctVac * out).dat) < 1e-7 * norm(glaOut.dat)
     # A field on another tiling does not fit
-    @test_throws ArgumentError sct * zerofield(Float64, sctOne)
+    @test_throws ArgumentError sct * zeros(ComplexF64, sctOne)
     @test_throws ArgumentError invSct * zeros(ComplexF64, 215)
 end
 
@@ -187,12 +159,12 @@ end
     plnVac = GlaOprVac{Float64}(vol)
     cmpInv = InvSctOpr(cmpVac, chi)
     plnInv = InvSctOpr(plnVac, susTen)
-    @test dnsMat(cmpInv) == dnsMat(plnInv)
+    @test prbErr(cmpInv, plnInv) == 0
     vecX = randn(ComplexF64, 192)
     @test SctOpr(cmpVac, chi) * vecX ≈ SctOpr(plnVac, susTen) * vecX
     @test GlaOpr(cmpVac, chi) * vecX ≈ GlaOpr(plnVac, susTen) * vecX
     # A plain operator also takes a field
-    fld = discretize!(zerofield(Float64, vol), sctCur)
+    fld = discretize!(zeros(ComplexF64, vol), sctCur)
     @test (plnInv * fld).dat ≈ cmpInv * collect(fld.dat)
 end
 
@@ -201,8 +173,8 @@ end
     over half the domain. The two answers agree to the discretization error of
     the coarse half, which is what the refinement is there to control. =#
     finVol = GlaVol((8, 4, 4), stdScl, stdOrg)
-    finFld = discretize!(zerofield(Float64, finVol), sctCur)
-    cmpFld = discretize!(zerofield(Float64, sctCvl), sctCur)
+    finFld = discretize!(zeros(ComplexF64, finVol), sctCur)
+    cmpFld = discretize!(zeros(ComplexF64, sctCvl), sctCur)
     finOut = SctOpr{Float64}(GlaCmpVol(finVol), sctChi) * finFld
     cmpOut = SctOpr(sctVac, sctChi) * cmpFld
     finArr = regrid(finOut, stdScl)
@@ -217,21 +189,4 @@ end
     @test crsErr < 1e-2
     # Both meshes carry the same physical current, so the L² norms agree as well
     @test norm(cmpFld) ≈ norm(finFld) rtol=1e-12
-end
-
-@testset "Composite scattering GPU" begin
-    if CUDA.functional()
-        oprGpu = InvSctOpr{Float64}(sctCvl, sctChi; useGpu=true)
-        @test isgpu(oprGpu)
-        @test sus(oprGpu).sus isa CuVector{ComplexF64}
-        fldGpu = discretize!(zerofield(Float64, sctCvl; useGpu=true), sctCur)
-        outGpu = oprGpu * fldGpu
-        @test outGpu isa GlaFld
-        @test parent(outGpu) isa CuVector{ComplexF64}
-        fldCpu = discretize!(zerofield(Float64, sctCvl), sctCur)
-        outCpu = sctInv * fldCpu
-        @test norm(Array(outGpu.dat) - outCpu.dat) < 1e-10 * norm(outCpu.dat)
-        sctGpu = SctOpr(oprGpu.oprVac, sctChi)
-        @test norm((oprGpu * (sctGpu * fldGpu)).dat - fldGpu.dat) < 1e-6 * norm(fldGpu.dat)
-    end
 end

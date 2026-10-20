@@ -1,5 +1,5 @@
-# GilaSolvers tests
-import GilaElectromagnetics.GilaSolvers: slvPrm
+# Solver tests
+import GilaElectromagnetics: slvPrm
 
 @testset "Solver constructors" begin
     gmr = GMRESSolver()
@@ -20,7 +20,6 @@ import GilaElectromagnetics.GilaSolvers: slvPrm
     @test isnothing(rfn.maxItr)
     @test isnothing(rfn.absTol)
     @test isnothing(rfn.relTol)
-    @test MixedPrecisionRefinement === MixPrcRfn
     @test MixPrcRfn(Float32; innSlv=BiCGStabSolver()).innSlv isa BiCGStabSolver
 
     gcr = GCRODRSolver()
@@ -113,7 +112,7 @@ end
 
     H_ref  = copy(H)
     rhs_ref = copy(rhs)
-    GilaElectromagnetics.GilaSolvers.lstSqrHss(H, rhs)
+    GilaElectromagnetics.lstSqrHss(H, rhs)
     y_test = rhs[1:n]
 
     # Reference: dense least squares via QR
@@ -251,20 +250,4 @@ hand side moves, so the probe passes and the subspace is never rebuilt. =#
     @test all(inn -> inn.numItr <= gcr.inner[1].numItr, gcr.inner)
     # Refinement steps cost GMRES more as they go and GCRO-DR does not pay it
     @test sum(inn -> inn.numItr, gcr.inner) < sum(inn -> inn.numItr, gmr.inner)
-end
-
-@testset "solve GPU" begin
-    if CUDA.functional()
-        vol = mkVol((4,4,4))
-        opr = GlaOprVac{Float64}(vol; useGpu=true)
-        rhs = CUDA.ones(ComplexF64, size(opr, 1))
-
-        sol_bcg = solve(opr, rhs, BiCGStabSolver())
-        @test size(sol_bcg) == (size(opr, 2),)
-        @test norm(opr * sol_bcg - rhs) < sqrt(eps(Float64)) * norm(rhs)
-
-        sol_gmr = solve(opr, rhs, GMRESSolver())
-        @test size(sol_gmr) == (size(opr, 2),)
-        @test norm(opr * sol_gmr - rhs) < sqrt(eps(Float64)) * norm(rhs)
-    end
 end

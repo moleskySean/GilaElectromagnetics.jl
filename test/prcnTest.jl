@@ -137,7 +137,7 @@ struct JtrPcn
     rng::MersenneTwister
 end
 JtrPcn(dgn, jtr, vry) = JtrPcn(dgn, jtr, vry, MersenneTwister(0x6a747472))
-GilaElectromagnetics.GilaSolvers.isvarying(pcn::JtrPcn) = pcn.vry
+GilaElectromagnetics.isvarying(pcn::JtrPcn) = pcn.vry
 LinearAlgebra.ldiv!(out, pcn::JtrPcn, inp) =
     (out .= inp ./ (pcn.dgn .* (1 .+ pcn.jtr .* randn(pcn.rng, length(inp)))); out)
 

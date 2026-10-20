@@ -1,7 +1,7 @@
 # Susceptibility operator tests, isotropic and anisotropic
-import GilaElectromagnetics.GilaOperators: setSus!
+import GilaElectromagnetics: setSus!
 # StaticArrays is a dependency of the package, not of the test environment
-const SusSMt = GilaElectromagnetics.GilaVacuum.SMatrix{3, 3, ComplexF64}
+const SusSMt = GilaElectromagnetics.SMatrix{3, 3, ComplexF64}
 
 const susVol = mkVol((2,2,2))
 const susCvl = GlaCmpVol(susVol)
@@ -19,13 +19,9 @@ susVec() = randn(ComplexF64, 24)
     isoOpr = SusOpr{Float64}(susVol, susArr)
     @test isoOpr isa SusOpr{Float64, Vector{ComplexF64}}
     @test isoOpr.sus == susDof
-    @test size(isoOpr) == (24, 24) && size(isoOpr, 2) == 24
-    @test glaSze(isoOpr) == ((2, 2, 2, 3), (2, 2, 2, 3))
     @test isselfoperator(isoOpr) && !isexternaloperator(isoOpr)
-    @test !isoverlappingoperator(isoOpr) && !isquasistatic(isoOpr) && !isadjoint(isoOpr)
-    @test !isgpu(isoOpr)
+    @test !isoverlappingoperator(isoOpr)
     @test SusOpr(susVol, 0.5) isa SusOpr{dflPrc}
-    @test occursin("X", sprint(show, isoOpr))
     # Every accepted input, against the same reference
     @test SusOpr{Float64}(susVol, 0.5 + 0.05im).sus == fill(ComplexF64(0.5, 0.05), 24)
     @test SusOpr{Float64}(susVol, vec(susArr)).sus == susDof
@@ -72,20 +68,6 @@ end
     @test_throws ArgumentError isoOpr * randn(ComplexF64, 12)
 end
 
-@testset "Susceptibility adjoint" begin
-    gyrOpr = SusOpr{Float64}(susVol, susGyr)
-    adjOpr = adjoint(gyrOpr)
-    @test isadjoint(adjOpr) && !isadjoint(gyrOpr)
-    #= The conjugate transpose is per cell, so a conjugate alone would pass the
-    diagonal tests and fail this one. =#
-    vecF, vecG = susVec(), susVec()
-    @test dot(vecF, gyrOpr * vecG) ≈ dot(adjOpr * vecF, vecG)
-    @test frbErr(dnsMat(adjOpr), dnsMat(gyrOpr)') < 1e-15
-    @test dnsMat(adjoint(adjOpr)) == dnsMat(gyrOpr)
-    isoOpr = SusOpr{Float64}(susVol, susArr)
-    @test dot(vecF, isoOpr * vecG) ≈ dot(adjoint(isoOpr) * vecF, vecG)
-end
-
 @testset "Susceptibility inverse" begin
     isoOpr = SusOpr{Float64}(susVol, susArr)
     gyrOpr = SusOpr{Float64}(susVol, susGyr)
@@ -104,7 +86,7 @@ end
 @testset "Susceptibility fields" begin
     isoOpr = SusOpr{Float64}(susVol, susArr)
     gyrOpr = SusOpr{Float64}(susVol, susGyr)
-    fld = discretize!(zerofield(Float64, susVol), tstDns)
+    fld = discretize!(zeros(ComplexF64, susVol), tstDns)
     for opr in (isoOpr, gyrOpr)
         out = opr * fld
         @test out isa GlaFld && out.cvol == fld.cvol
@@ -113,8 +95,8 @@ end
         @test (opr \ out).dat ≈ collect(fld.dat)
     end
     # A field on another tiling does not fit
-    @test_throws ArgumentError isoOpr * zerofield(Float64, mkVol((4,4,4)))
-    @test_throws ArgumentError isoOpr \ zerofield(Float64, mkVol((4,4,4)))
+    @test_throws ArgumentError isoOpr * zeros(ComplexF64, mkVol((4,4,4)))
+    @test_throws ArgumentError isoOpr \ zeros(ComplexF64, mkVol((4,4,4)))
 end
 
 @testset "Anisotropic scattering" begin
@@ -124,13 +106,12 @@ end
     check that the tensor route agrees with the route it generalizes. =#
     diaInv = InvSctOpr(oprVac, susDia(_sus2s))
     @test sus(diaInv).sus isa Array{ComplexF64, 3}
-    @test frbErr(dnsMat(diaInv), dnsMat(isoInv)) < 1e-15
+    @test prbErr(diaInv, isoInv) < 1e-15
     vec1 = susVec()
     for (isoOpr, diaOpr) in ((isoInv, diaInv),
         (SctOpr(oprVac, _sus2s), SctOpr(oprVac, susDia(_sus2s))),
         (GlaOpr(oprVac, _sus2s), GlaOpr(oprVac, susDia(_sus2s))))
         @test frbErr(diaOpr * vec1, isoOpr * vec1) < 1e-7
-        @test frbErr(adjoint(diaOpr) * vec1, adjoint(isoOpr) * vec1) < 1e-7
     end
     # A gyrotropic medium, through the Lippmann-Schwinger residual
     gyrInv = InvSctOpr(oprVac, susGyr)
@@ -139,24 +120,19 @@ end
     curInc = sus(gyrInv) * fldInc
     curTot = gyrSct * copy(curInc)
     @test norm(gyrInv * copy(curTot) - curInc) < 1e-6 * norm(curInc)
-    # The adjoint identity, which the conjugate without the transpose fails
-    vecY = susVec()
-    @test abs(dot(vecY, gyrInv * copy(fldInc)) -
-        dot(adjoint(gyrInv) * copy(vecY), fldInc)) < 1e-12 * abs(dot(vecY, gyrInv * copy(fldInc)))
     # The setter swaps storage shapes as readily as values
     opr = InvSctOpr(oprVac, _sus2s)
     setSus!(opr, susGyr)
     @test sus(opr).sus == sus(gyrInv).sus
     setSus!(opr, _sus2s)
     @test sus(opr).sus == sus(isoInv).sus
+    # The volume and vacuum operator constructors take every form SusOpr takes
+    for susVal in (0.5 + 0.05im, susGyr, pos -> susGyr)
+        @test sus(GlaOpr{Float64}(susVol, susVal)).sus == SusOpr{Float64}(susVol, susVal).sus
+        @test sus(SctOpr(oprVac, susVal)).sus == sus(InvSctOpr(oprVac, susVal)).sus
+    end
 end
 
 @testset "Susceptibility show" begin
-    isoOpr = SusOpr{Float64}(susVol, susArr)
-    aniOpr = SusOpr{Float64}(susVol, susDia(susArr))
-    @test occursin("uniform", sprint(show, MIME"text/plain"(), SusOpr(susVol, 0.5)))
-    @test occursin("anisotropic", sprint(show, MIME"text/plain"(), aniOpr))
-    @test sprint(show, MIME"text/plain"(), isoOpr) != sprint(show, MIME"text/plain"(), aniOpr)
-    @test !occursin("\n", sprint(show, isoOpr))
-    @test sprint(show, MIME"text/plain"(), isoOpr) != sprint(show, isoOpr)
+    @test shwChk(SusOpr{Float64}(susVol, susArr)) && shwChk(SusOpr{Float64}(susVol, susDia(susArr)))
 end

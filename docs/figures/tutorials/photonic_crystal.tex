@@ -1,0 +1,46 @@
+% photonic_crystal.tex: square lattice of dielectric rods and its Brillouin zone (tutorial 08).
+% Uses the palette and styles defined in preamble.tex.
+\begin{tikzpicture}[font=\small]
+  % ------------------------------------------------------------------
+  % (a) top view of the rods, one unit cell outlined
+  % ------------------------------------------------------------------
+  \def\a{0.95}
+  \node[paneltitle] at (-0.3,5*\a+0.35) {\textbf{(a)} The crystal from above};
+  \foreach \i in {0,...,4} \foreach \j in {0,...,4}
+    \draw[scatterer] ({(\i+0.5)*\a},{(\j+0.5)*\a}) circle (0.2*\a);
+  \draw[accent, line width=1pt, dashed] (3*\a,0) rectangle (4*\a,\a);
+  \draw[inkcol, line width=0.6pt] (3.5*\a,0.5*\a) -- ++(45:0.2*\a);
+  \fill[inkcol] (3.5*\a,0.5*\a) circle (0.9pt);
+  \node[inkcol, anchor=south west, inner sep=1pt] at ($(3.5*\a,0.5*\a)+(45:0.2*\a)$) {$r$};
+  \draw[|<->|, inkcol] (3*\a,-0.25) -- (4*\a,-0.25) node[midway, below, inner sep=2pt] {$a$};
+  \begin{scope}[shift={(5*\a+0.35,0.1)}]
+    \draw[->, inkcol] (0,0) -- (0.5,0) node[right, inner sep=1pt] {$x$};
+    \draw[->, inkcol] (0,0) -- (0,0.5) node[above, inner sep=1pt] {$y$};
+  \end{scope}
+
+  % ------------------------------------------------------------------
+  % (b) first Brillouin zone and the swept path
+  % ------------------------------------------------------------------
+  \begin{scope}[shift={(10.2,2.375)}]
+    \def\b{1.8}
+    \node[paneltitle] at (-\b-1.4,2.375+0.35) {\textbf{(b)} First Brillouin zone};
+    \fill[accent!15] (0,0) -- (\b,0) -- (\b,\b) -- cycle;
+    \draw[->, inkcol] (-\b-0.5,0) -- (\b+0.6,0) node[right, inner sep=2pt] {$k_x$};
+    \draw[->, inkcol] (0,-\b-0.5) -- (0,\b+0.6) node[above, inner sep=2pt] {$k_y$};
+    \draw[inkcol, line width=0.7pt] (-\b,-\b) rectangle (\b,\b);
+    \draw[accent!80!black, line width=1.1pt,
+        decoration={markings, mark=at position 0.17 with {\arrow{Stealth[length=2.2mm]}},
+                              mark=at position 0.46 with {\arrow{Stealth[length=2.2mm]}},
+                              mark=at position 0.80 with {\arrow{Stealth[length=2.2mm]}}},
+        postaction={decorate}]
+      (0,0) -- (\b,0) -- (\b,\b) -- cycle;
+    \foreach \p in {(0,0),(\b,0),(\b,\b)} \fill[inkcol] \p circle (1.5pt);
+    \node[anchor=north east, inner sep=2pt] at (0,0) {$\Gamma$};
+    \node[anchor=north west, inner sep=2pt] at (\b,0) {$X$};
+    \node[anchor=south west, inner sep=2pt] at (\b,\b) {$M$};
+    \node[anchor=north, inner sep=3pt, font=\footnotesize] at (\b,-\b) {$\pi/a$};
+    \node[anchor=north, inner sep=3pt, font=\footnotesize] at (-\b,-\b) {$-\pi/a$};
+    \node[anchor=south east, inner sep=3pt, font=\footnotesize] at (-\b,\b) {$\pi/a$};
+    \node[anchor=south east, inner sep=3pt, font=\footnotesize] at (-\b,-\b) {$-\pi/a$};
+  \end{scope}
+\end{tikzpicture}

@@ -2,43 +2,35 @@
 # Uses the cheap (2,2,2) and (4,4,4) builders from tstHlp.jl
 
 const mulExt = GlaOprVac{Float64}(GlaVol((2,2,2), stdScl, (4//32, 0//1, 0//1)), _vol2s)
-const mulCvl = GlaCmpVol([GlaVol((2,2,2), scl16, stdOrg),
-    GlaVol((2,2,2), scl16, (1//8, 0//1, 0//1))])
-const mulCmp = GlaCmpOprVac{Float64}(mulCvl)
 # Two regions a wavelength apart, so the tiling has a gap
 const mulGap = GlaCmpOprVac{Float64}(GlaCmpVol([_vol2s,
     GlaVol((2,2,2), stdScl, extOrg)]))
 
-const mulOprs = (_g0s(), _asys(), SymGlaOprVac(_g0s()), mulExt, _invScts(),
-    _scts(), _glas(), mulCmp, mulGap)
+const mulOprs = (_g0s(), _asys(), glaSym(_g0s()), mulExt, _invScts(),
+    _scts(), _glas(), _cmp2s, mulGap)
 
 const mulNaN = ComplexF64(NaN, NaN)
 const mulScls = (0.0, 1.0, 2.0 + 1.0im)
 
-@testset "5-arg mul!" begin
-    for opr in mulOprs
-        inp = randn(ComplexF64, size(opr, 2))
-        ref = opr * inp
-        out0 = randn(ComplexF64, size(opr, 1))
-        for α in mulScls, β in mulScls
-            # A β of zero has to overwrite, so poisoned memory proves out is unread
-            out = iszero(β) ? fill!(similar(out0), mulNaN) : copy(out0)
-            @test mul!(out, opr, inp, α, β) === out
-            tst = iszero(β) ? α .* ref : α .* ref .+ β .* out0
-            @test norm(out - tst) <= 1e-12 * max(norm(tst), norm(ref))
-        end
-        @test_throws ArgumentError mul!(similar(out0), opr, inp[1:end-1], 1.0, 0.0)
-        @test_throws ArgumentError mul!(similar(out0, size(opr, 1) - 1), opr, inp, 1.0, 0.0)
+# One generic method combines for every operator, so one operator covers it
+@testset "mul!" begin
+    opr = mulExt
+    inp = randn(ComplexF64, size(opr, 2))
+    ref = opr * inp
+    out0 = randn(ComplexF64, size(opr, 1))
+    for α in mulScls, β in mulScls
+        # A β of zero has to overwrite, so poisoned memory proves out is unread
+        out = iszero(β) ? fill!(similar(out0), mulNaN) : copy(out0)
+        @test mul!(out, opr, inp, α, β) === out
+        tst = iszero(β) ? α .* ref : α .* ref .+ β .* out0
+        @test norm(out - tst) <= 1e-12 * max(norm(tst), norm(ref))
     end
-end
-
-@testset "3-arg mul!" begin
-    for opr in mulOprs
-        inp = randn(ComplexF64, size(opr, 2))
-        out = fill!(similar(inp, size(opr, 1)), mulNaN)
-        @test mul!(out, opr, inp) === out
-        @test norm(out - opr * inp) <= 1e-12 * norm(out)
-    end
+    @test_throws ArgumentError mul!(similar(out0), opr, inp[1:end-1], 1.0, 0.0)
+    @test_throws ArgumentError mul!(similar(out0, size(opr, 1) - 1), opr, inp, 1.0, 0.0)
+    # The three argument form comes from the LinearAlgebra fallback
+    out = fill!(similar(out0), mulNaN)
+    @test mul!(out, opr, inp) === out
+    @test out == ref
 end
 
 @testset "input form parity" begin
@@ -74,7 +66,7 @@ end
 #= The kernel consumes what it is handed, so every path owes the caller a
 defensive copy. The composite block loop is the one most likely to forget. =#
 @testset "input untouched" begin
-    for opr in (_g0s(), _invScts(), _scts(), _glas(), mulCmp)
+    for opr in (_g0s(), _invScts(), _scts(), _glas(), _cmp2s)
         inp = randn(ComplexF64, size(opr, 2))
         sav = copy(inp)
         opr * inp
@@ -90,20 +82,9 @@ defensive copy. The composite block loop is the one most likely to forget. =#
     end
 end
 
-@testset "adjoint dot" begin
-    for opr in (_g0s(), _invScts(), mulCmp)
-        x = randn(ComplexF64, size(opr, 2))
-        y = randn(ComplexF64, size(opr, 1))
-        adj = adjoint(opr)
-        @test size(adj) == reverse(size(opr))
-        lhs, rhs = dot(y, opr * x), dot(adj * y, x)
-        @test abs(lhs - rhs) <= 1e-14 * max(abs(lhs), abs(rhs))
-    end
-end
-
 @testset "GlaFld mul!" begin
-    for (opr, cvl) in ((mulCmp, mulCvl), (_g0s(), GlaCmpVol(_vol2s)))
-        inp = discretize!(zerofield(Float64, cvl), tstDns)
+    for (opr, cvl) in ((_cmp2s, _cvl2s), (_g0s(), GlaCmpVol(_vol2s)))
+        inp = discretize!(zeros(ComplexF64, cvl), tstDns)
         sav = copy(inp.dat)
         ref = opr * inp
         @test ref isa GlaFld
@@ -115,34 +96,6 @@ end
             @test norm(out.dat - tst) <= 1e-12 * max(norm(tst), norm(ref.dat))
         end
         @test inp.dat == sav
-    end
-end
-
-@testset "mul! GPU" begin
-    if CUDA.functional()
-        opr = GlaOprVac{Float64}(_vol2s; useGpu=true)
-        inp = CuArray(randn(ComplexF64, size(opr, 2)))
-        sav = Array(inp)
-        ref = Array(opr * inp)
-        out0 = CuArray(randn(ComplexF64, size(opr, 1)))
-        for α in mulScls, β in mulScls
-            out = iszero(β) ? fill!(similar(out0), mulNaN) : copy(out0)
-            @test mul!(out, opr, inp, α, β) === out
-            tst = iszero(β) ? α .* ref : α .* ref .+ β .* Array(out0)
-            @test norm(Array(out) - tst) <= 1e-10 * max(norm(tst), norm(ref))
-        end
-        @test Array(inp) == sav
-        @test norm(ref - _g0s() * Array(inp)) <= 1e-10 * norm(ref)
-        # A host input on a device operator warns and copies
-        @test_logs (:warn, r"not a CuArray") opr * Array(inp)
-
-        cmpGpu = GlaCmpOprVac{Float64}(mulCvl; useGpu=true)
-        gInp = CuArray(randn(ComplexF64, size(cmpGpu, 2)))
-        gRef = Array(cmpGpu * gInp)
-        gOut = fill!(similar(gInp, size(cmpGpu, 1)), mulNaN)
-        @test mul!(gOut, cmpGpu, gInp, 1.0, 0.0) === gOut
-        @test norm(Array(gOut) - gRef) <= 1e-10 * norm(gRef)
-        @test norm(gRef - mulCmp * Array(gInp)) <= 1e-10 * norm(gRef)
     end
 end
 

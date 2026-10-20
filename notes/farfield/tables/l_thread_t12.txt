@@ -1,8 +1,0 @@
-(l) farBlockX! against farTensorX per offset (bitwise), and the r = 4 block dumped for the thread
-    determinism check; threads 12; load [2.8974609375, 5.1474609375, 6.83349609375]
-r 2: 200 offsets, routes 136/64/0, farBlockX! warm 0.00 s, farTensorX bitwise equal on 200 of 200
-r 4: 1692 offsets, routes 1352/340/0, farBlockX! warm 0.00 s, farTensorX bitwise equal on 1692 of 1692
-   vs l_blk_r4_t1.bin: bitwise identical
-   vs l_blk_r4_t12.bin: bitwise identical
-   vs l_blk_r4_t4.bin: bitwise identical
-r 8: 13724 offsets, routes 11636/2088/0, farBlockX! warm 0.02 s, farTensorX bitwise equal on 13724 of 13724

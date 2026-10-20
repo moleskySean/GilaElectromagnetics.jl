@@ -7,7 +7,7 @@ using LinearAlgebra
 using LinearAlgebra.BLAS
 using Random
 using ..GilaOperators
-using CUDA
+using CUDA # or Metal, or OpenCL; only needed to compute on that backend
 using GLMakie
 using GeometryBasics
 using Colors

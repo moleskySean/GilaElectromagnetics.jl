@@ -1,0 +1,46 @@
+% face_pairs.tex: source voxel n, target voxel m, one face of each, their
+% outward normals and the separation R entering g(R) = e^{ikR}/(4 pi R).
+% Uses the palette and styles defined in preamble.tex.
+\begin{tikzpicture}[font=\small,
+    x={(1cm,0cm)}, y={(0.5cm,0.36cm)}, z={(0cm,1cm)}]
+  % \cuboid{x0}{y0}{z0}{lx}{ly}{lz}{colour}: translucent axis-aligned box
+  \newcommand\cuboid[7]{%
+    \draw[black!35, dashed] (#1,#2+#5,#3) -- (#1+#4,#2+#5,#3)
+      (#1,#2+#5,#3) -- (#1,#2,#3) (#1,#2+#5,#3) -- (#1,#2+#5,#3+#6);
+    \filldraw[fill=#7, fill opacity=0.10, draw=inkcol]
+      (#1,#2,#3) -- (#1+#4,#2,#3) -- (#1+#4,#2,#3+#6) -- (#1,#2,#3+#6) -- cycle;
+    \filldraw[fill=#7, fill opacity=0.10, draw=inkcol]
+      (#1+#4,#2,#3) -- (#1+#4,#2+#5,#3) -- (#1+#4,#2+#5,#3+#6) -- (#1+#4,#2,#3+#6) -- cycle;
+    \filldraw[fill=#7, fill opacity=0.10, draw=inkcol]
+      (#1,#2,#3+#6) -- (#1+#4,#2,#3+#6) -- (#1+#4,#2+#5,#3+#6) -- (#1,#2+#5,#3+#6) -- cycle;}
+
+  % source voxel n, face F' = its +x face
+  \cuboid{0}{0}{0}{2.2}{1.8}{1.9}{matcol}
+  \fill[matcol, opacity=0.35] (2.2,0,0) -- (2.2,1.8,0) -- (2.2,1.8,1.9) -- (2.2,0,1.9) -- cycle;
+  \node[matcol, anchor=north] at (1.1,0,0) {$\Omega_n$};
+  \node[matcol] at (2.2,1.25,0.35) {$F'$};
+
+  % target voxel m, face F = its +z face
+  \cuboid{6.0}{0.4}{0.7}{1.9}{1.9}{1.5}{vaccol}
+  \fill[vaccol, opacity=0.35] (6.0,0.4,2.2) -- (7.9,0.4,2.2) -- (7.9,2.3,2.2) -- (6.0,2.3,2.2) -- cycle;
+  \node[vaccol, anchor=north] at (6.95,0.4,0.7) {$\Omega_m$};
+  \node[vaccol] at (7.45,1.9,2.2) {$F$};
+
+  % outward normals
+  \draw[->, thick, matcol] (2.2,0.9,0.95) -- (3.2,0.9,0.95) node[right, inner sep=2pt] {$\hat{\vb*{n}}'$};
+  \draw[->, thick, vaccol] (6.95,1.35,2.2) -- (6.95,1.35,3.1) node[above, inner sep=2pt] {$\hat{\vb*{n}}$};
+
+  % sample points and their separation
+  \coordinate (rp) at (2.2,0.45,1.45);
+  \coordinate (r) at (6.5,0.9,2.2);
+  \draw[inkcol, thick] (rp) -- (r) node[midway, above, sloped, inner sep=3pt] {$R = \norm{\vb*{r}-\vb*{r}'}$};
+  \fill[matcol] (rp) circle (1.6pt) node[below right, inner sep=2pt] {$\vb*{r}'$};
+  \fill[vaccol] (r) circle (1.6pt) node[right, inner sep=3pt] {$\vb*{r}$};
+
+  % axes
+  \begin{scope}[shift={(-1.6,-0.4,0)}]
+    \draw[->, inkcol] (0,0,0) -- (0.8,0,0) node[right, inner sep=1pt] {$x$};
+    \draw[->, inkcol] (0,0,0) -- (0,0.9,0) node[above right, inner sep=1pt] {$y$};
+    \draw[->, inkcol] (0,0,0) -- (0,0,0.8) node[above, inner sep=1pt] {$z$};
+  \end{scope}
+\end{tikzpicture}

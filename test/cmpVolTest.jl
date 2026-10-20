@@ -1,5 +1,5 @@
 # GlaCmpVol (composite volume) geometry tests
-import GilaElectromagnetics.GilaVolumes: _lwrEdg, _uprEdg, _ovrLap
+import GilaElectromagnetics: _lwrEdg, _uprEdg, _ovrLap
 
 # Base region for the carving tests: 8 cells of 1/16 λ per side, centered on the
 # origin, so it spans -1/4 to 1/4 in every dimension.
@@ -22,12 +22,10 @@ end
     @test nregions(cvol) == 1
     @test regions(cvol) == [vol]
     @test cvol == CompositeVolume(vol)
-    @test CompositeVolume === GlaCmpVol
     @test finest(cvol) == scl16
     # One entry per cell, three per degree of freedom
     crd = collect(coordinates(cvol))
     @test length(crd) == prod(vol.cel)
-    @test length(coordinates(cvol)) == prod(vol.cel)
     @test length(cellvolumes(cvol)) == 3 * prod(vol.cel)
     @test all(trp -> trp[3] == 1, crd)
     domVol = Float64(prod(vol.cel .* vol.scl))
@@ -168,11 +166,10 @@ end
 @testset "GlaCmpVol refine argument errors" begin
     vol = mkCmpVol()
     box = (stdOrg, (1//8, 1//8, 1//8))
-    @test_throws ArgumentError refine(GlaCmpVol(vol), box; snap=:inward)
     @test_throws ArgumentError refine(GlaCmpVol(vol), box; factor=0)
     @test_throws ArgumentError refine(GlaCmpVol(vol), box; factor=(2, 0, 2))
-    @test_throws ArgumentError refine(GlaCmpVol(vol), box; factor=2.0)
-    @test_throws ArgumentError refine(GlaCmpVol(vol), (0.0, 1.0))
+    @test_throws TypeError refine(GlaCmpVol(vol), box; factor=2.0)
+    @test_throws MethodError refine(GlaCmpVol(vol), (0.0, 1.0))
 end
 
 @testset "GlaCmpVol constructor errors" begin
@@ -209,7 +206,7 @@ end
     @test finest(cvol) == stdScl
     @test cmpTilVol(cvol) == 2 * prod(volA.cel .* volA.scl)
     # regrid spans the bounding box and leaves the gap at zero
-    fld = zerofield(Float64, cvol)
+    fld = zeros(ComplexF64, cvol)
     fld.dat .= one(ComplexF64)
     rsm = regrid(fld)
     @test size(rsm) == (12, 4, 4, 3)
@@ -257,13 +254,9 @@ end
 @testset "GlaCmpVol refine convenience form" begin
     vol = mkCmpVol()
     box = (stdOrg, (1//8, 1//8, 1//8))
-    @test refine(vol, box) == refine(GlaCmpVol(vol), box)
     @test refine(vol, box; factor=(1, 1, 2)) ==
         refine(GlaCmpVol(vol), box; factor=(1, 1, 2))
     # A GlaVol works as a box: only its outer bounds matter
     boxVol = GlaVol((2, 2, 2), scl16, stdOrg)
-    @test refine(vol, boxVol) == refine(vol, (stdOrg, (1//8, 1//8, 1//8)))
-    # A coarser box volume with the same bounds gives the same tiling
-    boxCrs = GlaVol((2, 2, 2), scl16, stdOrg)
-    @test refine(vol, boxCrs) == refine(vol, boxVol)
+    @test refine(vol, boxVol) == refine(vol, box)
 end

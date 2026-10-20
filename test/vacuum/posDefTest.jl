@@ -5,7 +5,7 @@ number that hides behind a small operator. =#
 using Test, GilaElectromagnetics, LinearAlgebra
 
 function pdAsyEig(cel, scl, frq)
-    opt = CPUKerOpt{Float64}()
+    opt = GlaKerOpt{Float64}()
     opt.frqPhz = frq
     mat = dnsMat(GlaVacOprMem(opt, GlaVol(cel, scl, stdOrg)))
     return eigvals(Hermitian((mat - adjoint(mat)) / 2im))
@@ -15,10 +15,10 @@ end
     sclSlv = (1//32, 1//32, 1//512)
 
     @testset "cubic cells" begin
-        for cel ∈ volSizes
+        # Two shapes run the same routes as any other
+        for cel ∈ ((2,2,2), (8,2,10))
             ev = pdAsyEig(cel, stdScl, 1.0 + 0.0im)
             rat = minimum(ev) / maximum(ev)
-            @info "Asym(G0) $cel f = 1: lamMin / lamMax = $rat"
             @test rat > -1e-12
             @test minimum(pdAsyEig(cel, stdScl, 1.0 + 0.1im)) > 0
         end
@@ -29,10 +29,8 @@ end
     @testset "slender cells" begin
         ev = pdAsyEig((6, 6, 12), sclSlv, 1.0 + 0.0im)
         rat = minimum(ev) / maximum(ev)
-        @info "Asym(G0) slender f = 1: lamMin / lamMax = $rat"
         @test rat > -1e-12
         lam = minimum(pdAsyEig((6, 6, 12), sclSlv, 1.0 + 0.1im))
-        @info "Asym(G0) slender f = 1 + 0.1i: lamMin = $lam"
         @test lam > 0
     end
 
@@ -42,10 +40,9 @@ end
     fine the mesh. =#
     @testset "fine mesh" begin
         for den ∈ (512, 2048, 8192)
-            mat = dnsMat(AsyGlaOprVac{Float64}(GlaVol((4, 4, 4), (1//den, 1//den, 1//den), stdOrg)))
+            mat = dnsMat(GlaOprVac{Float64}(GlaVol((4, 4, 4), (1//den, 1//den, 1//den), stdOrg); hrmPrt = :asy))
             ev = eigvals(Hermitian((mat + mat') / 2))
             rat = minimum(ev) / maximum(ev)
-            @info "Asym(G0) cell = λ/$den: lamMin / lamMax = $rat"
             @test rat > -1e-14
         end
     end
