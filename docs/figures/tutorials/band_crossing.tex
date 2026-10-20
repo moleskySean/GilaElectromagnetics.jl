@@ -1,0 +1,27 @@
+% band_crossing.tex: schematic of how tutorial 08 reads bands off the eigenvalues at one k.
+% Not data: smooth stand-in curves. Uses the palette and styles defined in preamble.tex.
+\begin{tikzpicture}[font=\small]
+  \begin{axis}[
+      width=10cm, height=5.6cm, scale only axis,
+      xmin=0, xmax=1, ymin=-2.2, ymax=3.4,
+      axis lines=left, xtick=\empty, ytick={1}, yticklabels={$1$},
+      xlabel={$a/\lambda$}, xlabel style={at={(1,0)}, anchor=west},
+      ylabel={$\mu$}, ylabel style={rotate=-90, at={(0,1)}, anchor=south},
+      clip mode=individual,
+    ]
+    \addplot[inkcol!70, dashed, domain=0:1] {1};
+    % folded vacuum light line, where G_o has a pole
+    \draw[inkcol!70, dotted, line width=0.8pt] (axis cs:0.55,-2.2) -- (axis cs:0.55,3.4);
+    \node[inkcol, anchor=south, inner sep=2pt, align=center, font=\footnotesize] at (axis cs:0.55,3.4)
+      {light line\\$\omega = c\abs{\vb*{k}+\vb*{g}}$};
+    % an eigenvalue that rises through 1
+    \addplot[vaccol, thick, domain=0:1, samples=60] {0.45 + 1.9*x + 1.2*x^2};
+    % one that runs into the pole, drops from +inf to -inf and rises again
+    \addplot[vaccol, thick, domain=0:0.545, samples=160] {0.0769 + 1.282*x + 0.05/(0.55 - x)};
+    \addplot[vaccol, thick, domain=0.555:1, samples=160] {0.0769 + 1.282*x + 0.05/(0.55 - x)};
+    % the crossings the tutorial keeps
+    \addplot[only marks, mark=*, mark size=2.2pt, accent] coordinates {(0.25,1) (0.42,1) (0.85,1)};
+    \pgfplotsinvokeforeach{0.25,0.42,0.85}{
+      \node[accent!80!black, anchor=north west, inner sep=3pt] at (axis cs:#1,1) {band};}
+  \end{axis}
+\end{tikzpicture}
