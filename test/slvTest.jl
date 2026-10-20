@@ -199,6 +199,19 @@ not have, which converges quickly to a wrong answer rather than failing. =#
     @test out ≈ gcrRef rtol=1e-8
 end
 
+# The probe checks A * U = C and not CᴴC = I, so a skewed C passes it
+@testset "GCRODR orthonormality" begin
+    rcy = RcySpc()
+    solve(gcrMat, copy(gcrRhs), GCRODRSolver(10, 400, 0.0, 1e-10; rcyDim=6); rcy)
+    mix = I + 0.1 .* randn(MersenneTwister(0x6d6978), ComplexF64, 6, 6)
+    skw = RcySpc(rcy.bas * mix, rcy.img * mix) # A * U = C exactly, CᴴC far from I
+    lg = SlvLog()
+    out = solve(gcrMat, copy(gcrRhs), GCRODRSolver(10, 400, 0.0, 1e-10; rcyDim=6); rcy=skw, log=lg)
+    @test lg.prm.rcyApp == 1 # the probe alone
+    @test all(<(1e-13), lg.rcyErr)
+    @test out ≈ gcrRef rtol=1e-8
+end
+
 #= fp32 cannot hold the invariant to a tolerance anyone would ask of it, so the
 probe floors at eps^(3/4). Tied to relTol alone this subspace is rejected and
 rebuilt on every solve, which costs rcyDim applications and recycles nothing. =#
@@ -209,11 +222,12 @@ rebuilt on every solve, which costs rcyDim applications and recycles nothing. =#
     rcy = RcySpc()
     solve(mat, copy(rhs), GCRODRSolver(20, 2000, 0.0f0, 1f-6; rcyDim=8); rcy)
     zRnd = randn(MersenneTwister(0x7a726e64), ComplexF32, 8)
-    @test norm(mat * (rcy.bas * zRnd) - rcy.img * zRnd) > 1e-6 * norm(rcy.img * zRnd)
+    # The drift is a few eps and varies with the BLAS, so relTol sits below all of it
+    @test norm(mat * (rcy.bas * zRnd) - rcy.img * zRnd) > 2e-7 * norm(rcy.img * zRnd)
     lg = SlvLog()
-    out = solve(mat, copy(rhs), GCRODRSolver(20, 2000, 0.0f0, 1f-6; rcyDim=8); rcy, log=lg)
+    out = solve(mat, copy(rhs), GCRODRSolver(20, 2000, 0.0f0, 2f-7; rcyDim=8); rcy, log=lg)
     @test lg.prm.rcyApp == 1 # the probe alone
-    # fp32 overshoots a 1e-6 stopping test by a tenth, GMRES by rather more
+    # The recurrence reaches 2e-7, the true residual stops at the fp32 floor above it
     @test lg.resTru[end] < 2e-6
     @test out ≈ ComplexF64.(mat) \ ComplexF64.(rhs) rtol=1e-4
 end
