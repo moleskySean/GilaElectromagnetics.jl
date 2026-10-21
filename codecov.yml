@@ -1,0 +1,20 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto        # pass if coverage does not drop vs base commit
+        threshold: 1%       # allow up to 1% drop without failing
+    patch:
+      default:
+        target: 80%
+        threshold: 5%
+
+comment:
+  layout: "reach,diff,flags,files"
+  behavior: default
+
+ignore:
+  - "docs/**"
+  - "test/**"
+  - "benchmark/**"
+  - "examples/**"
