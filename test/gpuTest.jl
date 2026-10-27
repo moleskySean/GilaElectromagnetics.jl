@@ -7,8 +7,8 @@ Float64 storage only appears where the code branches on it. =#
 using CUDA, pocl_jll, OpenCL, Metal
 using KernelAbstractions: functional, supports_float64
 
-# OpenCL.jl leaves functional unimplemented (missing); pocl always provides a device
-const gpuBackends = filter(dev -> coalesce(functional(dev), true), [CUDABackend(), MetalBackend(), OpenCLBackend()])
+# OpenCL.jl leaves functional unimplemented (missing), and an elevated Windows process (GitHub's runner) refuses pocl
+const gpuBackends = filter(dev -> coalesce(functional(dev), !isempty(cl.platforms())), [CUDABackend(), MetalBackend(), OpenCLBackend()])
 
 gpuErr(cpu, gpu) = norm(Array(gpu) - cpu) / norm(cpu)
 
